@@ -14,7 +14,7 @@ The product is **read-and-triage focused**. It is not a full Outlook replacement
 
 ## 2. Target user
 
-A senior professional at a large enterprise (ExampleCorp-class IT posture is the design baseline). Characteristics assumed:
+A senior professional at a large enterprise (deeply-managed enterprise IT posture is the design baseline). Characteristics assumed:
 
 - Comfortable in the terminal; uses tmux, vim, or similar daily.
 - Manages 100+ emails per day across multiple client engagements and internal threads.

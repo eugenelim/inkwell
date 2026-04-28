@@ -115,7 +115,7 @@ type DeviceCodePrompt struct {
 
 ### 5.0 Sign-in flow selection
 
-**Conditional Access on managed-device tenants (ExampleCorp-class) requires the auth flow to carry the device-compliance signal.** Device code flow CANNOT carry this signal — the user types a code in some browser that has no link to the originating machine, so AAD cannot prove the device is enrolled. Tenants with Conditional Access policies that require a managed device will reject device-code sign-ins with `AADSTS530003` / similar even though the user is who they say they are.
+**Conditional Access on managed-device tenants (such as managed-Mac fleets at large enterprises) requires the auth flow to carry the device-compliance signal.** Device code flow CANNOT carry this signal — the user types a code in some browser that has no link to the originating machine, so AAD cannot prove the device is enrolled. Tenants with Conditional Access policies that require a managed device will reject device-code sign-ins with `AADSTS530003` / similar even though the user is who they say they are.
 
 The interactive (browser) flow CAN carry the signal: when MSAL opens the system default browser on macOS, the operating system's enterprise SSO integration (Microsoft Enterprise SSO plug-in for Apple Devices) injects device-attestation cookies into the auth flow transparently. AAD sees the device IS managed and lets the sign-in succeed.
 
@@ -249,9 +249,9 @@ func (a *authenticator) SignOut(ctx context.Context) error {
 
 The `inkwell signout` CLI command and `:signout` TUI command both call this. After sign-out, the local SQLite cache is **not** automatically deleted — the user can choose to retain it (offline read access to historical mail) or run `inkwell purge` to clear it.
 
-## 6. Required scopes string
+## 6. Requested scopes
 
-Pass the following exactly to MSAL:
+Pass the following resource scopes exactly to MSAL:
 
 ```go
 []string{
@@ -263,13 +263,25 @@ Pass the following exactly to MSAL:
     "https://graph.microsoft.com/Calendars.Read",
     "https://graph.microsoft.com/User.Read",
     "https://graph.microsoft.com/Presence.Read.All",
-    "offline_access", // critical: enables refresh tokens
 }
 ```
 
-Note: `offline_access` is mandatory or refresh tokens will not be issued and the user will device-code-auth on every launch.
+The `Chat.Read` and `User.ReadBasic.All` scopes are deferred (not in v1 surface area).
 
-The `Chat.Read`, `User.ReadBasic.All` scopes are deferred (not in v1 surface area).
+### 6.1 `offline_access` is opt-in
+
+Earlier drafts of this spec included `offline_access` in the default scope list. Real-tenant smoke against deeply-managed enterprise tenants showed that:
+
+1. The tenant declines `offline_access` for the Microsoft Graph CLI Tools client. MSAL Go raises a hard error.
+2. We retry the same flow with `offline_access` stripped (spec §11 still documents this safety net).
+3. The browser opens **twice** — once per attempt. With the OS enterprise SSO plug-in active, both prompts complete transparently, but the user sees two redirect flashes and two localhost listener cycles. Bad UX.
+
+For v0.2.1 the default flips: `offline_access` is **not** in the default scope list. The trade-off:
+
+- **Default behaviour:** one browser open per signin, no refresh tokens, so the user re-auths whenever the access token expires (~60 minutes). On deeply-managed enterprise tenants this is the *same* behaviour as if we had requested `offline_access` (since it's declined anyway), with cleaner UX.
+- **Tenants that grant `offline_access`:** users can opt in via `[account].request_offline_access = true`. The flow is unchanged from before — we request it, the tenant grants it, the user gets ~90-day refresh tokens, no double-prompt.
+
+The safety-net retry from §11 is retained for the opt-in case: if a user opts in and the tenant subsequently changes policy to decline, sign-in still works (with the double-prompt cost).
 
 ## 7. Logging
 
@@ -353,6 +365,7 @@ This spec owns the `[account]` section. Full reference in `CONFIG.md`.
 | `account.client_id` | `14d82eec-204b-4c2f-b7e8-296a70dab67e` | Optional. Defaults to the Microsoft Graph Command Line Tools first-party public client. Overriding is possible but unsupported; PRD §4 explains why. |
 | `account.upn` | (optional, populated at sign-in) | Optional. If set, the auth layer asserts the signed-in account matches this UPN and refuses otherwise. Useful as a guardrail when a user has multiple accounts. After successful sign-in, the resolved UPN is also persisted to the local `accounts` row. |
 | `account.signin_mode` | `auto` | Sign-in flow selection (§5.0). `auto` tries the interactive system browser first and falls back to device code only if the browser can't launch. `interactive` forces the browser path (recommended for managed-device tenants). `device_code` forces device code (headless / SSH only). |
+| `account.request_offline_access` | `false` | Whether to include the `offline_access` scope (§6.1). Default off: signin opens the browser exactly once and the user re-auths when the access token expires (~60 minutes). Set to `true` only on tenants known to grant `offline_access` for first-party Microsoft apps; the user gets ~90-day refresh tokens at the cost of a possible double browser-open if the tenant ever declines. |
 
 **The whole `[account]` section is optional.** A user with no `~/.config/inkwell/config.toml` at all can run `inkwell signin` and Inkwell will use the locked first-party defaults. After sign-in the resolved `tenant_id` and `upn` are persisted in the local SQLite store.
 
