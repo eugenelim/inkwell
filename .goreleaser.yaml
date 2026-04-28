@@ -1,0 +1,102 @@
+# Goreleaser config for inkwell.
+# Validate locally: goreleaser check
+# Snapshot test:    goreleaser release --snapshot --clean
+# Real release:     pushed by the .github/workflows/release.yml on tag push.
+version: 2
+
+project_name: inkwell
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: inkwell
+    main: ./cmd/inkwell
+    binary: inkwell
+    env:
+      - CGO_ENABLED=0     # pure-Go stack (CLAUDE.md §1) — no CGO ever.
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    name_template: >-
+      {{- .ProjectName }}_{{- .Version }}_
+      {{- if eq .Os "darwin" }}macos{{ else }}{{ .Os }}{{ end }}_
+      {{- .Arch }}
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - CLAUDE.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: eugenelim
+    name: inkwell
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+  header: |
+    Inkwell {{.Tag}} — pre-release, unsigned binaries.
+
+    > ⚠️ **macOS Gatekeeper:** these binaries are not yet code-signed
+    > or notarized. On first launch macOS will refuse to run them.
+    > After downloading, run:
+    >
+    > ```sh
+    > xattr -d com.apple.quarantine ./inkwell
+    > ```
+    >
+    > Alternatively, right-click the binary in Finder → Open → Open
+    > Anyway. Future v0.x releases will ship signed + notarized
+    > binaries (PRD §7).
+
+    See `CLAUDE.md` for the contributor guide and `docs/PRD.md` for
+    the product scope. Microsoft 365 tenant prerequisites are in
+    `docs/specs/01-auth-device-code.md` §3.
+  footer: |
+    **Verifying downloads**
+
+    ```sh
+    sha256sum -c checksums.txt
+    ```
