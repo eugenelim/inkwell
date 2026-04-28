@@ -158,14 +158,17 @@ This order is sequential, not parallel — the per-mailbox concurrency cap of 4 
 
 The user can override per-folder subscription via `:folder subscribe <name>` / `:folder unsubscribe <name>`. Subscription state lives in `folders.last_synced_at` (NULL = unsubscribed; non-NULL = subscribed and last synced).
 
-### 5.2 Quick-start: last 50 per folder
+### 5.2 Quick-start: last 50 per folder, newest-by-receivedDateTime
 
-For each first-launch folder, call the delta endpoint with `$top=50`:
+For each first-launch folder, call the **non-delta** `/messages` endpoint with `$top=50` and explicit `$orderby=receivedDateTime desc`:
 
 ```
-GET /me/mailFolders/{id}/messages/delta?$select={envelope_fields}&$top=50
-Prefer: odata.maxpagesize=50
+GET /me/mailFolders/{id}/messages?$select={envelope_fields}&$top=50&$orderby=receivedDateTime desc
 ```
+
+Why not `/messages/delta`? Graph v1.0's delta endpoint **does not support `$orderby`**. With `$top=50` it returns the first 50 messages in Graph's internal ordering (typically `lastModifiedDateTime`, not `receivedDateTime`), so users see whichever 50 messages Graph happens to surface, not the most recent ones. Real-tenant smoke after v0.2.3 surfaced this — the user reported "it's not the most recent emails." The non-delta endpoint accepts `$orderby` and gives us the guarantee we want.
+
+Trade-off: we forfeit Graph's delta tombstones (`@removed` markers for deletions and moves). For the v0.2.x read-only flow this is acceptable. A future iter can add a background "drain delta to seed the cursor" pass for full incremental sync.
 
 Three possible responses:
 

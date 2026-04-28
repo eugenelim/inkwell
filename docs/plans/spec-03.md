@@ -40,6 +40,21 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - Privacy test was too loose: `bodyPreview` contains the substring `body`. Tightened to comma-split + word equality.
 - Final: `go test -race -timeout 90s ./...` green across the whole tree.
 
+### Iter 6 — 2026-04-28 (newest-by-receivedDateTime + wellKnownName fix + URL encoding fix)
+- Triggers from real-tenant smoke after v0.2.3:
+  1. "It's not the most recent emails." First-launch was hitting `/messages/delta?$top=50`, but Graph v1.0's delta endpoint doesn't support `$orderby`. The 50 returned were in Graph's internal order (typically by `lastModifiedDateTime`).
+  2. "Junk E-mail" and "Sync Issues" being synced even though they're in `excludedWellKnown`. Cause: Graph's `/me/mailFolders` doesn't return `wellKnownName` by default — you have to `$select` it explicitly. Without it, every folder came back with empty `WellKnownName`, so `filterSubscribed` treated them all as user folders.
+  3. Inbox-default picker falling back to alphabetical first folder (often Archive) for the same reason.
+- Slice:
+  - `internal/graph/folders.go`: add `FolderSelectFields` constant including `wellKnownName`, request it via `$select` in `ListFolders`. Single-line bug, biggest-impact fix.
+  - `internal/sync/delta.go`: replace pickURL with explicit `quickStart` / `pullSince` / `followDeltaPage` paths. Quick-start hits `/messages?$top=50&$orderby=receivedDateTime desc`. Steady-state (LastDeltaAt set, no DeltaLink) hits `/messages?$filter=receivedDateTime gt {since}&$orderby=receivedDateTime desc`. The delta path remains as `followDeltaPage` for code that pre-seeds DeltaLink (future iter).
+  - `internal/graph/messages.go`: switch URL building to `net/url.Values.Encode()`. Previous string concat broke on the space in `$orderby=receivedDateTime desc` (Graph 400'd).
+  - `internal/ui/app.go`: Inbox-default picker now has a 3-step fallback (wellKnownName → display_name=Inbox → first folder).
+  - `internal/ui/panes.go`: folder pane gets a "▌ Folders" header. Sidebar folders are sorted Inbox → Sent → Drafts → Archive → user (alpha) → Junk/Deleted/etc.
+  - `internal/ui/app.go`: bottom help bar with pane-scoped key hints (`j/k: nav · ⏎: open · …`).
+- Spec 03 §5.2 rewritten to document the non-delta-endpoint approach.
+- Tests reshaped: existing delta-based tests pre-seed a DeltaLink to exercise `followDeltaPage`. New tests cover `/messages` with `$top=50` and `$orderby=receivedDateTime desc`, plus pullSince's `$filter` clause.
+
 ### Iter 5 — 2026-04-28 (FK constraint fix in syncFolders + visibility)
 - Trigger: real-tenant log finally surfaced the actual root cause: `sync folders: constraint failed: FOREIGN KEY constraint failed (787)`. Every cycle since v0.2.0 had been hitting this, retrying every 30s, never succeeding. The Graph response for `/me/mailFolders` returns each top-level folder with `parentFolderId = msgfolderroot` (the well-known mailbox-root ID, not in our response). Inserting that violated `folders.parent_folder_id → folders.id`.
 - Fix (spec §7 / sync/folders.go): build a `known` set of folder IDs from the response BEFORE the upsert loop. For each folder, if `parentFolderID` isn't in `known`, NULL it out. Folders with tracked parents preserve the relationship.

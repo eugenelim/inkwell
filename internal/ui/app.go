@@ -150,14 +150,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case FoldersLoadedMsg:
 		m.folders.SetFolders(msg.Folders)
-		// Default to Inbox when no folder is selected. This matches
-		// user expectation: alphabetical order would land on Archive.
+		// Default to Inbox when no folder is selected. Three-step
+		// fallback: wellKnownName=inbox → display_name=Inbox (case-
+		// insensitive, in case the tenant doesn't return well-known
+		// names) → first folder.
 		if m.list.FolderID == "" && len(msg.Folders) > 0 {
 			pick := msg.Folders[0]
 			for _, f := range msg.Folders {
 				if f.WellKnownName == "inbox" {
 					pick = f
 					break
+				}
+			}
+			if pick.WellKnownName != "inbox" {
+				for _, f := range msg.Folders {
+					if strings.EqualFold(f.DisplayName, "Inbox") {
+						pick = f
+						break
+					}
 				}
 			}
 			m.list.FolderID = pick.ID
@@ -532,8 +542,10 @@ func (m Model) View() string {
 		LastErr:   m.lastError,
 	})
 	cmdBar := m.cmd.View(m.theme, m.width, m.mode == CommandMode)
+	helpBar := renderHelpBar(m.theme, m.width, m.focused)
 
-	bodyHeight := m.height - 2 // status + command lines
+	// 3 chrome lines: status (top) + command (just above help) + help (bottom).
+	bodyHeight := m.height - 3
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
@@ -547,7 +559,29 @@ func (m Model) View() string {
 	viewer := m.viewer.View(m.theme, viewerWidth, bodyHeight, m.focused == ViewerPane)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, folders, list, viewer)
-	return lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar)
+	return lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar, helpBar)
+}
+
+// renderHelpBar emits a one-line key-binding hint at the bottom of the
+// TUI. Hints are pane-specific so the user always sees the most
+// relevant keys for what's focused.
+func renderHelpBar(t Theme, width int, focused Pane) string {
+	var hint string
+	switch focused {
+	case FoldersPane:
+		hint = "j/k: nav · ⏎: open folder · 2: list · :sync · q: quit"
+	case ListPane:
+		hint = "j/k: nav · ⏎: open · 1: folders · 3: viewer · :sync · q: quit"
+	case ViewerPane:
+		hint = "h: back · j/k: scroll · 2: list · :sync · q: quit"
+	default:
+		hint = "1/2/3: panes · :sync · q: quit"
+	}
+	pad := width - lipgloss.Width(hint)
+	if pad < 0 {
+		pad = 0
+	}
+	return t.Help.Render(hint + strings.Repeat(" ", pad))
 }
 
 func nextPane(p Pane) Pane {
