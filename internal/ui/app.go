@@ -373,6 +373,10 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		f, ok := m.folders.Selected()
 		if ok {
 			m.list.FolderID = f.ID
+			// Auto-focus the list pane: "I want to read this folder"
+			// is the user's intent when they press Enter on a folder.
+			// They can still press '1' to navigate folders again.
+			m.focused = ListPane
 			return m, m.loadMessagesCmd(f.ID)
 		}
 	}
@@ -598,16 +602,19 @@ func (m Model) View() string {
 	list := m.list.View(m.theme, m.paneWidths.List, bodyHeight, m.focused == ListPane)
 	viewer := m.viewer.View(m.theme, viewerWidth, bodyHeight, m.focused == ViewerPane)
 
+	// Clip the body region to EXACTLY bodyHeight rows. Each pane's
+	// lipgloss.Height(bodyHeight) pads with a trailing newline; left
+	// alone, JoinVertical inflates the frame past m.height and the
+	// help bar slides off the bottom (regression in v0.2.8). Trimming
+	// here guarantees: 1 + bodyHeight + 1 + 1 == m.height.
 	body := lipgloss.JoinHorizontal(lipgloss.Top, folders, list, viewer)
-	frame := lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar, helpBar)
-	// Hard cap to terminal height. lipgloss's Height() pads but doesn't
-	// truncate; without this, a long folder list or message body would
-	// push the status bar off the top of the screen.
-	lines := strings.Split(frame, "\n")
-	if len(lines) > m.height {
-		lines = lines[:m.height]
+	body = strings.TrimRight(body, "\n")
+	bodyLines := strings.Split(body, "\n")
+	if len(bodyLines) > bodyHeight {
+		bodyLines = bodyLines[:bodyHeight]
 	}
-	return strings.Join(lines, "\n")
+	body = strings.Join(bodyLines, "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar, helpBar)
 }
 
 // renderHelpBar emits a one-line key-binding hint at the bottom of the

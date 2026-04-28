@@ -12,61 +12,114 @@ import (
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
-// FoldersModel is the sidebar pane.
+// displayedFolder is one row in the rendered sidebar tree: the source
+// folder plus the depth at which it appears (0 for top-level, 1 for
+// its children, etc.).
+type displayedFolder struct {
+	f     store.Folder
+	depth int
+}
+
+// FoldersModel is the sidebar pane. It stores the folders pre-flattened
+// into display order so the cursor is a simple index into a slice and
+// View doesn't need to re-walk the tree on every render.
 type FoldersModel struct {
-	folders []store.Folder
-	cursor  int
+	items  []displayedFolder
+	cursor int
 }
 
 // NewFolders returns an empty folders pane.
 func NewFolders() FoldersModel { return FoldersModel{} }
 
 // SetFolders replaces the displayed list (called from FoldersLoadedMsg).
-// Folders are reordered Inbox-first for sidebar display.
+// Tops are ordered Inbox → Sent → Drafts → Archive → user (alpha) →
+// Junk / Deleted / etc. Children of any folder are sorted alphabetically
+// regardless of well-known status (well-known names don't typically
+// nest under each other).
 func (m *FoldersModel) SetFolders(fs []store.Folder) {
-	m.folders = sortFoldersForSidebar(fs)
-	if m.cursor >= len(m.folders) {
+	m.items = flattenFolderTree(fs)
+	if m.cursor >= len(m.items) {
 		m.cursor = 0
 	}
 }
 
-// sortFoldersForSidebar returns folders in the canonical sidebar
-// order: Inbox → Sent Items → Drafts → Archive → user folders (alpha)
-// → Junk Email / Deleted Items / Conversation History / Sync Issues
-// (well-known but usually uninteresting; bottom of the list).
-func sortFoldersForSidebar(in []store.Folder) []store.Folder {
-	rank := func(f store.Folder) int {
-		switch f.WellKnownName {
-		case "inbox":
-			return 0
-		case "sentitems":
-			return 1
-		case "drafts":
-			return 2
-		case "archive":
-			return 3
-		case "junkemail":
-			return 5
-		case "deleteditems":
-			return 6
-		case "conversationhistory":
-			return 7
-		case "syncissues":
-			return 8
-		default:
-			return 4 // user folders, alphabetically among themselves
+// flattenFolderTree returns folders in the order they should appear in
+// the sidebar: top-level folders ranked by [folderRank], children
+// indented under their parent and sorted alphabetically.
+func flattenFolderTree(fs []store.Folder) []displayedFolder {
+	if len(fs) == 0 {
+		return nil
+	}
+	tracked := make(map[string]bool, len(fs))
+	for _, f := range fs {
+		tracked[f.ID] = true
+	}
+	childrenOf := make(map[string][]store.Folder)
+	for _, f := range fs {
+		// Top-level: parent is empty OR parent points to a folder we
+		// don't track (msgfolderroot, etc.). syncFolders already NULLs
+		// out untracked parents, but be defensive here too.
+		key := f.ParentFolderID
+		if key != "" && !tracked[key] {
+			key = ""
+		}
+		childrenOf[key] = append(childrenOf[key], f)
+	}
+	roots := childrenOf[""]
+	sortRootFolders(roots)
+	out := make([]displayedFolder, 0, len(fs))
+	var walk func(parent store.Folder, depth int)
+	walk = func(parent store.Folder, depth int) {
+		out = append(out, displayedFolder{f: parent, depth: depth})
+		kids := childrenOf[parent.ID]
+		sort.SliceStable(kids, func(i, j int) bool {
+			return strings.ToLower(kids[i].DisplayName) < strings.ToLower(kids[j].DisplayName)
+		})
+		for _, k := range kids {
+			walk(k, depth+1)
 		}
 	}
-	out := make([]store.Folder, len(in))
-	copy(out, in)
-	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := rank(out[i]), rank(out[j])
+	for _, r := range roots {
+		walk(r, 0)
+	}
+	return out
+}
+
+// sortRootFolders sorts in place by [folderRank] then alphabetically.
+func sortRootFolders(roots []store.Folder) {
+	sort.SliceStable(roots, func(i, j int) bool {
+		ri, rj := folderRank(roots[i]), folderRank(roots[j])
 		if ri != rj {
 			return ri < rj
 		}
-		return out[i].DisplayName < out[j].DisplayName
+		return strings.ToLower(roots[i].DisplayName) < strings.ToLower(roots[j].DisplayName)
 	})
-	return out
+}
+
+// folderRank assigns a sort position to a top-level folder. Inbox first,
+// then the other transactional folders, then user folders (alpha among
+// themselves), then the rarely-visited well-known folders at the bottom.
+func folderRank(f store.Folder) int {
+	switch f.WellKnownName {
+	case "inbox":
+		return 0
+	case "sentitems":
+		return 1
+	case "drafts":
+		return 2
+	case "archive":
+		return 3
+	case "junkemail":
+		return 5
+	case "deleteditems":
+		return 6
+	case "conversationhistory":
+		return 7
+	case "syncissues":
+		return 8
+	default:
+		return 4
+	}
 }
 
 // Up moves the cursor toward the top.
@@ -78,24 +131,24 @@ func (m *FoldersModel) Up() {
 
 // Down moves the cursor toward the bottom.
 func (m *FoldersModel) Down() {
-	if m.cursor+1 < len(m.folders) {
+	if m.cursor+1 < len(m.items) {
 		m.cursor++
 	}
 }
 
 // Selected returns the highlighted folder, if any.
 func (m FoldersModel) Selected() (store.Folder, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.folders) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return store.Folder{}, false
 	}
-	return m.folders[m.cursor], true
+	return m.items[m.cursor].f, true
 }
 
 // SelectByID moves the cursor onto the folder with the given id.
 // No-op if not present.
 func (m *FoldersModel) SelectByID(id string) {
-	for i, f := range m.folders {
-		if f.ID == id {
+	for i, it := range m.items {
+		if it.f.ID == id {
 			m.cursor = i
 			return
 		}
@@ -105,15 +158,17 @@ func (m *FoldersModel) SelectByID(id string) {
 // View renders the folders column.
 func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	lines := []string{paneHeader(t, "Folders", focused)}
-	if len(m.folders) == 0 {
+	if len(m.items) == 0 {
 		lines = append(lines, t.Dim.Render("  (waiting…)"))
 	}
-	// Build all rows first, then clip to a viewport that keeps the
-	// cursor visible (clipToCursorViewport) — long folder lists no
-	// longer overflow bodyHeight and push the status bar off-screen.
-	rows := make([]string, 0, len(m.folders))
-	for i, f := range m.folders {
-		line := f.DisplayName
+	rows := make([]string, 0, len(m.items))
+	for i, it := range m.items {
+		f := it.f
+		// Indentation: 2 spaces per depth level. Subfolders live to
+		// the right of their parent, like a tree pane in any other
+		// mail client.
+		indent := strings.Repeat("  ", it.depth)
+		line := indent + f.DisplayName
 		if f.UnreadCount > 0 {
 			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
 		}

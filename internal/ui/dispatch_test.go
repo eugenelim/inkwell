@@ -90,7 +90,7 @@ func newDispatchTestModel(t *testing.T) Model {
 			msg := loadCmd()
 			m2, _ := m.Update(msg)
 			m = m2.(Model)
-			if len(m.folders.folders) > 0 {
+			if len(m.folders.items) > 0 {
 				break
 			}
 		}
@@ -185,7 +185,8 @@ func TestDispatchEnterOpensMessageInViewer(t *testing.T) {
 }
 
 // TestDispatchEnterOnFolderSwitchesList confirms folder-pane Enter
-// updates m.list.FolderID to the highlighted folder.
+// updates m.list.FolderID AND auto-focuses the list pane (so the user
+// is taken directly to the messages they asked for).
 func TestDispatchEnterOnFolderSwitchesList(t *testing.T) {
 	m := newDispatchTestModel(t)
 	// Focus folders.
@@ -193,8 +194,6 @@ func TestDispatchEnterOnFolderSwitchesList(t *testing.T) {
 	m = m2.(Model)
 	require.Equal(t, FoldersPane, m.focused)
 
-	// Cursor starts on Inbox (auto-selected on first load). j moves to
-	// Archive (rank 3 in sortFoldersForSidebar).
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	m = m2.(Model)
 
@@ -204,6 +203,7 @@ func TestDispatchEnterOnFolderSwitchesList(t *testing.T) {
 
 	require.NotEqual(t, beforeID, m.list.FolderID, "Enter on folder must switch list")
 	require.Equal(t, "f-archive", m.list.FolderID)
+	require.Equal(t, ListPane, m.focused, "Enter on folder must auto-focus list pane")
 	require.NotNil(t, cmd, "Enter on folder must return loadMessagesCmd")
 }
 
@@ -293,6 +293,101 @@ func TestRenderedFrameWithLongBodyClipsToHeight(t *testing.T) {
 	frame := m.View()
 	rows := strings.Count(frame, "\n") + 1
 	require.LessOrEqual(t, rows, 30, "long body must clip to viewport, not push status bar off-screen")
+}
+
+// TestHelpBarVisibleInEveryFocusState pins the v0.2.8 → v0.2.9
+// regression: opening a message hid the help bar. The fix clips the
+// body region to exactly bodyHeight; this test asserts the rendered
+// frame's last line carries help-bar text regardless of which pane is
+// focused.
+func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = m2.(Model)
+
+	cases := []struct {
+		name      string
+		setupKeys []string
+		wantHint  string
+	}{
+		{"list-focused", nil, "1: folders"},
+		{"folders-focused", []string{"1"}, "2: list"},
+		{"viewer-focused-after-open", []string{"\n"}, "h: back"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mm := m
+			for _, k := range tc.setupKeys {
+				var msg tea.KeyMsg
+				if k == "\n" {
+					msg = tea.KeyMsg{Type: tea.KeyEnter}
+				} else {
+					msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+				}
+				m2, _ := mm.Update(msg)
+				mm = m2.(Model)
+			}
+			frame := mm.View()
+			lines := strings.Split(frame, "\n")
+			require.Equal(t, 30, len(lines), "frame must equal terminal height")
+			last := lines[len(lines)-1]
+			require.Contains(t, last, tc.wantHint, "help-bar hint must be on last visible line")
+		})
+	}
+}
+
+// TestFlattenFolderTreeOrdersAndIndentsCorrectly pins the sidebar tree
+// layout: roots ranked Inbox→Sent→Drafts→Archive→user (alpha)→Junk;
+// children sorted alphabetically under their parent, depth incremented.
+func TestFlattenFolderTreeOrdersAndIndentsCorrectly(t *testing.T) {
+	in := []store.Folder{
+		{ID: "inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "team-x", DisplayName: "Team X", ParentFolderID: "inbox"},
+		{ID: "team-a", DisplayName: "Team A", ParentFolderID: "inbox"},
+		{ID: "team-x-sub", DisplayName: "Sub", ParentFolderID: "team-x"},
+		{ID: "sent", DisplayName: "Sent Items", WellKnownName: "sentitems"},
+		{ID: "user1", DisplayName: "Newsletters"},
+		{ID: "user2", DisplayName: "Archive Old"}, // user folder, no well-known name
+		{ID: "junk", DisplayName: "Junk Email", WellKnownName: "junkemail"},
+	}
+	got := flattenFolderTree(in)
+	require.Equal(t, 8, len(got))
+
+	// Expected order, with depth:
+	expected := []struct {
+		id    string
+		depth int
+	}{
+		{"inbox", 0},
+		{"team-a", 1},      // child of inbox, alpha first
+		{"team-x", 1},      // child of inbox
+		{"team-x-sub", 2},  // grandchild
+		{"sent", 0},        // sent items rank=1
+		{"user2", 0},       // "Archive Old" — user folder, alpha
+		{"user1", 0},       // "Newsletters" — user folder, alpha
+		{"junk", 0},        // junk at the bottom
+	}
+	for i, want := range expected {
+		require.Equal(t, want.id, got[i].f.ID, "row %d id", i)
+		require.Equal(t, want.depth, got[i].depth, "row %d depth", i)
+	}
+}
+
+// TestFlattenFolderTreeHandlesUntrackedParents confirms a folder whose
+// parent is not in the input list (e.g. msgfolderroot) is treated as a
+// root, not silently dropped.
+func TestFlattenFolderTreeHandlesUntrackedParents(t *testing.T) {
+	in := []store.Folder{
+		{ID: "stranger", DisplayName: "Stranger", ParentFolderID: "not-in-list"},
+		{ID: "inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+	}
+	got := flattenFolderTree(in)
+	require.Len(t, got, 2)
+	// Both should have depth 0; Inbox first by rank.
+	require.Equal(t, "inbox", got[0].f.ID)
+	require.Equal(t, 0, got[0].depth)
+	require.Equal(t, "stranger", got[1].f.ID)
+	require.Equal(t, 0, got[1].depth)
 }
 
 // TestThemePresetsAreValid confirms every preset palette renders into
