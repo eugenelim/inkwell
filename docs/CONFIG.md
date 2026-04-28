@@ -1,0 +1,395 @@
+# Configuration Reference
+
+**Document status:** Canonical reference. Every config key in the application is documented here.
+**Last updated:** 2026-04-27
+
+This is the single source of truth for configuration. Feature specs that introduce config keys add them here; nothing is configurable that isn't listed in this document.
+
+---
+
+## File locations
+
+| File | Purpose |
+| ---- | ------- |
+| `~/.config/inkwell/config.toml` | Main user configuration (this document) |
+| `~/.config/inkwell/saved_searches.toml` | Named saved searches (spec 11) |
+| `~/Library/Application Support/inkwell/mail.db` | SQLite cache (not user-edited) |
+| `~/Library/Logs/inkwell/inkwell.log` | Structured logs (not user-edited) |
+
+## Layering and precedence
+
+Lowest to highest precedence:
+
+1. Compiled defaults (everything has a default; the empty config file is valid and runs the app).
+2. `config.toml`.
+3. Environment variables (selected keys; noted below as `ENV: VAR_NAME`).
+4. Command-line flags (selected keys; noted below as `FLAG: --flag-name`).
+
+## Validation behavior
+
+The app refuses to start on:
+- Unknown top-level sections or keys.
+- Type mismatches (`max_concurrent = "four"`).
+- Out-of-range values (e.g., `max_concurrent = 0`).
+- Malformed durations (Go `time.ParseDuration` is the parser; `30s`, `5m`, `2h` all valid).
+- Missing required keys (only `[account]` keys are required; everything else has defaults).
+
+Errors include the file path and line number.
+
+---
+
+## `[account]` (required)
+
+Provided one-time during onboarding. The user typically does not edit this manually after setup.
+
+| Key | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tenant_id` | string (UUID) | — | yes | Microsoft Entra ID tenant ID. |
+| `client_id` | string (UUID) | — | yes | App registration client ID provided by enterprise IT. |
+| `upn` | string | — | yes | The user's UPN (e.g., `firstname.lastname@accenture.com`). Used to disambiguate tokens in Keychain. |
+
+**Owner spec:** 01.
+
+---
+
+## `[sync]`
+
+Controls the sync engine's polling cadence, backfill, and concurrency.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `foreground_interval` | duration | `"30s"` | 5s–10m | Polling interval when terminal is active. |
+| `background_interval` | duration | `"5m"` | 1m–1h | Polling interval when terminal is inactive. |
+| `backfill_days` | int | `90` | 7–730 | Days of history to fetch on first launch. |
+| `max_concurrent` | int | `4` | 1–10 | Max in-flight Graph requests. **Do not exceed 4** without good reason; 4 is the historic Outlook-resource soft limit. |
+| `max_retries` | int | `5` | 1–10 | Per-request retry budget on 429/5xx. |
+| `retry_max_backoff` | duration | `"30s"` | 5s–5m | Cap for exponential-backoff retries when no `Retry-After` header is present. |
+| `delta_page_size` | int | `100` | 10–1000 | `Prefer: odata.maxpagesize` header value for delta queries. |
+| `subscribed_well_known` | list of strings | `["inbox","sentitems","drafts","archive"]` | any well-known names | Well-known folders to sync. User folders are always synced unless excluded by name. |
+| `excluded_folders` | list of strings | `["Deleted Items","Junk Email","Conversation History","Sync Issues"]` | any display names | Folders to skip during sync, by display name (case-insensitive). |
+| `prioritize_body_fetches` | bool | `true` | — | Whether on-demand body fetches jump the concurrency queue. Disable only if debugging fairness issues. |
+
+**Owner spec:** 03.
+
+---
+
+## `[cache]`
+
+Controls the local SQLite cache.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `body_cache_max_count` | int | `500` | 50–10000 | Max cached message bodies. |
+| `body_cache_max_bytes` | int | `209715200` (200MB) | 10MB–10GB | Max total body bytes cached. Eviction triggers on whichever cap hits first. |
+| `vacuum_interval` | duration | `"168h"` (7d) | 24h–168h | How often to consider running `VACUUM`. |
+| `done_actions_retention` | duration | `"168h"` (7d) | 24h–720h | How long to keep completed action records before cleanup. |
+| `mmap_size_bytes` | int | `268435456` (256MB) | 64MB–4GB | SQLite `mmap_size` pragma. |
+| `cache_size_kb` | int | `65536` (64MB) | 4MB–1GB | SQLite page cache size. Negative-int convention is hidden in code. |
+
+**Owner spec:** 02.
+
+---
+
+## `[ui]`
+
+Controls the terminal UI.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `theme` | string | `"dark"` | `dark`, `light`, `auto` | Color theme. `auto` uses Lip Gloss's terminal background detection. |
+| `folder_pane_width` | int | `25` | 15–60 | Width of the folders sidebar in columns. |
+| `list_pane_width` | int | `40` | 25–80 | Width of the message list pane in columns. |
+| `relative_dates_within` | duration | `"168h"` (7d) | 1h–720h | Show relative dates (e.g., "Sun 14:32") for messages received within this window; absolute dates beyond it. |
+| `unread_indicator` | string | `"●"` | any string ≤ 2 chars | Glyph for unread messages. Use `"*"` if your terminal lacks the dot. |
+| `flag_indicator` | string | `"⚑"` | any string ≤ 2 chars | Glyph for flagged messages. |
+| `attachment_indicator` | string | `"📎"` | any string ≤ 2 chars | Suffix for messages with attachments. Use `"@"` for ASCII-only terminals. |
+| `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
+| `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
+| `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
+| `min_terminal_rows` | int | `24` | 20–100 | Below this height, render a "terminal too small" message. |
+
+**Owner spec:** 04.
+
+---
+
+## `[rendering]`
+
+Controls how message bodies are displayed.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `html_converter` | string | `"html2text"` | `html2text`, `lynx`, `w3m`, `external` | HTML → text engine. `external` uses `html_converter_cmd`. |
+| `html_converter_cmd` | string | `""` | shell command | Used when `html_converter = "external"`. Receives HTML on stdin, must emit plain text on stdout. |
+| `open_browser_cmd` | string | `"open"` | shell command | Command for `:open` (open in browser fallback). On macOS, `open` is correct. |
+| `wrap_columns` | int | `0` | 0, 60–200 | Hard-wrap rendered text to this column width. `0` = use viewer pane width. |
+| `show_full_headers` | bool | `false` | — | Show every email header (Received, Authentication-Results, etc.) by default. Power users only. |
+| `attachment_save_dir` | string | `"~/Downloads"` | path | Default destination for `:save`. Tilde-expanded. |
+| `quote_collapse_threshold` | int | `3` | 0–10 | Quote nesting depth at which deeper levels are collapsed in the viewer. `0` disables collapsing. |
+| `large_attachment_warn_mb` | int | `25` | 1–1000 | Show a confirmation prompt before downloading attachments larger than this. |
+| `strip_patterns` | list of regex strings | `[]` (defaults shipped in code) | regex | Regex patterns to strip from rendered email bodies. Defaults cover common Outlook noise (external email banners, "trouble viewing" preludes). |
+| `external_converter_timeout` | duration | `"5s"` | 1s–60s | Timeout when `html_converter = "external"`. On timeout, falls back to in-process renderer. |
+
+**Owner spec:** 05.
+
+---
+
+## `[search]`
+
+Controls search behavior.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `local_first` | bool | `true` | — | Run local FTS first and render immediately, then merge server results. |
+| `server_search_timeout` | duration | `"5s"` | 1s–60s | Cap on Graph `$search` round-trips. After timeout, show local-only results with a warning. |
+| `default_result_limit` | int | `200` | 10–1000 | Max results to display per search. |
+| `debounce_typing` | duration | `"200ms"` | 50ms–2s | Delay before running a search as the user types in `/` mode. |
+| `merge_emit_throttle` | duration | `"100ms"` | 50ms–1s | Minimum time between UI updates as local + server result streams merge. |
+| `default_sort` | string | `"received_desc"` | `received_desc`, `received_asc`, `relevance` | Default sort order for search results. |
+
+**Owner spec:** 06.
+
+---
+
+## `[triage]`
+
+Controls single-message and bulk triage actions.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `archive_folder` | string | `"archive"` | well-known name OR folder display name | Destination folder for `a` (archive). `"archive"` is the well-known Archive folder. |
+| `confirm_threshold` | int | `10` | 0–10000 | Bulk operations affecting more than this many messages require confirmation. `0` = always confirm. |
+| `confirm_permanent_delete` | bool | `true` | — | Always confirm permanent delete regardless of count. **Strongly recommend leaving on.** |
+| `undo_stack_size` | int | `50` | 0–500 | Max session undo entries. `0` = disable undo. |
+| `optimistic_ui` | bool | `true` | — | Apply changes locally before Graph confirms. Disable only for debugging. |
+| `editor` | string | `""` (uses `$EDITOR`, falls back to `nano`) | shell command | Editor for composing draft replies and OOO messages. |
+| `draft_temp_dir` | string | `"~/Library/Caches/inkwell/drafts"` | path | Temporary location for in-progress drafts before Graph confirms creation. |
+| `recent_folders_count` | int | `5` | 0–20 | Number of recently-used folders surfaced at the top of the folder picker. |
+
+**Owner spec:** 07.
+
+---
+
+## `[batch]`
+
+Controls $batch execution for bulk operations.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `max_per_batch` | int | `20` | 1–20 | Sub-requests per `$batch` call. **Do not exceed 20** — Graph hard limit. |
+| `batch_concurrency` | int | `3` | 1–4 | Number of $batch calls in flight simultaneously. Multiplied by `max_per_batch`, this is the bulk operation throughput. Stays within `[sync].max_concurrent`. |
+| `batch_request_timeout` | duration | `"60s"` | 10s–300s | Timeout for a single $batch HTTP call. |
+| `dry_run_default` | bool | `false` | — | If true, all destructive bulk operations dry-run by default; user must add `!` to actually execute. |
+| `max_retries_per_subrequest` | int | `5` | 1–10 | Maximum 429-retry attempts per individual sub-request within a batch. |
+| `bulk_size_warn_threshold` | int | `1000` | 10–10000 | Warn user with time estimate when bulk exceeds this size. |
+| `bulk_size_hard_max` | int | `5000` | 100–50000 | Refuse bulk operations that would exceed this size; user must refine pattern. |
+
+**Owner spec:** 09.
+
+---
+
+## `[calendar]`
+
+Controls the read-only calendar pane.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `default_view` | string | `"today"` | `today`, `week`, `agenda` | Initial calendar view. |
+| `lookback_days` | int | `7` | 0–365 | Past days fetched. |
+| `lookahead_days` | int | `30` | 1–365 | Future days fetched. |
+| `time_zone` | string | `""` (use mailbox setting) | IANA tz name | Override the mailbox time zone. Empty = use Graph mailboxSettings. |
+| `show_declined` | bool | `false` | — | Show events the user has declined. |
+| `sidebar_show_days` | int | `2` | 1–14 | Number of days visible in the sidebar calendar pane (today + N more). |
+| `show_tentative` | bool | `true` | — | Show events the user has tentatively accepted. |
+| `online_meeting_indicator` | string | `"🔗"` | any string ≤ 2 chars | Glyph for events with online meeting URLs. |
+| `now_indicator` | string | `"▶"` | any string ≤ 2 chars | Glyph marking the currently-active event. |
+
+**Owner spec:** 12.
+
+---
+
+## `[mailbox_settings]`
+
+Controls how mailbox-settings UI behaves.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `confirm_ooo_change` | bool | `true` | — | Prompt before toggling out-of-office. |
+| `default_ooo_audience` | string | `"all"` | `all`, `internal` | Default audience for new OOO messages. |
+| `ooo_indicator` | string | `"🌴"` | any string ≤ 2 chars | Glyph shown in status bar when out-of-office is active. |
+| `refresh_interval` | duration | `"5m"` | 1m–1h | How often to re-fetch mailbox settings from Graph. |
+| `default_internal_message` | string | `"I'm currently out of the office."` | any | Default message body when toggling OOO via `:ooo on` without explicit text. |
+| `default_external_message` | string | `""` (empty = same as internal) | any | Default external message; empty falls back to internal. |
+
+**Owner spec:** 13.
+
+---
+
+## `[cli]`
+
+Controls non-interactive CLI mode.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `default_output` | string | `"text"` | `text`, `json` | Default output format. CLI flag `--output json` overrides. |
+| `color` | string | `"auto"` | `auto`, `always`, `never` | Whether to colorize CLI output. |
+| `confirm_destructive_in_cli` | bool | `false` | — | Whether destructive CLI commands prompt by default. CLI users typically want non-interactive. |
+| `progress_bars` | string | `"auto"` | `auto`, `always`, `never` | Show progress bars during long operations. `auto` enables on TTY, disables on pipes. |
+| `json_compact` | bool | `false` | — | Emit compact (single-line) JSON instead of pretty-printed. |
+| `export_default_dir` | string | `"."` | path | Default output directory for `inkwell export`. |
+
+**Owner spec:** 14.
+
+---
+
+## `[pattern]`
+
+Controls the pattern language compiler and executor.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `local_match_limit` | int | `5000` | 100–100000 | Max matches returned by a local-strategy pattern execution. Bulk operations cap separately. |
+| `server_candidate_limit` | int | `1000` | 100–10000 | Cap on the candidate set returned by server queries in TwoStage execution. Beyond this, refuse and tell user to refine pattern. |
+| `prefer_local_when_offline` | bool | `true` | — | When offline, automatically fall back to local-only strategy with cache-only results. |
+
+**Owner spec:** 08.
+
+---
+
+## `[saved_search]`
+
+Controls saved searches (virtual folders).
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `cache_ttl` | duration | `"60s"` | 0–10m | How long evaluation results are cached in memory. `0` disables caching. |
+| `background_refresh_interval` | duration | `"2m"` | 30s–1h | How often pinned-search counts in the sidebar refresh. |
+| `seed_defaults` | bool | `true` | — | On first launch, seed example saved searches (Unread, Flagged, From me). |
+| `toml_mirror_path` | string | `"~/.config/inkwell/saved_searches.toml"` | path | Where the TOML mirror of saved searches is written. |
+
+**Owner spec:** 11.
+
+---
+
+## `[bulk]`
+
+Controls bulk-operation UX.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `preview_sample_size` | int | `5` | 0–50 | Number of sample messages shown in the bulk-confirm modal. |
+| `progress_threshold` | int | `50` | 1–10000 | Show a progress modal for bulks larger than this. Smaller bulks finish too fast for the modal to be useful. |
+| `progress_update_hz` | int | `10` | 1–60 | Maximum progress UI update frequency, in Hz. |
+| `suggest_save_after_n_uses` | int | `4` | 0–50 | After running the same `:filter` pattern this many times in a session, suggest saving as a named rule. `0` disables the suggestion. |
+
+**Owner spec:** 10.
+
+---
+
+## `[logging]`
+
+Controls log output and redaction.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `level` | string | `"info"` | `debug`, `info`, `warn`, `error` | Minimum level. ENV: `INKWELL_LOG_LEVEL`. FLAG: `--log-level`. |
+| `path` | string | `"~/Library/Logs/inkwell/inkwell.log"` | path | Log file location. |
+| `max_size_mb` | int | `10` | 1–500 | Rotate at this size. |
+| `max_backups` | int | `5` | 0–50 | Number of rotated archives to keep. |
+| `redact_email_addresses` | bool | `true` | — | Replace email addresses with `<email-N>` placeholders in logs. **Strongly recommend leaving on.** |
+| `redact_subjects` | bool | `true` | — | Suppress subject lines except at DEBUG level. |
+| `console_output` | bool | `false` | — | Also write logs to stderr (useful in development). |
+
+**Owner spec:** ARCH §12 (cross-cutting).
+
+---
+
+## `[bindings]`
+
+Override default keybindings. Each value is a single key or comma-separated alternatives.
+
+Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anything overridable in the keymap appears here. **Defaults documented in spec 04.** A subset:
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `quit` | `"q"` | Active in normal mode, list pane. |
+| `force_quit` | `"ctrl+c"` | Always active. |
+| `cmd` | `":"` | Enter command mode. |
+| `search` | `"/"` | Enter search mode (`/`). |
+| `refresh` | `"ctrl+r"` | Force a sync. |
+| `up` | `"k,up"` | |
+| `down` | `"j,down"` | |
+| `left` | `"h,left"` | |
+| `right` | `"l,right"` | |
+| `page_up` | `"ctrl+u"` | |
+| `page_down` | `"ctrl+d"` | |
+| `home` | `"g g"` | Compound binding. |
+| `end` | `"G"` | |
+| `next_pane` | `"tab"` | |
+| `prev_pane` | `"shift+tab"` | |
+| `mark_read` | `"r"` | List pane only; in viewer = reply. Pane-scoped. |
+| `mark_unread` | `"R"` | List pane only; in viewer = reply-all. Pane-scoped. |
+| `toggle_flag` | `"f"` | List pane: toggle flag. Viewer pane: forward. Pane-scoped. |
+| `delete` | `"d"` | Soft delete. |
+| `permanent_delete` | `"D"` | Hard delete. Always confirms. |
+| `archive` | `"a"` | |
+| `move` | `"m"` | |
+| `add_category` | `"c"` | |
+| `remove_category` | `"C"` | |
+| `undo` | `"u"` | |
+| `undo_stack` | `"U"` | Show undo overlay. |
+| `filter` | `"F"` | Bulk filter mode. |
+| `apply_to_filtered` | `";"` | Mutt-style tag-prefix. |
+
+**Pane-scoped bindings** (e.g., `r`, `R`, `f`) have different actions in list vs. viewer panes by design — see spec 04 §5 and spec 07 §12. Overriding them via this section changes the binding in BOTH panes; per-pane override is not supported in v1.
+
+I changed `refresh` from `"R"` (which conflicted with mark_unread) to `"ctrl+r"`. The original "Conflicts with `mark_unread` resolved by pane" was clever but causes user confusion; `ctrl+r` is unambiguous.
+
+**Owner spec:** 04 (binding mechanics), 07 (action bindings), 10 (bulk bindings).
+
+---
+
+## Example complete config
+
+A user's `~/.config/inkwell/config.toml` overriding defaults:
+
+```toml
+[account]
+tenant_id = "12345678-1234-1234-1234-123456789abc"
+client_id = "abcdef00-0000-0000-0000-000000000000"
+upn = "eu.gene@accenture.com"
+
+[sync]
+foreground_interval = "20s"
+backfill_days = 180
+
+[ui]
+theme = "auto"
+folder_pane_width = 30
+attachment_indicator = "@"
+
+[rendering]
+html_converter = "external"
+html_converter_cmd = "pandoc -f html -t plain"
+
+[triage]
+confirm_threshold = 25
+
+[bindings]
+delete = "x"            # vim-style cut
+permanent_delete = "X"
+```
+
+Everything not listed uses defaults from this document.
+
+---
+
+## Adding a new config key
+
+When a feature spec needs a new key:
+
+1. Choose the right section, or define a new one in this document with rationale.
+2. Add a row to that section's table: name, type, default, range, description.
+3. Add the `[section].key` to `internal/config/defaults.go` with the same default.
+4. Add validation logic in `internal/config/validate.go`.
+5. Reference the key by `[section].key` in the feature spec text.
+6. The PR for the feature spec MUST include the CONFIG.md change in the same commit.
