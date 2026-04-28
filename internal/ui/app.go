@@ -369,13 +369,12 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.folders.Up()
 	case key.Matches(msg, m.keymap.Down):
 		m.folders.Down()
+	case key.Matches(msg, m.keymap.Expand):
+		m.folders.ToggleExpand()
 	case key.Matches(msg, m.keymap.Open), key.Matches(msg, m.keymap.Right):
 		f, ok := m.folders.Selected()
 		if ok {
 			m.list.FolderID = f.ID
-			// Auto-focus the list pane: "I want to read this folder"
-			// is the user's intent when they press Enter on a folder.
-			// They can still press '1' to navigate folders again.
 			m.focused = ListPane
 			return m, m.loadMessagesCmd(f.ID)
 		}
@@ -619,24 +618,37 @@ func (m Model) View() string {
 
 // renderHelpBar emits a one-line key-binding hint at the bottom of the
 // TUI. Hints are pane-specific so the user always sees the most
-// relevant keys for what's focused.
+// relevant keys for what's focused. Each hint is "key description";
+// the key glyph is bold-coloured (HelpKey), the description is
+// regular (Help), separated by a dim middot (HelpSep).
 func renderHelpBar(t Theme, width int, focused Pane) string {
-	var hint string
+	var hints [][2]string
 	switch focused {
 	case FoldersPane:
-		hint = "j/k: nav · ⏎: open folder · 2: list · :sync · q: quit"
+		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
 	case ListPane:
-		hint = "j/k: nav · ⏎: open · 1: folders · 3: viewer · :sync · q: quit"
+		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"1", "folders"}, {"3", "viewer"}, {"q", "quit"}}
 	case ViewerPane:
-		hint = "h: back · j/k: scroll · 2: list · :sync · q: quit"
+		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"2", "list"}, {"q", "quit"}}
 	default:
-		hint = "1/2/3: panes · :sync · q: quit"
+		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}
-	pad := width - lipgloss.Width(hint)
+	sep := t.HelpSep.Render(" · ")
+	var b strings.Builder
+	for i, h := range hints {
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(t.HelpKey.Render(h[0]))
+		b.WriteByte(' ')
+		b.WriteString(t.Help.Render(h[1]))
+	}
+	rendered := b.String()
+	pad := width - lipgloss.Width(rendered)
 	if pad < 0 {
 		pad = 0
 	}
-	return t.Help.Render(hint + strings.Repeat(" ", pad))
+	return rendered + strings.Repeat(" ", pad)
 }
 
 func nextPane(p Pane) Pane {
