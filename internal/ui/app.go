@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/eu-gene-lim/inkwell/internal/render"
 	"github.com/eu-gene-lim/inkwell/internal/store"
 	isync "github.com/eu-gene-lim/inkwell/internal/sync"
 )
@@ -31,11 +32,19 @@ type Engine interface {
 
 // Deps wires the UI to its lower-layer collaborators.
 type Deps struct {
-	Auth    Authenticator
-	Store   store.Store
-	Engine  Engine
-	Logger  *slog.Logger
-	Account *store.Account
+	Auth     Authenticator
+	Store    store.Store
+	Engine   Engine
+	Renderer render.Renderer
+	Logger   *slog.Logger
+	Account  *store.Account
+}
+
+// bodyAsyncFetcher narrows render.Renderer to its fetch entry point.
+// Defined at the consumer site so we can use a *renderer's
+// FetchBodyAsync without exposing it on the public Renderer interface.
+type bodyAsyncFetcher interface {
+	FetchBodyAsync(ctx context.Context, m *store.Message, opts render.BodyOpts) (render.BodyView, error)
 }
 
 // PaneWidths is the configured layout (spec 04 §2).
@@ -158,6 +167,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
 			m.list.SetMessages(msg.Messages)
+		}
+		return m, nil
+
+	case BodyRenderedMsg:
+		if m.viewer.CurrentMessageID() == msg.MessageID {
+			m.viewer.SetBody(msg.Text, msg.State)
 		}
 		return m, nil
 
@@ -350,9 +365,42 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok {
 			m.viewer.SetMessage(sel)
 			m.focused = ViewerPane
+			return m, m.openMessageCmd(sel)
 		}
 	}
 	return m, nil
+}
+
+// openMessageCmd renders headers immediately, then either reads the
+// cached body or kicks off an async fetch. The result lands as a
+// BodyRenderedMsg so the viewer pane can refresh.
+func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
+	if m.deps.Renderer == nil {
+		return nil
+	}
+	r := m.deps.Renderer
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		opts := render.BodyOpts{Width: 80, Theme: render.DefaultTheme()}
+		view, err := r.Body(ctx, &msg, opts)
+		if err != nil {
+			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
+		}
+		if view.State == render.BodyReady {
+			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, State: int(view.State)}
+		}
+		// BodyFetching: dispatch the fetch synchronously inside this
+		// goroutine and return the final rendered view.
+		if f, ok := r.(bodyAsyncFetcher); ok {
+			final, err := f.FetchBodyAsync(ctx, &msg, opts)
+			if err != nil {
+				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
+			}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, State: int(final.State)}
+		}
+		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, State: int(view.State)}
+	}
 }
 
 func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
