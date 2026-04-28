@@ -147,19 +147,38 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 	return t.List.Width(width).Height(height).Render(b.String())
 }
 
-// ViewerModel is the read pane. Spec 04 ships a stub; spec 05 fills it
-// in with rendered headers, body conversion, attachment list, and
-// numbered links.
+// ViewerModel is the read pane. Headers + body + attachments routed
+// through internal/render.
 type ViewerModel struct {
-	current *store.Message
+	current      *store.Message
+	body         string
+	bodyState    int // mirrors render.BodyState; kept as int to avoid import cycle
+	showFullHdr  bool
 }
 
 // NewViewer returns an empty viewer.
 func NewViewer() ViewerModel { return ViewerModel{} }
 
-// SetMessage replaces the displayed message.
+// SetMessage replaces the displayed message; clears any prior body.
 func (m *ViewerModel) SetMessage(msg store.Message) {
 	m.current = &msg
+	m.body = ""
+	m.bodyState = 0
+}
+
+// SetBody is invoked after a fetch completes (or the cache hits).
+func (m *ViewerModel) SetBody(text string, state int) {
+	m.body = text
+	m.bodyState = state
+}
+
+// CurrentMessageID returns the id of the currently-displayed message,
+// or empty if none.
+func (m ViewerModel) CurrentMessageID() string {
+	if m.current == nil {
+		return ""
+	}
+	return m.current.ID
 }
 
 // View renders the viewer column.
@@ -171,14 +190,34 @@ func (m ViewerModel) View(t Theme, width, height int, _ bool) string {
 	if from == "" {
 		from = m.current.FromAddress
 	}
-	hdr := lipgloss.JoinVertical(lipgloss.Left,
-		"From: "+from,
+	headers := lipgloss.JoinVertical(lipgloss.Left,
+		"From:    "+from,
+		"To:      "+joinAddrs(m.current.ToAddresses),
+		"Date:    "+m.current.ReceivedAt.Format(time.RFC1123),
 		"Subject: "+m.current.Subject,
-		"Date: "+m.current.ReceivedAt.Format(time.RFC1123),
 		"",
-		t.Dim.Render("(spec 05 will render the body here)"),
 	)
-	return t.Viewer.Width(width).Height(height).Render(hdr)
+	body := m.body
+	if body == "" {
+		body = t.Dim.Render("(loading…)")
+	}
+	return t.Viewer.Width(width).Height(height).Render(headers + body)
+}
+
+// joinAddrs renders a recipient list as "name <addr>, name2 <addr2>".
+func joinAddrs(rs []store.EmailAddress) string {
+	var parts []string
+	for _, a := range rs {
+		if a.Name != "" {
+			parts = append(parts, a.Name+" <"+a.Address+">")
+		} else {
+			parts = append(parts, a.Address)
+		}
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // CommandModel is the `:command` line.

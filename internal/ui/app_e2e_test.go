@@ -15,9 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ilog "github.com/eu-gene-lim/inkwell/internal/log"
+	"github.com/eu-gene-lim/inkwell/internal/render"
 	"github.com/eu-gene-lim/inkwell/internal/store"
 	isync "github.com/eu-gene-lim/inkwell/internal/sync"
 )
+
+// stubBodyFetcher returns a canned body for renderer wiring tests.
+type stubBodyFetcher struct{ contentType, content string }
+
+func (f stubBodyFetcher) FetchBody(_ context.Context, _ string) (render.FetchedBody, error) {
+	return render.FetchedBody{ContentType: f.contentType, Content: f.content}, nil
+}
 
 // fakeAuth satisfies the UI's Authenticator surface.
 type fakeAuth struct{ upn, tenant string }
@@ -74,11 +82,12 @@ func newE2EModel(t *testing.T) (Model, *fakeEngine) {
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
 	eng := newFakeEngine()
 	return New(Deps{
-		Auth:    fakeAuth{upn: "tester@example.invalid", tenant: "T"},
-		Store:   st,
-		Engine:  eng,
-		Logger:  logger,
-		Account: acc,
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    st,
+		Engine:   eng,
+		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: "hello world"}),
+		Logger:   logger,
+		Account:  acc,
 	}), eng
 }
 
@@ -198,6 +207,29 @@ func TestUnknownCommandSetsErrorAndDoesNotCrash(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 	_, err := io.ReadAll(tm.FinalOutput(t))
 	require.NoError(t, err)
+}
+
+func TestOpeningMessageFetchesBodyAndRenders(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// Wait for the inbox + message list to render.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Inbox") && contains(s, "Q4 foreca")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus list, open the first message.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// The body fetch goes through stubBodyFetcher → "hello world".
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "hello world")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
 // contains is the tiny helper used everywhere — avoids importing strings

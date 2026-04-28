@@ -57,3 +57,11 @@ type ConfirmResultMsg struct {
 // authRequiredMsg is emitted when a graph call returned 401 / token
 // refresh failed. It transitions the root into SignInMode.
 type authRequiredMsg struct{ At time.Time }
+
+// BodyRenderedMsg is delivered after a body fetch (or cache hit) has
+// produced text and link table. The viewer pane consumes it.
+type BodyRenderedMsg struct {
+	MessageID string
+	Text      string
+	State     int // mirrors render.BodyState
+}
