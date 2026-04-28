@@ -57,6 +57,23 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
 
+### Iter 4 — 2026-04-28 (layout rebalance + e2e regression tests)
+- Triggers from real-tenant smoke after v0.2.5:
+  1. "more text space allocated to see the email title" — at 120-col terminal, list pane was hard-coded to 40 cols. Format string (`%-10s %-18s %s`) consumed 30 chars on date+sender, leaving ~9 chars for subject. Subjects were unreadable: "Accepted:", "[External", "RE: Agent".
+  2. "no folders, no navigation" — folders were rendering correctly (the e2e test added in this iter passes against unmodified code), but the visible regression masked itself behind the subject truncation: the user couldn't visually distinguish folder column from blank padding. Adding a regression test for the FoldersEnumeratedEvent → SetFolders flow proves the path is intact.
+  3. Methodology: per CLAUDE.md §5.4 the e2e build tag is mandatory for TUI work. Prior iterations had been skipping local TUI verification and relying on the user's smoke-test as the integration test — a discipline failure. This iter restored the loop: write teatest with mocked store + fakeEngine, drive keystrokes, assert rendered frames, fix until green, only THEN release.
+- Slice:
+  - `internal/ui/app.go` `relayout`: list pane now gets 60% of (width − folders); viewer the remaining 40%. At 120 cols → folders=22, list=58, viewer=40. At <90 cols folders compresses to width/4 (min 14), list keeps a 40-col floor.
+  - `internal/ui/panes.go` `ListModel.View`: sender column shrunk 18 → 14 chars. Saves 4 cols for subject.
+  - `internal/ui/app_e2e_test.go`: 6 new tests:
+    - `TestFoldersEnumeratedEventRendersSidebar` — empty store, fire FoldersEnumeratedEvent, assert Inbox/Drafts/Sent Items render. Guards the SetFolders mutation surviving Update cycles.
+    - `TestSubjectColumnVisibleAtStandardWidth` — 120 cols, long subject, assert ≥ 26 leading chars survive truncation.
+    - `TestFocusFoldersShowsFocusMarker` — `1` → "▌ Folders" header.
+    - `TestListNavigationOpensViewer` — `j`+Enter → "Subject: Newsletter weekly" in viewer.
+    - `TestFolderEnterSwitchesMessageList` — focus folders, j, Enter → message list switches folders.
+    - `TestTabCyclesPanes` — Tab Tab → focus reaches folders pane.
+- Tests: full sweep green (`go vet`, `go test -race`, `go test -tags=e2e`). 14 e2e tests pass in 1.8s.
+
 ### Iter 3 — 2026-04-28 (TUI runtime wiring + signin auto-launch)
 - Trigger: real-tenant smoke after v0.1.3 — sign-in works but `./inkwell` (no subcommand) prints cobra help and exits. The Bubble Tea program never starts in production code; only `teatest` exercised it. Follow-up: `./inkwell signin` should also flow into the TUI on success (one-step setup).
 - Slice:

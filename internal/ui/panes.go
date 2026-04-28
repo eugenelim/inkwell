@@ -185,7 +185,7 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		if from == "" {
 			from = msg.FromAddress
 		}
-		line := fmt.Sprintf("%-10s %-18s %s", when, truncate(from, 18), msg.Subject)
+		line := fmt.Sprintf("%-10s %-14s %s", when, truncate(from, 14), msg.Subject)
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
