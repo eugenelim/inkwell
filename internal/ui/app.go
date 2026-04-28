@@ -53,8 +53,10 @@ type PaneWidths struct {
 	List    int
 }
 
-// DefaultPaneWidths is the spec default (folders 25, list 40, viewer auto).
-func DefaultPaneWidths() PaneWidths { return PaneWidths{Folders: 25, List: 40} }
+// DefaultPaneWidths is the spec default. Real widths are recomputed in
+// relayout from the terminal size — these are seed values used until
+// the first WindowSizeMsg lands.
+func DefaultPaneWidths() PaneWidths { return PaneWidths{Folders: 22, List: 56} }
 
 // Model is the root Bubble Tea model. Sub-models are value types
 // (CLAUDE.md §4); the entire tree round-trips through Update.
@@ -512,14 +514,37 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// relayout recomputes pane widths after a WindowSizeMsg. Defaults
-// preserve config-supplied folder/list widths; viewer takes the rest.
+// relayout recomputes pane widths from terminal size. The list pane
+// gets the dominant share of the remaining cols (after the fixed
+// folders sidebar) so subject lines stay readable. Viewer takes the
+// rest. At <90 cols everything compresses proportionally.
 func (m Model) relayout() Model {
-	if m.width < m.paneWidths.Folders+m.paneWidths.List+10 {
-		// Cramped: shrink folders to half and list to 40% of remaining.
-		m.paneWidths.Folders = m.width / 4
-		m.paneWidths.List = (m.width - m.paneWidths.Folders) / 2
+	if m.width < 1 {
+		return m
 	}
+	folders := 22
+	if m.width < 90 {
+		folders = m.width / 4
+		if folders < 14 {
+			folders = 14
+		}
+	}
+	remaining := m.width - folders
+	if remaining < 30 {
+		remaining = 30
+	}
+	// 60% of the remaining width to list, 40% to viewer. At 120 cols
+	// that's folders=22, list=58, viewer=40 — subjects get ~28 chars
+	// after the date/sender prefix, viewer keeps a usable reading column.
+	list := remaining * 6 / 10
+	if list < 40 {
+		list = 40
+	}
+	if list > remaining-25 {
+		list = remaining - 25
+	}
+	m.paneWidths.Folders = folders
+	m.paneWidths.List = list
 	return m
 }
 

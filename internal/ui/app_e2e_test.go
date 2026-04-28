@@ -232,6 +232,194 @@ func TestOpeningMessageFetchesBodyAndRenders(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestFoldersEnumeratedEventRendersSidebar reproduces the real-tenant
+// flow: store starts EMPTY, engine emits FoldersEnumeratedEvent after
+// it upserts folders into the store, the UI must reload its sidebar
+// from the now-populated store. v0.2.5 shipped with messages visible
+// but folders sidebar empty — this test guards the SetFolders mutation
+// surviving across the Update cycle.
+func TestFoldersEnumeratedEventRendersSidebar(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mail.db")
+	st, err := store.Open(path, store.DefaultOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+	id, err := st.PutAccount(context.Background(), store.Account{TenantID: "T", ClientID: "C", UPN: "tester@example.invalid"})
+	require.NoError(t, err)
+	acc, err := st.GetAccount(context.Background())
+	require.NoError(t, err)
+
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    st,
+		Engine:   eng,
+		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: "hello world"}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// First paint shows no folders (the store is empty).
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "tester@example.invalid")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Engine upserts folders, then emits FoldersEnumeratedEvent.
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: id, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-drafts", AccountID: id, DisplayName: "Drafts", WellKnownName: "drafts", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-sent", AccountID: id, DisplayName: "Sent Items", WellKnownName: "sentitems", LastSyncedAt: time.Now(),
+	}))
+	eng.events <- isync.FoldersEnumeratedEvent{Count: 3, At: time.Now()}
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Inbox") && contains(s, "Drafts") && contains(s, "Sent Items")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestSubjectColumnVisibleAtStandardWidth pins the layout: at a 120-col
+// terminal a long subject must remain readable in the list pane (more
+// than ~10 chars survive after the date+sender prefix). v0.2.5 chopped
+// subjects mid-word because list pane was 40 cols total; this guards
+// the rebalance.
+func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
+	st, acc := openE2EStore(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "m-long", AccountID: acc.ID, FolderID: "f-inbox",
+		Subject: "Asian and Pacific Islander Heritage Month kickoff",
+		FromAddress: "erg@example.invalid", FromName: "ERG",
+		ReceivedAt: time.Now().Add(-3 * time.Hour),
+	}))
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    st,
+		Engine:   eng,
+		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: "hello"}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		// "Asian and Pacific Islander" is 26 chars; with date(10)+gap+sender(18)+gap = 30
+		// chars of prefix, a list pane >= 56 cols leaves room for the first 26 of the subject.
+		return contains(string(out), "Asian and Pacific Islander")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFocusFoldersShowsFocusMarker drives "1" and asserts the folders
+// pane header gains the focus marker. The user reported "no
+// navigation" in v0.2.5 — this is the cheapest signal that key
+// dispatch is reaching the right pane.
+func TestFocusFoldersShowsFocusMarker(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		// "▌ Folders" is the focused-state header (panes.go:111).
+		return contains(string(out), "▌ Folders")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestListNavigationOpensViewer drives j to move the cursor and Enter
+// to open the selected message. Asserts the viewer renders the second
+// message's subject in its header.
+func TestListNavigationOpensViewer(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Q4 forecast") && contains(s, "Newsletter weekly")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Default focus is ListPane. Cursor starts on row 0 (Q4 forecast,
+	// the most recent — message list is ordered desc by ReceivedAt).
+	// j moves down to Newsletter weekly.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// Viewer header line is "Subject: <subject>" (panes.go:248).
+		return contains(s, "Subject: Newsletter weekly")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFolderEnterSwitchesMessageList puts focus on folders, moves to
+// Archive (sorted before Inbox alphabetically — but archive is rank 3
+// vs inbox rank 0, so Archive sorts BELOW Inbox), presses Enter, and
+// asserts the list pane switches to the empty Archive folder.
+func TestFolderEnterSwitchesMessageList(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	// Cursor starts on Inbox (auto-pick on first paint). j moves down
+	// in the sidebar order: Inbox(0) → Archive(3) (no Sent/Drafts in
+	// the seed).
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Archive has no messages → list pane shows empty rows. The
+	// previously-rendered "Q4 forecast" must drop out.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return !contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestTabCyclesPanes drives Tab and asserts focus markers move from
+// list → viewer → folders. Folders show "▌ Folders" only when focused.
+func TestTabCyclesPanes(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Start: ListPane. Tab → Viewer. Tab → Folders (focus marker on).
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "▌ Folders")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // contains is the tiny helper used everywhere — avoids importing strings
 // into every test for a single call.
 func contains(s, sub string) bool {
