@@ -76,7 +76,7 @@ inkwell              # launch the TUI
 The default sign-in opens your system default browser. On a managed Mac
 the Microsoft Enterprise SSO plug-in for Apple Devices transparently
 satisfies Conditional Access policies that require a compliant device —
-this is the only flow that works on Accenture-class tenants.
+this is the only flow that works on deeply-managed enterprise tenants.
 
 For headless / SSH sessions where no browser can be launched, use
 device code flow: `inkwell signin --device-code`. **Tenants that

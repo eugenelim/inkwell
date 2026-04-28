@@ -404,7 +404,7 @@ The config loader is `internal/config/config.go`. It exposes a single `Load() (*
 
 - `go build` produces a single binary.
 - macOS-specific: code-signed and notarized via Apple Developer ID. Build script at `scripts/release.sh`.
-- Distribution: Homebrew tap `accenture/inkwell` (or whatever sponsor namespace).
+- Distribution: Homebrew tap `<sponsor>/inkwell` (or whatever sponsor namespace).
 - Versioning: SemVer. Pre-1.0 uses `0.x.y`.
 - Update mechanism: `brew upgrade`. No in-app auto-updater in v1.
 

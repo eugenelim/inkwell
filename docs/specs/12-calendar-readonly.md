@@ -195,12 +195,12 @@ The folders pane gets a third section (after Saved Searches):
    │  📍 Conference Room 3                                              │
    │  🔗 https://teams.microsoft.com/l/meetup-join/...   [press l]      │
    │                                                                    │
-   │  Organizer: Alice Smith <alice@accenture.com>                     │
+   │  Organizer: Alice Smith <alice@example.invalid>                     │
    │  Attendees:                                                        │
-   │    ✓ Eu Gene Eu <eu.gene@accenture.com>          (you)            │
+   │    ✓ Eu Gene Eu <eu.gene@example.invalid>          (you)            │
    │    ✓ Bob Acme <bob.acme@vendor.com>                               │
-   │    ? Charlie Lee <charlie@accenture.com>                          │
-   │    ✗ Dana Wong <dana@accenture.com>                                │
+   │    ? Charlie Lee <charlie@example.invalid>                          │
+   │    ✗ Dana Wong <dana@example.invalid>                                │
    │                                                                    │
    │  Body:                                                             │
    │    Going through the final draft of the Q4 deck. Please review    │
@@ -229,7 +229,7 @@ Calendar · Today, Mon Apr 27 2026                     [a] agenda  [w] week  [Es
       │ ▌ team / online                                                 │
 10:00 │                                                                 │
       │ ▌▌▌ Q4 review prep                       10:30–11:00            │
-11:00 │ ▌▌▌ alice@accenture.com                                         │
+11:00 │ ▌▌▌ alice@example.invalid                                         │
       │                                                                 │
 12:00 │                                                                 │
       │ (lunch — no events)                                             │

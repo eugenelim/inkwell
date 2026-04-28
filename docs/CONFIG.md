@@ -357,7 +357,7 @@ A user's `~/.config/inkwell/config.toml` overriding defaults:
 # first-party public client against /common by default. Set upn here
 # only if you want a guardrail against signing in as the wrong account.
 [account]
-upn = "eu.gene@accenture.com"
+upn = "eu.gene@example.invalid"
 
 [sync]
 foreground_interval = "20s"

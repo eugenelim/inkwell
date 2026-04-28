@@ -42,7 +42,7 @@ Drawn from Mutt with light extensions. Each operator takes a single argument:
 | Operator | Field | Argument | Example |
 | --- | --- | --- | --- |
 | `~f` | from | email or wildcard | `~f bob@acme.com` `~f newsletter@*` |
-| `~t` | to (recipients) | email or wildcard | `~t eu.gene@accenture.com` |
+| `~t` | to (recipients) | email or wildcard | `~t eu.gene@example.invalid` |
 | `~c` | cc | email or wildcard | `~c ceo@*` |
 | `~r` | recipient (to OR cc) | email or wildcard | `~r alice@` |
 | `~s` | subject | text or "quoted phrase" | `~s budget` `~s "Q4 review"` |
@@ -119,7 +119,7 @@ Relative durations support `s`, `m`, `h`, `d`, `w`, `mo`, `y` (where `m` is minu
 | `~U & ~A & ~d >180d` | Read messages with attachments older than 180 days |
 | `~G Newsletters & ~U` | Read items in the Newsletters category |
 | `~m "Clients/TIAA" & ~F` | Flagged messages in TIAA folder |
-| `! ~r eu.gene@accenture.com` | Messages where I'm not a recipient (BCC, mailing list) |
+| `! ~r eu.gene@example.invalid` | Messages where I'm not a recipient (BCC, mailing list) |
 | `~y other & ~d <7d` | This week's "Other" inference messages |
 
 ## 4. Lexer
@@ -364,7 +364,7 @@ Two-query intersection cost: 2 round-trips. Acceptable for an interactive bulk o
 | `~F` | `flag_status = 'flagged'` | — |
 | `~G Work` | `EXISTS (SELECT 1 FROM json_each(messages.categories) WHERE value = ?)` | `["Work"]` |
 | `~m Inbox` | `folder_id IN (SELECT id FROM folders WHERE display_name = ? OR well_known_name = ?)` | `["Inbox","inbox"]` |
-| `~r eu.gene@accenture.com` | `(EXISTS (SELECT 1 FROM json_each(messages.to_addresses) ja WHERE json_extract(ja.value, '$.address') = ?) OR EXISTS (SELECT 1 FROM json_each(messages.cc_addresses) ja WHERE json_extract(ja.value, '$.address') = ?))` | `["eu.gene@accenture.com","eu.gene@accenture.com"]` |
+| `~r eu.gene@example.invalid` | `(EXISTS (SELECT 1 FROM json_each(messages.to_addresses) ja WHERE json_extract(ja.value, '$.address') = ?) OR EXISTS (SELECT 1 FROM json_each(messages.cc_addresses) ja WHERE json_extract(ja.value, '$.address') = ?))` | `["eu.gene@example.invalid","eu.gene@example.invalid"]` |
 
 Boolean composition wraps fragments with `AND`, `OR`, `NOT (...)`.
 
@@ -410,7 +410,7 @@ The FTS5 query must be a single clause; multiple text predicates compose via FTS
 | `~N` | `isRead eq false` |
 | `~F` | `flag/flagStatus eq 'flagged'` |
 | `~G Work` | `categories/any(c:c eq 'Work')` |
-| `~r eu.gene@accenture.com` | `toRecipients/any(r:r/emailAddress/address eq 'eu.gene@accenture.com') or ccRecipients/any(r:r/emailAddress/address eq 'eu.gene@accenture.com')` |
+| `~r eu.gene@example.invalid` | `toRecipients/any(r:r/emailAddress/address eq 'eu.gene@example.invalid') or ccRecipients/any(r:r/emailAddress/address eq 'eu.gene@example.invalid')` |
 
 Bool composition: `and`, `or`, `not`. Parentheses for grouping.
 
@@ -436,7 +436,7 @@ Unsupported in $filter, in v1:
 | `~b "action required"` | `body:"action required"` |
 | `~B forecast` | `forecast` (default-field search hits subject + body) |
 | `~f bob@acme.com` | `from:bob@acme.com` |
-| `~r eu.gene@accenture.com` | `to:eu.gene@accenture.com OR cc:eu.gene@accenture.com` |
+| `~r eu.gene@example.invalid` | `to:eu.gene@example.invalid OR cc:eu.gene@example.invalid` |
 | `~A` | `hasattachment:true` |
 | `~G Work` | `category:Work` |
 | `~d <30d` | `received>=2026-03-28` |

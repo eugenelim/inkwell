@@ -64,7 +64,7 @@ We fetch the full object on app start, cache it in memory (no DB persistence —
 When automatic replies are enabled, the status bar gets an OOO indicator:
 
 ```
-☰ inkwell · ueg@accenture.com · 🌴 OOO · ✓ synced 14:32
+☰ inkwell · ueg@example.invalid · 🌴 OOO · ✓ synced 14:32
 ```
 
 The `🌴` glyph (configurable via `[mailbox_settings].ooo_indicator`) is muted/colored to draw the eye. Hovering — well, terminals don't have hover, but pressing `:status` shows full settings.
@@ -110,7 +110,7 @@ The `🌴` glyph (configurable via `[mailbox_settings].ooo_indicator`) is muted/
    │  Internal message:                                           │
    │  ┌─────────────────────────────────────────────────────────┐ │
    │  │ I'm out of the office this week. Please reach out to    │ │
-   │  │ Alice Smith (alice@accenture.com) for urgent matters.   │ │
+   │  │ Alice Smith (alice@example.invalid) for urgent matters.   │ │
    │  │ I'll respond when I'm back on May 4.                    │ │
    │  └─────────────────────────────────────────────────────────┘ │
    │                                                              │

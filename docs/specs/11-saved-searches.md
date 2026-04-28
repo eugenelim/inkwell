@@ -82,7 +82,7 @@ sort_order = 1
 
 [[search]]
 name = "Needs Reply"
-pattern = '~r eu.gene@accenture.com & ~U & ~d <14d & ! ~G Auto'
+pattern = '~r eu.gene@example.invalid & ~U & ~d <14d & ! ~G Auto'
 pinned = true
 sort_order = 2
 

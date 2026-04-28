@@ -15,10 +15,10 @@ Build the Bubble Tea application skeleton: root model, panes, keymap, command ba
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ ☰ inkwell · ueg@accenture.com · ✓ synced 14:32                            │ ← status (1 row)
+│ ☰ inkwell · ueg@example.invalid · ✓ synced 14:32                            │ ← status (1 row)
 ├──────────────┬─────────────────────────────────┬───────────────────────────┤
 │ ▸ Inbox  47 │ Sun 14:32  Bob Acme              │ From: Bob Acme            │
-│   Drafts    │   Q4 forecast                    │ To: ueg@accenture.com     │
+│   Drafts    │   Q4 forecast                    │ To: ueg@example.invalid     │
 │   Sent      │   Hey, attached the deck for...  │ Subject: Q4 forecast      │
 │   Archive   │ Sun 11:15  newsletter@vendor     │ Date: Sun 14:32           │
 │ ▾ Clients   │   This week in tech              │                           │
@@ -274,7 +274,7 @@ Placeholder in this spec — full implementation in spec 05 (rendering). For now
 
 ```
 From: Bob Acme <bob@acme.com>
-To:   ueg@accenture.com
+To:   ueg@example.invalid
 Date: Sun 2026-04-26 14:32
 Subj: Q4 forecast
 

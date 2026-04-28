@@ -14,7 +14,7 @@ By default, Inkwell opens your system browser to complete sign-in. On a
 managed Mac, the Microsoft Enterprise SSO plug-in for Apple Devices
 transparently injects the device-compliance signal that Conditional
 Access policies require — this is the only flow that works on
-Accenture-class tenants.
+deeply-managed enterprise tenants.
 
 Use --device-code only on headless / SSH sessions where no browser can
 be launched. Conditional Access policies that require a managed device

@@ -80,8 +80,8 @@ Default header set (always shown):
 
 ```
 From:    Bob Acme <bob.acme@vendor.com>
-To:      eu.gene@accenture.com
-Cc:      jane.doe@accenture.com (3 more)
+To:      eu.gene@example.invalid
+Cc:      jane.doe@example.invalid (3 more)
 Date:    Sun 2026-04-26 14:32 EDT (3h ago)
 Subject: Q4 forecast
 ```
@@ -270,8 +270,8 @@ tomorrow's call.
 Bob
 
 Links:
-  [1] https://accenture.sharepoint.com/sites/M365Copilot/.../forecast.pptx
-  [2] https://accenture.sharepoint.com/sites/Magnum/.../q4-data.xlsx
+  [1] https://sharepoint.example.invalid/sites/M365Copilot/.../forecast.pptx
+  [2] https://sharepoint.example.invalid/sites/Magnum/.../q4-data.xlsx
 ```
 
 In viewer focus:

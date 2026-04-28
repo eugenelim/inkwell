@@ -352,7 +352,7 @@ When the user presses `r` (reply), `R` (reply all), or `f` (forward — viewer p
 1. The TUI opens an editor: `$EDITOR` (defaults to `nano` if unset; `vi` configurable). The reply skeleton is pre-populated:
    ```
    To: bob.acme@vendor.com
-   Cc: jane.doe@accenture.com
+   Cc: jane.doe@example.invalid
    Subject: Re: Q4 forecast
 
    <cursor here>
