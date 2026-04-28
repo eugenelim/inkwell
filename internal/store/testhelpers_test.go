@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// OpenTestStore opens a fresh DB in t.TempDir() and returns it. The
-// caller does not need to call Close — t.Cleanup handles it.
+// OpenTestStore opens a fresh DB in t.TempDir() and returns it.
 func OpenTestStore(t *testing.T) Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "mail.db")
@@ -49,7 +48,6 @@ func SeedFolder(t *testing.T, s Store, accountID int64) Folder {
 }
 
 // SyntheticMessage produces a deterministic message at the given offset.
-// receivedAt = base − offset minutes, so offset 0 is newest.
 func SyntheticMessage(accountID int64, folderID string, offset int, base time.Time) Message {
 	id := "msg-" + strconv.Itoa(offset)
 	return Message{

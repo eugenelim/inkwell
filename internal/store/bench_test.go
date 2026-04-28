@@ -177,6 +177,9 @@ func TestBudgetsHonoured(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping budget check in -short mode")
 	}
+	if isRaceEnabled() {
+		t.Skip("budget check disabled under -race (per-op time is inflated; run without -race to gate)")
+	}
 	cases := []struct {
 		name   string
 		budget time.Duration
