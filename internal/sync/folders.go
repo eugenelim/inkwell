@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // syncFolders enumerates all mailFolders, upserts them, and deletes any

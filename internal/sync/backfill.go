@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/graph"
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/graph"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // Backfill pulls a folder's messages back to `until`, paginating until

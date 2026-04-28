@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // BodyState enumerates the visible state of a body fetch.

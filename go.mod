@@ -1,4 +1,4 @@
-module github.com/eu-gene-lim/inkwell
+module github.com/eugenelim/inkwell
 
 go 1.25.0
 

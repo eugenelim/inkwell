@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // maxRecipientLines is the truncation threshold for To/Cc.

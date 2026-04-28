@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	ilog "github.com/eu-gene-lim/inkwell/internal/log"
+	ilog "github.com/eugenelim/inkwell/internal/log"
 )
 
 // TestAuthErrorPathDoesNotLeakTokenWhenLogged ensures the redactor

@@ -14,10 +14,10 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/stretchr/testify/require"
 
-	ilog "github.com/eu-gene-lim/inkwell/internal/log"
-	"github.com/eu-gene-lim/inkwell/internal/render"
-	"github.com/eu-gene-lim/inkwell/internal/store"
-	isync "github.com/eu-gene-lim/inkwell/internal/sync"
+	ilog "github.com/eugenelim/inkwell/internal/log"
+	"github.com/eugenelim/inkwell/internal/render"
+	"github.com/eugenelim/inkwell/internal/store"
+	isync "github.com/eugenelim/inkwell/internal/sync"
 )
 
 // stubBodyFetcher returns a canned body for renderer wiring tests.

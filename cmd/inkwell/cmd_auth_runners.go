@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/eu-gene-lim/inkwell/internal/auth"
+	"github.com/eugenelim/inkwell/internal/auth"
 )
 
 // promptDeviceCode writes the user-facing instructions to stderr in a

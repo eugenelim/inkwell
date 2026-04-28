@@ -3,11 +3,16 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/eu-gene-lim/inkwell/internal/config"
+	"github.com/eugenelim/inkwell/internal/config"
 )
 
-// version is set at build time via -ldflags "-X main.version=<git tag>".
-var version = "0.0.0-dev"
+// version, commit, date are populated at build time via -ldflags
+// (see Makefile and .goreleaser.yaml).
+var (
+	version = "0.0.0-dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 // rootContext is the shared state passed down to subcommands. It is
 // constructed lazily inside PersistentPreRunE so subcommands like
@@ -25,7 +30,7 @@ func newRootCmd() *cobra.Command {
 		Short:         "Terminal-based mail and calendar client for Microsoft 365",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       version,
+		Version:       version + " (" + commit + " · " + date + ")",
 	}
 	cmd.PersistentFlags().StringVar(&rc.configPath, "config", config.DefaultPath(), "path to config.toml")
 	cmd.PersistentFlags().BoolVar(&rc.verbose, "verbose", false, "enable debug logging")

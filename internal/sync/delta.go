@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/graph"
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/graph"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // syncFolder runs the per-folder delta loop (spec §6). Initial call
