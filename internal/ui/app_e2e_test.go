@@ -95,12 +95,18 @@ func TestBootRendersThreePanesAndStatusBar(t *testing.T) {
 	m, _ := newE2EModel(t)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
+	// First paint must show the headers on all three panes, the focus
+	// marker on the default-focus pane (list), and a non-truncated
+	// subject (post-rebalance the list pane is wide enough).
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
 		return contains(s, "tester@example.invalid") &&
+			contains(s, "Folders") &&
+			contains(s, "▌ Messages") && // focus marker on default-focus pane
+			contains(s, "Message") &&
 			contains(s, "Inbox") &&
 			contains(s, "Archive") &&
-			contains(s, "Q4 foreca") // truncated to 40-char list width
+			contains(s, "Q4 forecast") // full subject visible
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
@@ -322,49 +328,66 @@ func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
-// TestFocusFoldersShowsFocusMarker drives "1" and asserts the folders
-// pane header gains the focus marker. The user reported "no
-// navigation" in v0.2.5 — this is the cheapest signal that key
-// dispatch is reaching the right pane.
+// TestFocusFoldersShowsFocusMarker drives "1" and asserts the focus
+// marker MOVES from the list pane to the folders pane — the "▌"
+// glyph must appear on Folders AND disappear from Messages. Just
+// asserting "▌ Folders" appears isn't enough: the marker has to leave
+// the previously-focused pane too.
 func TestFocusFoldersShowsFocusMarker(t *testing.T) {
 	m, _ := newE2EModel(t)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// Default focus is list; first paint must put the marker on Messages.
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
-		return contains(string(out), "Inbox")
+		s := string(out)
+		return contains(s, "Inbox") && contains(s, "▌ Messages")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
-		// "▌ Folders" is the focused-state header (panes.go:111).
-		return contains(string(out), "▌ Folders")
+		s := string(out)
+		// Focus marker now on Folders, gone from Messages.
+		return contains(s, "▌ Folders") && !contains(s, "▌ Messages")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
-// TestListNavigationOpensViewer drives j to move the cursor and Enter
-// to open the selected message. Asserts the viewer renders the second
-// message's subject in its header.
+// TestListNavigationOpensViewer drives j and Enter, asserting (a) the
+// cursor glyph "▶" sits on Q4 forecast initially, (b) after j it sits
+// on Newsletter weekly, and (c) Enter swaps the viewer from
+// "(no message selected)" to "Subject: Newsletter weekly".
 func TestListNavigationOpensViewer(t *testing.T) {
 	m, _ := newE2EModel(t)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// Initial paint: cursor "▶" on the first message; viewer empty.
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
-		return contains(s, "Q4 forecast") && contains(s, "Newsletter weekly")
+		return contains(s, "▶") &&
+			contains(s, "Q4 forecast") &&
+			contains(s, "Newsletter weekly") &&
+			contains(s, "(no message selected)")
 	}, teatest.WithDuration(2*time.Second))
 
-	// Default focus is ListPane. Cursor starts on row 0 (Q4 forecast,
-	// the most recent — message list is ordered desc by ReceivedAt).
-	// j moves down to Newsletter weekly.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+
+	// After j: cursor glyph must now be on Newsletter weekly's row.
+	// We assert by line: the substring "▶ ...Newsletter weekly" must
+	// appear on the same line in the output buffer.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return cursorOnLineWith(string(out), "Newsletter weekly")
+	}, teatest.WithDuration(2*time.Second))
+
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
+	// Viewer pane swap: empty → headers visible.
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
-		// Viewer header line is "Subject: <subject>" (panes.go:248).
-		return contains(s, "Subject: Newsletter weekly")
+		return contains(s, "Subject: Newsletter weekly") &&
+			!contains(s, "(no message selected)")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
@@ -399,21 +422,32 @@ func TestFolderEnterSwitchesMessageList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
-// TestTabCyclesPanes drives Tab and asserts focus markers move from
-// list → viewer → folders. Folders show "▌ Folders" only when focused.
+// TestTabCyclesPanes drives Tab repeatedly and asserts the focus
+// marker "▌" walks Messages → Message → Folders → Messages, each step
+// removing the marker from the previous pane.
 func TestTabCyclesPanes(t *testing.T) {
 	m, _ := newE2EModel(t)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
-		return contains(string(out), "Inbox")
+		return contains(string(out), "▌ Messages")
 	}, teatest.WithDuration(2*time.Second))
 
-	// Start: ListPane. Tab → Viewer. Tab → Folders (focus marker on).
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
-	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
-
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
-		return contains(string(out), "▌ Folders")
+		s := string(out)
+		return contains(s, "▌ Message") && !contains(s, "▌ Messages")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "▌ Folders") && !contains(s, "▌ Messages") && !contains(s, "▌ Message\n")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "▌ Messages") && !contains(s, "▌ Folders")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
@@ -429,4 +463,55 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// cursorOnLineWith returns true if the framebuffer has any line that
+// contains BOTH the focused-cursor glyph "▶" and the supplied text.
+// This is how we assert "the cursor sits on the row with this
+// message" without coupling to terminal-emulator output details.
+// Splits on '\n' AND on the alt-screen ANSI cursor-position escape
+// sequence (`\x1b[<row>;<col>H`) since teatest's renderer often emits
+// per-line with that prefix instead of newlines.
+func cursorOnLineWith(buf, text string) bool {
+	// Split by both newline and ANSI cursor-position resets so we get
+	// individual visual lines.
+	lines := splitVisualLines(buf)
+	for _, line := range lines {
+		if contains(line, "▶") && contains(line, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitVisualLines(buf string) []string {
+	var out []string
+	var cur []byte
+	for i := 0; i < len(buf); i++ {
+		c := buf[i]
+		if c == '\n' {
+			out = append(out, string(cur))
+			cur = cur[:0]
+			continue
+		}
+		// ANSI: ESC [ ... H is cursor-position; treat as line break.
+		if c == 0x1b && i+1 < len(buf) && buf[i+1] == '[' {
+			// Find the terminator letter.
+			j := i + 2
+			for j < len(buf) && !((buf[j] >= 'A' && buf[j] <= 'Z') || (buf[j] >= 'a' && buf[j] <= 'z')) {
+				j++
+			}
+			if j < len(buf) && buf[j] == 'H' {
+				out = append(out, string(cur))
+				cur = cur[:0]
+			}
+			i = j
+			continue
+		}
+		cur = append(cur, c)
+	}
+	if len(cur) > 0 {
+		out = append(out, string(cur))
+	}
+	return out
 }
