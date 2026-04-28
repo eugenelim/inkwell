@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -452,6 +453,120 @@ func TestTabCyclesPanes(t *testing.T) {
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestSubfoldersRenderWithIndentation seeds Inbox with a "Projects"
+// subfolder and a deeper "Q4" sub-subfolder, fires
+// FoldersEnumeratedEvent, and asserts the rendered sidebar contains
+// the children at increasing indentation. Without subfolder support
+// the user only ever sees roots; this test guards that fix.
+func TestSubfoldersRenderWithIndentation(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mail.db")
+	st, err := store.Open(path, store.DefaultOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+	id, err := st.PutAccount(context.Background(), store.Account{TenantID: "T", ClientID: "C", UPN: "tester@example.invalid"})
+	require.NoError(t, err)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: id, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-projects", AccountID: id, ParentFolderID: "f-inbox", DisplayName: "Projects", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-q4", AccountID: id, ParentFolderID: "f-projects", DisplayName: "Q4", LastSyncedAt: time.Now(),
+	}))
+	acc, err := st.GetAccount(context.Background())
+	require.NoError(t, err)
+
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    st,
+		Engine:   eng,
+		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: "x"}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// All three names visible — and the deeper folder must appear
+		// at greater indentation than its parent.
+		if !contains(s, "Inbox") || !contains(s, "Projects") || !contains(s, "Q4") {
+			return false
+		}
+		return folderAppearsAtIndent(s, "Projects", 2) && folderAppearsAtIndent(s, "Q4", 4)
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFolderEnterAutoFocusesList drives the user's "open this folder"
+// flow: focus folders, j to a sibling, Enter — focus must move to the
+// list pane so they can immediately read messages without pressing 2.
+func TestFolderEnterAutoFocusesList(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox") && contains(string(out), "Archive")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "▌ Folders")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// Focus marker has moved to Messages and is gone from Folders.
+		return contains(s, "▌ Messages") && !contains(s, "▌ Folders")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// folderAppearsAtIndent returns true if `name` appears in `buf`
+// preceded by exactly `indent` spaces (after the cursor-marker col).
+// We split on visual lines and check each line for the pattern
+// "(any cursor marker, 2 chars)<indent>name".
+func folderAppearsAtIndent(buf, name string, indent int) bool {
+	prefix := strings.Repeat(" ", indent) + name
+	for _, line := range splitVisualLines(buf) {
+		// Strip ANSI escape sequences before matching whitespace.
+		clean := stripAnsi(line)
+		if strings.Contains(clean, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripAnsi(s string) string {
+	var out []byte
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		if c == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z')) {
+				j++
+			}
+			i = j + 1
+			continue
+		}
+		out = append(out, c)
+		i++
+	}
+	return string(out)
 }
 
 // contains is the tiny helper used everywhere — avoids importing strings

@@ -57,6 +57,25 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
 
+### Iter 7 — 2026-04-28 (help bar fix + folder auto-focus + subfolder tree)
+- Triggers from real-tenant smoke after v0.2.8:
+  1. "I can no longer see the keyboard shortcuts at the bottom when I open a message" — v0.2.8's root-level safety net (`lines = lines[:m.height]`) trimmed the LAST line, which is the help bar. Cause: lipgloss `Height(N)` pads with a trailing newline, JoinVertical inflated frame to height+1, the cap chopped the help bar.
+  2. "after I select the folder view, how do I go back to the mail view?" — Enter on a folder loaded messages but left focus on the folders pane. User couldn't see (1) where the messages were AND (2) the help bar that mentioned `2: list`. Net effect: stuck on folders.
+  3. "how do I navigate into subfolders? I have a lot of subfolders I don't see." — FoldersModel was a flat list; `parent_folder_id` was ignored entirely.
+- Slice:
+  - `internal/ui/app.go` root `View`: replace the height safety net with body-region clip. Trim trailing newlines from `JoinHorizontal(folders, list, viewer)`, split, take exactly `bodyHeight` lines, rejoin. Total = 1 + bodyHeight + 1 + 1 = m.height by construction; help bar always survives.
+  - `internal/ui/app.go` `dispatchFolders`: Enter on folder now also sets `m.focused = ListPane`. The user is brought directly to the messages they asked for.
+  - `internal/ui/panes.go`: complete rewrite of FoldersModel storage. New `displayedFolder{f, depth}` type; `flattenFolderTree(fs)` walks the parent-child graph (roots ranked by `folderRank`, children sorted alphabetically), produces a flat slice in display order. View uses `it.depth` to indent 2 spaces per level. Cursor is still a flat index.
+- Tests:
+  - `dispatch_test.go`:
+    - `TestHelpBarVisibleInEveryFocusState` — frame is exactly 30 rows AND the last line carries the focus-specific help hint, in list/folders/viewer focus states.
+    - `TestFlattenFolderTreeOrdersAndIndentsCorrectly` — 8-folder fixture with 3-level nesting, asserts order and depth row by row.
+    - `TestFlattenFolderTreeHandlesUntrackedParents` — folder pointing at a non-tracked parent is treated as a root, not silently dropped.
+    - Existing `TestDispatchEnterOnFolderSwitchesList` updated to assert `m.focused == ListPane` after Enter.
+  - `app_e2e_test.go`:
+    - `TestSubfoldersRenderWithIndentation` — Inbox > Projects > Q4 hierarchy, asserts each child appears at correctly increasing indentation (using a `folderAppearsAtIndent` helper that strips ANSI before matching).
+    - `TestFolderEnterAutoFocusesList` — focus marker leaves `▌ Folders` and lands on `▌ Messages` after Enter.
+
 ### Iter 6 — 2026-04-28 (height clip + viewer scroll + theme presets)
 - Triggers from real-tenant smoke after v0.2.7:
   1. "had to scroll up initially to see sidebar and title bars" — and "if a message is too long it scrolls past the fixed view port and the menu bar on the top and the side bars disappear". Same root cause: lipgloss `Height(N)` *pads* but never *clips*. A long folder list or message body produced a body > bodyHeight; JoinHorizontal made the body taller than expected; total frame > terminal height; bubbletea wrote it out and the terminal scrolled, pushing the status bar off-screen.
