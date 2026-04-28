@@ -40,6 +40,13 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Tests added: ModeAutoUsesInteractiveWhenNoAccount, ModeAutoFallsBackToDeviceCodeOnLaunchError, ModeAutoDoesNotFallBackOnAADError, ModeInteractiveDoesNotFallBack, ModeDeviceCodeSkipsInteractive, TokenFallsBackInteractiveWhenSilentFails, ParseSignInMode, IsBrowserLaunchErrorClassification. Existing tests that drove `deviceResult` switched to `interactiveResult` since the default mode changed.
 - Race + e2e + budget gates all green.
 
+### Iter 4 — 2026-04-28 (offline_access decline retry)
+- Trigger: real-tenant smoke (ExampleCorp) caught `signin: interactive auth: token response failed because declined scopes are present: offline_access`. The browser flow worked; the user signed in; the tenant just declines long-lived refresh tokens for the Microsoft Graph CLI Tools client. MSAL Go raises a hard error in that case even though sign-in otherwise succeeded.
+- Slice: refactor `acquireFallback` into a wrapper that retries `acquireWithScopes` once, with `offline_access` stripped, when the only declined scope was `offline_access`. New helpers `isOfflineAccessDeclined` (parses the MSAL error message; only retries when offline_access is the *sole* declined scope so other scope problems still surface) and `scopesWithout` (case-insensitive remove). Trade-off: no silent refresh — the user re-auths when the access token expires (~60 minutes).
+- Tests added: RetriesWithoutOfflineAccessOnDecline, DoesNotRetryWhenOtherScopeDeclined, DoesNotRetryWhenMultipleScopesDeclinedIncludingOfflineAccess (the critical guard), RetrySurfacesSecondError, IsOfflineAccessDeclinedClassification, ScopesWithoutDropsCaseInsensitive. fakeSource gained `*ErrFirstCallOnly` flags + `observedScopes` so retry-flow assertions are precise.
+- Spec 01 §11 gains a new failure-mode row documenting the retry + the trade-off.
+- Race + e2e green.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

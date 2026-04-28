@@ -232,19 +232,38 @@ func (a *authenticator) Token(ctx context.Context) (string, error) {
 }
 
 // acquireFallback runs the configured sign-in flow when silent token
-// acquisition has failed. ModeAuto tries interactive first and falls
-// back to device code only when the browser cannot be launched
-// (spec 01 §5.0).
+// acquisition has failed.
+//
+// If the tenant declines `offline_access` (a common policy on
+// managed-device tenants), MSAL Go raises an error even though the
+// user otherwise signed in successfully. We detect that exact case and
+// retry the flow without `offline_access` — sign-in succeeds at the
+// cost of losing silent refresh (the user re-auths when the access
+// token expires, ~60 minutes). Spec 01 §11 documents this trade-off.
 func (a *authenticator) acquireFallback(ctx context.Context) (AuthResult, error) {
+	res, err := a.acquireWithScopes(ctx, a.cfg.Scopes)
+	if err == nil {
+		return res, nil
+	}
+	if !isOfflineAccessDeclined(err) {
+		return AuthResult{}, err
+	}
+	return a.acquireWithScopes(ctx, scopesWithout(a.cfg.Scopes, "offline_access"))
+}
+
+// acquireWithScopes runs whichever fallback flow Mode selects, using the
+// supplied scope list. ModeAuto tries interactive first and falls back
+// to device code only when the browser cannot be launched (spec 01 §5.0).
+func (a *authenticator) acquireWithScopes(ctx context.Context, scopes []string) (AuthResult, error) {
 	switch a.cfg.Mode {
 	case ModeDeviceCode:
-		res, err := a.src.AcquireTokenByDeviceCode(ctx, a.cfg.Scopes, a.prompt)
+		res, err := a.src.AcquireTokenByDeviceCode(ctx, scopes, a.prompt)
 		if err != nil {
 			return AuthResult{}, fmt.Errorf("device code auth: %w", err)
 		}
 		return res, nil
 	case ModeInteractive:
-		res, err := a.src.AcquireTokenInteractive(ctx, a.cfg.Scopes)
+		res, err := a.src.AcquireTokenInteractive(ctx, scopes)
 		if err != nil {
 			return AuthResult{}, fmt.Errorf("interactive auth: %w", err)
 		}
@@ -252,19 +271,68 @@ func (a *authenticator) acquireFallback(ctx context.Context) (AuthResult, error)
 	default:
 		// ModeAuto: interactive first, fall back to device code only
 		// on launch errors so the SSH / no-display case still works.
-		res, ierr := a.src.AcquireTokenInteractive(ctx, a.cfg.Scopes)
+		res, ierr := a.src.AcquireTokenInteractive(ctx, scopes)
 		if ierr == nil {
 			return res, nil
 		}
 		if !isBrowserLaunchError(ierr) {
 			return AuthResult{}, fmt.Errorf("interactive auth: %w", ierr)
 		}
-		dres, derr := a.src.AcquireTokenByDeviceCode(ctx, a.cfg.Scopes, a.prompt)
+		dres, derr := a.src.AcquireTokenByDeviceCode(ctx, scopes, a.prompt)
 		if derr != nil {
 			return AuthResult{}, fmt.Errorf("device code fallback (after browser launch failed: %v): %w", ierr, derr)
 		}
 		return dres, nil
 	}
+}
+
+// isOfflineAccessDeclined returns true when err is MSAL Go's
+// "declined scopes are present" error AND offline_access is the only
+// declined scope. We retry only this exact case; any other declined
+// scope means the tenant denied something we genuinely need, and the
+// error must surface to the user.
+func isOfflineAccessDeclined(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "declined scopes are present") {
+		return false
+	}
+	// The error string lists declined scopes after the colon. We want
+	// only `offline_access` (case-insensitive) — if anything else is
+	// declined, do not silently retry.
+	idx := strings.Index(msg, "declined scopes are present:")
+	if idx < 0 {
+		return false
+	}
+	tail := strings.TrimSpace(msg[idx+len("declined scopes are present:"):])
+	if tail == "" {
+		return false
+	}
+	for _, s := range strings.Split(tail, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if s != "offline_access" {
+			return false
+		}
+	}
+	return true
+}
+
+// scopesWithout returns scopes with all (case-insensitive) occurrences
+// of name removed. The original slice is not modified.
+func scopesWithout(scopes []string, name string) []string {
+	out := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		if strings.EqualFold(strings.TrimSpace(s), name) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // isBrowserLaunchError returns true when err looks like the OS could

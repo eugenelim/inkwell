@@ -25,10 +25,18 @@ type fakeSource struct {
 	interactiveResult AuthResult
 	interactiveErr    error
 	interactiveCalls  atomic.Int32
+	// interactiveErrFirstCallOnly clears interactiveErr after the
+	// first call so retries see the success path.
+	interactiveErrFirstCallOnly bool
+	// observedScopes captures the scope list of the last fallback
+	// flow call (interactive or device code).
+	observedScopes []string
 
 	deviceResult AuthResult
 	deviceErr    error
 	deviceCalls  atomic.Int32
+	// deviceErrFirstCallOnly clears deviceErr after the first call.
+	deviceErrFirstCallOnly bool
 
 	removeCalls atomic.Int32
 }
@@ -49,10 +57,17 @@ func (f *fakeSource) AcquireTokenSilent(_ context.Context, _ []string, _ Account
 	return f.silentResult, nil
 }
 
-func (f *fakeSource) AcquireTokenInteractive(_ context.Context, _ []string) (AuthResult, error) {
+func (f *fakeSource) AcquireTokenInteractive(_ context.Context, scopes []string) (AuthResult, error) {
 	f.interactiveCalls.Add(1)
-	if f.interactiveErr != nil {
-		return AuthResult{}, f.interactiveErr
+	f.mu.Lock()
+	f.observedScopes = append([]string(nil), scopes...)
+	err := f.interactiveErr
+	if f.interactiveErrFirstCallOnly {
+		f.interactiveErr = nil
+	}
+	f.mu.Unlock()
+	if err != nil {
+		return AuthResult{}, err
 	}
 	f.mu.Lock()
 	f.accounts = append(f.accounts, f.interactiveResult.Account)
@@ -60,8 +75,15 @@ func (f *fakeSource) AcquireTokenInteractive(_ context.Context, _ []string) (Aut
 	return f.interactiveResult, nil
 }
 
-func (f *fakeSource) AcquireTokenByDeviceCode(ctx context.Context, _ []string, prompt PromptFn) (AuthResult, error) {
+func (f *fakeSource) AcquireTokenByDeviceCode(ctx context.Context, scopes []string, prompt PromptFn) (AuthResult, error) {
 	f.deviceCalls.Add(1)
+	f.mu.Lock()
+	f.observedScopes = append([]string(nil), scopes...)
+	err := f.deviceErr
+	if f.deviceErrFirstCallOnly {
+		f.deviceErr = nil
+	}
+	f.mu.Unlock()
 	if err := prompt(ctx, DeviceCodePrompt{
 		UserCode:        "FAKECODE",
 		VerificationURL: "https://example.invalid/devicelogin",
@@ -70,8 +92,8 @@ func (f *fakeSource) AcquireTokenByDeviceCode(ctx context.Context, _ []string, p
 	}); err != nil {
 		return AuthResult{}, err
 	}
-	if f.deviceErr != nil {
-		return AuthResult{}, f.deviceErr
+	if err != nil {
+		return AuthResult{}, err
 	}
 	f.mu.Lock()
 	f.accounts = append(f.accounts, f.deviceResult.Account)
@@ -415,4 +437,80 @@ func TestDefaultScopesIncludesOfflineAccess(t *testing.T) {
 		}
 	}
 	require.True(t, found, "offline_access scope must be present (spec 01 §6)")
+}
+
+func TestRetriesWithoutOfflineAccessOnDecline(t *testing.T) {
+	src := &fakeSource{
+		interactiveErr:              errors.New("token response failed because declined scopes are present: offline_access"),
+		interactiveErrFirstCallOnly: true,
+		interactiveResult: AuthResult{
+			AccessToken: "tok-no-refresh",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "u@example.invalid", TenantID: "T"},
+		},
+	}
+	a := newTestAuth(t, src, nil)
+	tok, err := a.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "tok-no-refresh", tok)
+	require.Equal(t, int32(2), src.interactiveCalls.Load(), "first call declined; second retried without offline_access")
+	require.NotContains(t, src.observedScopes, "offline_access", "retry must strip offline_access")
+}
+
+func TestDoesNotRetryWhenOtherScopeDeclined(t *testing.T) {
+	src := &fakeSource{
+		interactiveErr:              errors.New("token response failed because declined scopes are present: Mail.ReadWrite"),
+		interactiveErrFirstCallOnly: true,
+	}
+	a := newTestAuth(t, src, nil)
+	_, err := a.Token(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Mail.ReadWrite")
+	require.Equal(t, int32(1), src.interactiveCalls.Load(), "no retry: declined scope was not offline_access")
+}
+
+func TestDoesNotRetryWhenMultipleScopesDeclinedIncludingOfflineAccess(t *testing.T) {
+	// If the tenant declined offline_access AND something else, the
+	// "something else" is the real problem; do not silently swallow it.
+	src := &fakeSource{
+		interactiveErr:              errors.New("token response failed because declined scopes are present: offline_access, Mail.ReadWrite"),
+		interactiveErrFirstCallOnly: true,
+	}
+	a := newTestAuth(t, src, nil)
+	_, err := a.Token(context.Background())
+	require.Error(t, err)
+	require.Equal(t, int32(1), src.interactiveCalls.Load())
+}
+
+func TestRetrySurfacesSecondError(t *testing.T) {
+	src := &fakeSource{
+		interactiveErr: errors.New("token response failed because declined scopes are present: offline_access"),
+		// interactiveErrFirstCallOnly is false → both calls fail.
+		// The first error is the offline_access decline, the second
+		// (a fresh, unrelated failure) must reach the user.
+	}
+	src.interactiveErr = errors.New("token response failed because declined scopes are present: offline_access")
+	a := newTestAuth(t, src, nil)
+	_, err := a.Token(context.Background())
+	require.Error(t, err)
+	require.Equal(t, int32(2), src.interactiveCalls.Load())
+}
+
+func TestIsOfflineAccessDeclinedClassification(t *testing.T) {
+	require.True(t, isOfflineAccessDeclined(errors.New("token response failed because declined scopes are present: offline_access")))
+	require.True(t, isOfflineAccessDeclined(errors.New("Token Response Failed Because Declined Scopes Are Present: offline_access")))
+	require.True(t, isOfflineAccessDeclined(errors.New("declined scopes are present:  offline_access  ")))
+	require.False(t, isOfflineAccessDeclined(nil))
+	require.False(t, isOfflineAccessDeclined(errors.New("token response failed because declined scopes are present: Mail.Read")))
+	require.False(t, isOfflineAccessDeclined(errors.New("token response failed because declined scopes are present: offline_access, Mail.Read")))
+	require.False(t, isOfflineAccessDeclined(errors.New("AADSTS50105: tenant blocks user")))
+	require.False(t, isOfflineAccessDeclined(errors.New("declined scopes are present:")))
+}
+
+func TestScopesWithoutDropsCaseInsensitive(t *testing.T) {
+	in := []string{"Mail.Read", " offline_access ", "Calendars.Read", "OFFLINE_ACCESS"}
+	got := scopesWithout(in, "offline_access")
+	require.Equal(t, []string{"Mail.Read", "Calendars.Read"}, got)
+	// Original slice unchanged.
+	require.Equal(t, 4, len(in))
 }
