@@ -95,24 +95,54 @@ func (e *Executor) ToggleFlag(ctx context.Context, accountID int64, messageID st
 
 // SoftDelete moves a message to Deleted Items.
 func (e *Executor) SoftDelete(ctx context.Context, accountID int64, messageID string) error {
+	dest, alias, err := e.resolveWellKnownDestination(ctx, accountID, "deleteditems")
+	if err != nil {
+		return err
+	}
 	return e.run(ctx, store.Action{
 		ID:         newActionID(),
 		AccountID:  accountID,
 		Type:       TypeSoftDelete,
 		MessageIDs: []string{messageID},
-		Params:     map[string]any{"destination_folder_id": "deleteditems"},
+		Params: map[string]any{
+			"destination_folder_id":    dest,
+			"destination_folder_alias": alias,
+		},
 	})
 }
 
 // Archive moves a message to the Archive folder.
 func (e *Executor) Archive(ctx context.Context, accountID int64, messageID string) error {
+	dest, alias, err := e.resolveWellKnownDestination(ctx, accountID, "archive")
+	if err != nil {
+		return err
+	}
 	return e.run(ctx, store.Action{
 		ID:         newActionID(),
 		AccountID:  accountID,
 		Type:       TypeArchive,
 		MessageIDs: []string{messageID},
-		Params:     map[string]any{"destination_folder_id": e.archiveFolderID},
+		Params: map[string]any{
+			"destination_folder_id":    dest,
+			"destination_folder_alias": alias,
+		},
 	})
+}
+
+// resolveWellKnownDestination looks up the actual folder ID for a
+// well-known name (e.g. "deleteditems") in the local store. Returns
+// (realID, alias, nil) on hit. If the folder isn't synced yet, returns
+// the alias as both id and alias and lets the local apply fail with a
+// clearer error. Graph's /move endpoint accepts both forms, so the
+// dispatch path uses the alias as a fallback.
+func (e *Executor) resolveWellKnownDestination(ctx context.Context, accountID int64, alias string) (string, string, error) {
+	f, err := e.st.GetFolderByWellKnown(ctx, accountID, alias)
+	if err != nil || f == nil {
+		// Not yet synced — surface a friendly error rather than the
+		// raw FK constraint message.
+		return "", alias, fmt.Errorf("destination folder %q not yet synced; wait for the next sync cycle and retry", alias)
+	}
+	return f.ID, alias, nil
 }
 
 // run is the synchronous Execute path: optimistic local apply →

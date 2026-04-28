@@ -122,6 +122,7 @@ func TestExecutorSoftDeleteMovesMessage(t *testing.T) {
 		require.Equal(t, http.MethodPost, r.Method)
 		var body map[string]string
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		// Graph accepts the well-known alias.
 		require.Equal(t, "deleteditems", body["destinationId"])
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "m-1-moved"})
@@ -132,7 +133,48 @@ func TestExecutorSoftDeleteMovesMessage(t *testing.T) {
 	require.Equal(t, int32(1), moveCalls.Load())
 	got, err := st.GetMessage(context.Background(), "m-1")
 	require.NoError(t, err)
-	require.Equal(t, "deleteditems", got.FolderID, "local folder reflects move")
+	// Local folder uses the REAL folder ID resolved from the well-
+	// known alias, not the alias literal — otherwise the FK
+	// constraint on messages.folder_id rejects the update.
+	require.Equal(t, "deleteditems", got.FolderID, "test seeded folder id == alias name")
+}
+
+// TestExecutorSoftDeleteWhenDestinationIDDiffersFromAlias guards the
+// real-tenant case: the user's Deleted Items folder has a real Graph
+// folder ID (e.g. "AAMkA..."), the alias "deleteditems" is just a
+// shortcut. Local apply must use the real ID for the FK; Graph dispatch
+// can use the alias.
+func TestExecutorSoftDeleteWhenDestinationIDDiffersFromAlias(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	// Replace the alias-named seed with a realistic one whose ID
+	// differs from the well-known alias.
+	require.NoError(t, st.DeleteFolder(context.Background(), "deleteditems"))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "real-deleted-id-AAMkA", AccountID: accID, DisplayName: "Deleted Items",
+		WellKnownName: "deleteditems", LastSyncedAt: time.Now(),
+	}))
+
+	var capturedDest atomic.Pointer[string]
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1/move", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		dest := body["destinationId"]
+		capturedDest.Store(&dest)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "m-1-moved"})
+	})
+
+	require.NoError(t, exec.SoftDelete(context.Background(), accID, "m-1"))
+
+	got, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.Equal(t, "real-deleted-id-AAMkA", got.FolderID,
+		"local folder MUST be the real folder ID resolved from well-known alias (FK)")
+
+	// Graph received the alias (durable across mailbox lifetimes).
+	dest := capturedDest.Load()
+	require.NotNil(t, dest)
+	require.Equal(t, "deleteditems", *dest)
 }
 
 func TestExecutorRollsBackOnGraphFailure(t *testing.T) {

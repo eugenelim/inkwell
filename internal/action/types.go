@@ -83,7 +83,14 @@ func (e *Executor) dispatch(ctx context.Context, a store.Action) error {
 			},
 		})
 	case store.ActionSoftDelete, store.ActionMove:
-		dest := paramString(a.Params, "destination_folder_id")
+		// Prefer the well-known alias if present (more durable —
+		// Graph accepts "deleteditems" / "archive" without
+		// resolving to a tenant-specific ID). Fall back to the
+		// stored real folder ID for user-folder moves.
+		dest := paramString(a.Params, "destination_folder_alias")
+		if dest == "" {
+			dest = paramString(a.Params, "destination_folder_id")
+		}
 		if dest == "" {
 			return fmt.Errorf("dispatch: move missing destination")
 		}
