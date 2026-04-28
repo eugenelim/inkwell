@@ -53,3 +53,6 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 - Spec 07 (triage) fills `dispatchList` / `dispatchViewer` action handlers (currently no-ops for `r/R/f/d/D/a/m/c/C`).
 - Spec 06 (search) wires the `/` prompt to the FTS5 store search.
 - The cold-start performance budget (<500ms to first paint with 100k cached) is currently unmeasured. Add `BenchmarkColdStartFirstFrame` to internal/ui/ when spec 07 lands or sooner if regressions surface.
+
+## Iter — auth pivot 2026-04-27
+- Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.

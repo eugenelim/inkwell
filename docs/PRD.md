@@ -23,11 +23,11 @@ A senior professional at a large enterprise (ExampleCorp-class IT posture is the
 - Subject to Conditional Access policies requiring device compliance via Intune (or equivalent MDM) and/or SSO via the Microsoft Enterprise SSO plug-in for Apple devices.
 - Already runs native Outlook for Mac for composition; this client is a complementary triage surface, not a replacement.
 
-## 3. Scope of available Microsoft Graph permissions
+## 3. Scope of Microsoft Graph permissions we request
 
-This product is designed against the following confirmed delegated scopes. **Feature specs MUST NOT assume any scope outside this set.** If a feature would require a denied scope, it is out of scope.
+This product is designed against the following delegated Microsoft Graph scopes. We request them at sign-in via the well-known Microsoft Graph Command Line Tools first-party public client (see §4); the user consents the first time. **Feature specs MUST NOT assume any scope outside §3.1.** If a feature would require a denied scope, it is out of scope.
 
-### 3.1 Granted (in-scope)
+### 3.1 Requested at sign-in (in-scope)
 
 | Scope                       | Capability                                                              |
 | --------------------------- | ----------------------------------------------------------------------- |
@@ -42,9 +42,11 @@ This product is designed against the following confirmed delegated scopes. **Fea
 | `User.ReadBasic.All`        | Read basic profile of any directory user                                |
 | `Presence.Read.All`         | Read any user's Teams presence                                          |
 
+The Microsoft Graph CLI Tools client is a first-party Microsoft-published app pre-trusted across most Microsoft 365 tenants. Pre-consent for it generally exists at the tenant level; users can consent for themselves on first sign-in unless their admin has disabled user-consent for Microsoft-published apps. See §4 and spec 01 §11 for failure-mode handling.
+
 ### 3.2 Denied (hard out-of-scope)
 
-The following capabilities are **structurally impossible** under the current scope grant. Do not design features that depend on them. If a future scope grant changes this, that requires a PRD revision, not a feature workaround.
+The following capabilities are **out of scope** even though the public client we use may technically support them. We deliberately do not request these scopes; lint guards in CI fail any code that tries.
 
 | Denied scope                  | Capability the product CANNOT have                                |
 | ----------------------------- | ----------------------------------------------------------------- |
@@ -61,12 +63,18 @@ The following capabilities are **structurally impossible** under the current sco
 
 ## 4. Authentication and tenant constraints
 
-- **Auth flow:** OAuth 2.0 device code flow via MSAL Go (`microsoft-authentication-library-for-go`). Browser-based interactive flows are not viable for a TUI; device code flow is the only realistic path.
-- **App registration:** Single sanctioned tenant app registration. Public client (no client secret). Redirect URI: `https://login.microsoftonline.com/common/oauth2/nativeclient` (device code flow uses this implicitly). The registration must be obtained through enterprise architecture review; the client app does NOT self-register or use a Microsoft-published `client_id` belonging to another product.
-- **Conditional Access:** The macOS device must already be compliant via Intune (or equivalent) and/or the user must be signed in through the Microsoft Enterprise SSO plug-in for Apple devices. The client app inherits this posture; it does not implement device-compliance signaling itself.
-- **Token storage:** macOS Keychain via the `keyring` Go library or `security` CLI shellout. Never written to filesystem in plaintext.
-- **Token refresh:** Refresh tokens persist ~90 days for work accounts in this flow. App MUST gracefully prompt for re-auth via device code when refresh fails, without losing local cache state.
-- **Multi-account:** v1 supports a single Microsoft 365 account per profile. Multi-account is deferred; the data model should not preclude it.
+Inkwell deliberately does **not** require an Entra ID app registration in the user's tenant. The whole onboarding gate of "go through enterprise architecture review to register a public client" is precisely the friction the product is designed to avoid for a self-service triage tool. Instead:
+
+- **Client identity:** the well-known Microsoft Graph Command Line Tools public client (`client_id = 14d82eec-204b-4c2f-b7e8-296a70dab67e`). This is a first-party Microsoft-owned app registration, available across all Entra ID tenants. The `client_id` is hard-coded as a constant in `internal/auth/scopes.go`. It is not user-configurable; changing it requires a code review.
+- **Authority:** the multi-tenant common authority `https://login.microsoftonline.com/common`. The user's actual home tenant is **inferred** from the MSAL `AuthResult` after sign-in (the `Account.Realm` field is the home tenant ID; `Account.PreferredUsername` is the UPN). These values are persisted to the local `accounts` row after first sign-in.
+- **Auth flow:** OAuth 2.0 device code flow via MSAL Go (`microsoft-authentication-library-for-go`). Browser-redirect flows are awkward in a TUI; device code flow is the only realistic path. Public client, no client secret.
+- **Conditional Access:** the user's tenant Conditional Access policies still apply. If the tenant requires device compliance (Intune) or the Microsoft Enterprise SSO plug-in for Apple devices, the user must already have those in place — Inkwell inherits the posture; it does not implement compliance signalling itself. CA failures surface as user-readable AADSTS errors at sign-in.
+- **Token storage:** macOS Keychain via `github.com/zalando/go-keyring`. Never written to disk in plaintext. The MSAL cache blob (which contains refresh + ID tokens) is the only secret; it goes to Keychain only.
+- **Token refresh:** refresh tokens persist ~90 days for work accounts in this flow. The app MUST gracefully re-prompt the user for device code re-auth when refresh fails, without losing local cache state.
+- **Tenants that block the public client:** a tenant admin can in principle disable user-consent for Microsoft-published apps or block the Microsoft Graph CLI Tools app under Conditional Access. In that case sign-in fails with a specific AADSTS error. Spec 01 §11 details the user-facing message and recovery steps.
+- **Multi-account:** v1 supports a single Microsoft 365 account per profile. Multi-account is deferred; the data model already supports it via the `accounts` table.
+
+The `[account]` config section is therefore **optional** — the only field the user might still want to set is `account.upn` to pin the expected UPN as a safety check. With no config file at all, `inkwell signin` works on a clean install.
 
 ## 5. Functional capabilities (in-scope for v1)
 

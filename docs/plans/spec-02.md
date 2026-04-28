@@ -43,3 +43,6 @@ done — all DoD ticked, all §7 budgets within slack.
 - Spec 06 (search) will use `Store.Search` directly; the bm25 join is the dominant cost and is the closest to budget.
 - Spec 07 (triage) will exercise the action queue + undo stack heavily; the current scan supports `pending`+`in_flight` filtering via the partial index.
 - Body eviction is a callable function (`EvictBodies(ctx, maxCount, maxBytes)`); the sync engine will run it as a periodic goroutine.
+
+## Iter — auth pivot 2026-04-27
+- Spec 02 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.

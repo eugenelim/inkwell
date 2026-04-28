@@ -91,3 +91,6 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
   download helper that lives next to existing `Attachments()`.
 - Add `BenchmarkHTMLToText50KB` and `BenchmarkExtractLinks200` once
   the synthetic fixture lands. Targets per spec §"Performance budgets".
+
+## Iter — auth pivot 2026-04-27
+- Spec 05 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.

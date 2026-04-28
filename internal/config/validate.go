@@ -7,17 +7,12 @@ import (
 )
 
 // Validate reports the first invalid or missing field in c.
+//
+// Note: [account] is entirely optional (PRD §4). TenantID / ClientID
+// have safe defaults; UPN is populated by the auth layer at first
+// sign-in. Validate does NOT require any of these.
 func (c *Config) Validate() error {
 	var errs []string
-	if c.Account.TenantID == "" {
-		errs = append(errs, "account.tenant_id is required")
-	}
-	if c.Account.ClientID == "" {
-		errs = append(errs, "account.client_id is required")
-	}
-	if c.Account.UPN == "" {
-		errs = append(errs, "account.upn is required")
-	}
 	if c.Cache.BodyCacheMaxCount <= 0 {
 		errs = append(errs, "cache.body_cache_max_count must be > 0")
 	}
@@ -53,12 +48,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ValidateForAccountless skips required-account fields. Used by CLI
-// subcommands that do not need credentials (e.g., `inkwell --version`).
-func (c *Config) ValidateForAccountless() error {
-	stash := c.Account
-	c.Account = AccountConfig{TenantID: "stub", ClientID: "stub", UPN: "stub@stub"}
-	err := c.Validate()
-	c.Account = stash
-	return err
-}
+// ValidateForAccountless is retained for back-compatibility but is now
+// equivalent to Validate; the [account] section is entirely optional.
+//
+// Deprecated: call Validate directly.
+func (c *Config) ValidateForAccountless() error { return c.Validate() }

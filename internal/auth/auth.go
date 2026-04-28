@@ -24,15 +24,46 @@ const proactiveRefreshWindow = 5 * time.Minute
 // ErrNotSignedIn is returned by methods that require an active account.
 var ErrNotSignedIn = errors.New("not signed in")
 
-// Config is the auth-layer configuration. All fields are required.
+// Config is the auth-layer configuration. All fields are optional; the
+// zero value is the supported production wiring (PRD §4):
+// /common authority + Microsoft Graph CLI Tools client + the locked
+// scope list from [DefaultScopes].
 type Config struct {
+	// TenantID overrides the authority. Empty or "common" → the
+	// multi-tenant /common authority. Setting a specific tenant GUID
+	// pins sign-in to that tenant.
 	TenantID string
+	// ClientID overrides the OAuth client. Empty → [PublicClientID].
+	// Overriding is supported for tests; production should leave empty.
 	ClientID string
-	// Scopes is the list of OAuth scopes to request. Defaults to
-	// [DefaultScopes] when empty. Spec 01 §6 makes the scope list a
-	// contract with the tenant admin; there is no way to widen it from
-	// user config.
+	// Scopes is the list of OAuth scopes to request. Empty → [DefaultScopes].
+	// Adding scopes is a code change reviewed against PRD §3.
 	Scopes []string
+	// ExpectedUPN is an optional guardrail. When non-empty, the auth
+	// layer refuses any sign-in whose resolved UPN does not case-
+	// insensitively match.
+	ExpectedUPN string
+}
+
+// resolved fills in defaults so the rest of the auth package can rely
+// on non-empty values without re-checking.
+func (c Config) resolved() Config {
+	if c.ClientID == "" {
+		c.ClientID = PublicClientID
+	}
+	if len(c.Scopes) == 0 {
+		c.Scopes = DefaultScopes()
+	}
+	return c
+}
+
+// authority returns the MSAL authority URL for the configured tenant.
+func (c Config) authority() string {
+	t := strings.ToLower(strings.TrimSpace(c.TenantID))
+	if t == "" || t == "common" {
+		return CommonAuthority
+	}
+	return "https://login.microsoftonline.com/" + t
 }
 
 // PromptFn renders a device-code prompt to the user. The TUI implements
@@ -73,8 +104,9 @@ type Authenticator interface {
 }
 
 // New constructs an Authenticator backed by MSAL Go and the macOS
-// Keychain. cfg.TenantID and cfg.ClientID must be non-empty.
+// Keychain. The zero Config value is supported and recommended (PRD §4).
 func New(cfg Config, prompt PromptFn) (Authenticator, error) {
+	cfg = cfg.resolved()
 	src, err := newMSALSource(cfg)
 	if err != nil {
 		return nil, err
@@ -86,9 +118,7 @@ func New(cfg Config, prompt PromptFn) (Authenticator, error) {
 // [TokenSource] implementation so tests can substitute a fake MSAL
 // client. Production code should call [New].
 func NewWithSource(cfg Config, prompt PromptFn, src TokenSource) Authenticator {
-	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = DefaultScopes()
-	}
+	cfg = cfg.resolved()
 	if prompt == nil {
 		prompt = noopPrompt
 	}
@@ -129,6 +159,9 @@ func (a *authenticator) Token(ctx context.Context) (string, error) {
 	if len(accts) > 0 {
 		res, err := a.src.AcquireTokenSilent(ctx, a.cfg.Scopes, accts[0])
 		if err == nil {
+			if err := a.checkAccount(res.Account); err != nil {
+				return "", err
+			}
 			a.applyResult(res)
 			return res.AccessToken, nil
 		}
@@ -142,8 +175,23 @@ func (a *authenticator) Token(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("device code auth: %w", err)
 	}
+	if err := a.checkAccount(res.Account); err != nil {
+		return "", err
+	}
 	a.applyResult(res)
 	return res.AccessToken, nil
+}
+
+// checkAccount enforces spec 01 §11 guardrails: refuse personal MSA
+// accounts and refuse a UPN mismatch when ExpectedUPN was supplied.
+func (a *authenticator) checkAccount(acct Account) error {
+	if strings.EqualFold(acct.TenantID, ConsumerTenantID) {
+		return errors.New("auth: personal Microsoft accounts are not supported; sign in with a work or school account")
+	}
+	if a.cfg.ExpectedUPN != "" && !strings.EqualFold(strings.TrimSpace(a.cfg.ExpectedUPN), strings.TrimSpace(acct.UPN)) {
+		return fmt.Errorf("auth: signed-in account does not match configured account.upn")
+	}
+	return nil
 }
 
 // Invalidate implements [Authenticator].
@@ -200,22 +248,27 @@ func noopPrompt(_ context.Context, _ DeviceCodePrompt) error { return nil }
 
 // keychainAccount is the per-(tenant,client) Keychain key. We use a
 // composite so multi-account profiles (post-v1) collide cleanly with
-// single-account today.
+// single-account today. Tenant defaults to "common" before key
+// composition so the common-authority single-account install always
+// hits the same Keychain entry across runs.
 func keychainAccount(tenantID, clientID string) string {
-	return strings.ToLower(strings.TrimSpace(tenantID)) + ":" + strings.ToLower(strings.TrimSpace(clientID))
+	t := strings.ToLower(strings.TrimSpace(tenantID))
+	if t == "" {
+		t = "common"
+	}
+	c := strings.ToLower(strings.TrimSpace(clientID))
+	return t + ":" + c
 }
 
 // newMSALSource builds the production TokenSource backed by MSAL Go.
+// cfg is expected to be the resolved value (defaults applied).
 func newMSALSource(cfg Config) (TokenSource, error) {
-	if cfg.TenantID == "" || cfg.ClientID == "" {
-		return nil, errors.New("auth: tenant_id and client_id are required")
-	}
 	cacheAdapter := &keychainCache{
 		account: keychainAccount(cfg.TenantID, cfg.ClientID),
 	}
 	client, err := public.New(
 		cfg.ClientID,
-		public.WithAuthority("https://login.microsoftonline.com/"+cfg.TenantID),
+		public.WithAuthority(cfg.authority()),
 		public.WithCache(cache.ExportReplace(cacheAdapter)),
 	)
 	if err != nil {

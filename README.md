@@ -1,9 +1,10 @@
 # inkwell
 
 > Pre-release. Foundational specs 01–05 land; the TUI boots, lists folders
-> and messages from the local cache, and renders bodies. Authentication and
-> sync against a real Microsoft 365 tenant require operator-side setup — see
-> `docs/specs/01-auth-device-code.md` §3.
+> and messages from the local cache, and renders bodies. Authentication
+> uses the well-known Microsoft Graph CLI Tools first-party public client
+> against `/common`, so **no Entra ID app registration is required** in
+> your tenant — just `inkwell signin`. Conditional Access still applies.
 
 A terminal-native mail and calendar client for Microsoft 365 on macOS.
 Read, search, and triage your inbox at the speed of thought. Vim-style
@@ -61,31 +62,30 @@ make build
 
 ## First-time setup
 
-Inkwell talks to Microsoft Graph v1.0 via an Entra ID app registration. The
-tenant admin must create the registration before you can sign in. See
-`docs/specs/01-auth-device-code.md` §3 for the full prerequisites; the short
-version:
+Inkwell uses the well-known Microsoft Graph Command Line Tools first-party
+public client (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) against the
+multi-tenant `/common` authority. **No tenant admin onboarding is
+required.** Just sign in:
 
-1. Public-client app registration with "Allow public client flows" enabled.
-2. Delegated Microsoft Graph permissions per `docs/PRD.md` §3.1.
-3. Admin consent granted for the tenant.
-4. Write `client_id`, `tenant_id`, and your UPN into
-   `~/.config/inkwell/config.toml`:
+```sh
+inkwell signin       # device code flow — open the URL, paste the code
+inkwell whoami       # confirm UPN + resolved home tenant
+inkwell              # launch the TUI
+```
+
+A config file is **optional**. If you want a multi-account guardrail you
+can pin the expected UPN in `~/.config/inkwell/config.toml`:
 
 ```toml
 [account]
-tenant_id = "<your-tenant-guid>"
-client_id = "<your-app-client-id>"
-upn       = "you@example.com"
+upn = "you@example.com"
 ```
 
-Then:
-
-```sh
-inkwell signin       # device code flow
-inkwell whoami       # confirm
-inkwell              # launch the TUI
-```
+If your tenant blocks the Microsoft Graph CLI Tools app under
+Conditional Access — or disables user-consent for Microsoft-published
+apps — sign-in fails with an `AADSTS` error and the relevant policy
+class. Recovery is your IT admin's call; see
+`docs/specs/01-auth-device-code.md` §11.
 
 ## Documentation
 

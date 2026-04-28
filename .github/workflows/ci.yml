@@ -53,8 +53,11 @@ jobs:
       - name: refuse forbidden Graph scopes
         run: |
           set -e
-          # Hard out-of-scope per PRD §3.2. Searching code only (not docs).
-          if grep -rE 'Mail\.Send|Calendars\.ReadWrite|Mail\.\w+\.Shared|ChatMessage\.Send|Channel\.ReadBasic\.All' \
+          # Hard out-of-scope per PRD §3.2. Match quoted scope-string
+          # literals only (real OAuth scope requests are always quoted),
+          # so explanatory comments mentioning the forbidden scopes are
+          # fine.
+          if grep -rE '"[^"]*(Mail\.Send|Calendars\.ReadWrite|Mail\.[A-Za-z]+\.Shared|ChatMessage\.Send|Channel\.ReadBasic\.All)[^"]*"' \
               --include='*.go' .; then
             echo "::error::Code references a Graph scope that is hard out-of-scope per PRD §3.2"
             exit 1

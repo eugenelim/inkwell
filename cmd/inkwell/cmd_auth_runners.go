@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -32,15 +31,27 @@ func promptDeviceCode(w io.Writer) auth.PromptFn {
 	}
 }
 
-func newAuthenticator(rc *rootContext) (auth.Authenticator, error) {
+// authConfigFromRoot builds the auth.Config from the loaded *config.Config.
+// Empty TenantID/ClientID resolve inside auth to the locked first-party
+// defaults (PRD §4); ExpectedUPN, when set, is a guardrail.
+func authConfigFromRoot(rc *rootContext) (auth.Config, error) {
 	cfg, err := rc.loadConfig()
+	if err != nil {
+		return auth.Config{}, err
+	}
+	return auth.Config{
+		TenantID:    cfg.Account.TenantID,
+		ClientID:    cfg.Account.ClientID,
+		ExpectedUPN: cfg.Account.UPN,
+	}, nil
+}
+
+func newAuthenticator(rc *rootContext) (auth.Authenticator, error) {
+	c, err := authConfigFromRoot(rc)
 	if err != nil {
 		return nil, err
 	}
-	return auth.New(auth.Config{
-		TenantID: cfg.Account.TenantID,
-		ClientID: cfg.Account.ClientID,
-	}, promptDeviceCode(os.Stderr))
+	return auth.New(c, promptDeviceCode(os.Stderr))
 }
 
 func runSignin(cmd *cobra.Command, rc *rootContext) error {
@@ -73,16 +84,16 @@ func runSignout(cmd *cobra.Command, rc *rootContext) error {
 }
 
 func runWhoami(cmd *cobra.Command, rc *rootContext) error {
-	cfg, err := rc.loadConfig()
+	c, err := authConfigFromRoot(rc)
 	if err != nil {
 		return err
 	}
-	// whoami must never prompt for device code. We install a refusing
-	// prompt so any fallthrough produces an immediate error.
+	// whoami must never prompt for device code. A refusing prompt
+	// short-circuits any silent-then-device-code fallthrough.
 	refuse := auth.PromptFn(func(_ context.Context, _ auth.DeviceCodePrompt) error {
 		return errors.New("not signed in")
 	})
-	a, err := auth.New(auth.Config{TenantID: cfg.Account.TenantID, ClientID: cfg.Account.ClientID}, refuse)
+	a, err := auth.New(c, refuse)
 	if err != nil {
 		return err
 	}
@@ -107,7 +118,3 @@ func confirm(cmd *cobra.Command, prompt string) bool {
 	line, _ := r.ReadString('\n')
 	return strings.EqualFold(strings.TrimSpace(line), "y")
 }
-
-// silenceWarnings suppresses the unused-import warnings if a build
-// removes references; left here intentionally as a no-op.
-var _ = slog.LevelInfo
