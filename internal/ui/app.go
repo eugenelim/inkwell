@@ -38,6 +38,9 @@ type Deps struct {
 	Renderer render.Renderer
 	Logger   *slog.Logger
 	Account  *store.Account
+	// ThemeName is the [ui] theme key from config. Empty falls back to
+	// "default". Unknown values fall back with a logged warning.
+	ThemeName string
 }
 
 // bodyAsyncFetcher narrows render.Renderer to its fetch entry point.
@@ -101,13 +104,21 @@ func New(deps Deps) Model {
 	if deps.Account != nil {
 		upn, tenant = deps.Account.UPN, deps.Account.TenantID
 	}
+	theme := DefaultTheme()
+	if deps.ThemeName != "" {
+		t, ok := ThemeByName(deps.ThemeName)
+		if !ok {
+			deps.Logger.Warn("ui: unknown theme; falling back to default", "name", deps.ThemeName)
+		}
+		theme = t
+	}
 	return Model{
 		deps:       deps,
 		paneWidths: DefaultPaneWidths(),
 		focused:    ListPane,
 		mode:       NormalMode,
 		keymap:     DefaultKeyMap(),
-		theme:      DefaultTheme(),
+		theme:      theme,
 		folders:    NewFolders(),
 		list:       NewList(),
 		viewer:     NewViewer(),
@@ -421,6 +432,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keymap.Left):
 		m.focused = ListPane
+	case key.Matches(msg, m.keymap.Down):
+		m.viewer.ScrollDown()
+	case key.Matches(msg, m.keymap.Up):
+		m.viewer.ScrollUp()
 	}
 	return m, nil
 }
@@ -584,7 +599,15 @@ func (m Model) View() string {
 	viewer := m.viewer.View(m.theme, viewerWidth, bodyHeight, m.focused == ViewerPane)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, folders, list, viewer)
-	return lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar, helpBar)
+	frame := lipgloss.JoinVertical(lipgloss.Left, statusBar, body, cmdBar, helpBar)
+	// Hard cap to terminal height. lipgloss's Height() pads but doesn't
+	// truncate; without this, a long folder list or message body would
+	// push the status bar off the top of the screen.
+	lines := strings.Split(frame, "\n")
+	if len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderHelpBar emits a one-line key-binding hint at the bottom of the

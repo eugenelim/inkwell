@@ -1,44 +1,105 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Theme groups the lipgloss styles used by every pane. All styling
 // flows through here; no inline ANSI escapes anywhere else (CLAUDE.md
 // §4).
 type Theme struct {
-	Status      lipgloss.Style
-	Folders     lipgloss.Style
-	FoldersSel  lipgloss.Style
-	List        lipgloss.Style
-	ListSel     lipgloss.Style
-	ListUnread  lipgloss.Style
-	Viewer      lipgloss.Style
-	CommandBar  lipgloss.Style
-	Help        lipgloss.Style
-	Modal       lipgloss.Style
-	ErrorBar    lipgloss.Style
-	Throttled   lipgloss.Style
-	Dim         lipgloss.Style
-	Bold        lipgloss.Style
+	Status     lipgloss.Style
+	Folders    lipgloss.Style
+	FoldersSel lipgloss.Style
+	List       lipgloss.Style
+	ListSel    lipgloss.Style
+	ListUnread lipgloss.Style
+	Viewer     lipgloss.Style
+	CommandBar lipgloss.Style
+	Help       lipgloss.Style
+	Modal      lipgloss.Style
+	ErrorBar   lipgloss.Style
+	Throttled  lipgloss.Style
+	Dim        lipgloss.Style
+	Bold       lipgloss.Style
 }
 
-// DefaultTheme returns a high-contrast, terminal-safe theme.
-func DefaultTheme() Theme {
+// palette is the small set of semantic colors a theme builder picks
+// from. Keeping the color tokens centralised means a new theme is one
+// palette literal plus the bordered-pane assembly in [paletteToTheme].
+type palette struct {
+	fg        string // primary foreground
+	muted     string // dim / faint
+	accent    string // selected row foreground
+	selectBG  string // selected row background
+	unread    string // unread row foreground
+	warn      string // throttle / waiting
+	err       string // error bar
+	border    string // pane borders
+	cmd       string // command-bar prompt
+}
+
+// presetPalettes maps a config name to a [palette]. Names are fixed
+// constants — adding a new one is a code change reviewed against the
+// per-spec PR checklist.
+var presetPalettes = map[string]palette{
+	"default": {
+		fg: "15", muted: "8", accent: "15", selectBG: "4",
+		unread: "15", warn: "11", err: "9", border: "8", cmd: "11",
+	},
+	"dark": {
+		fg: "252", muted: "243", accent: "159", selectBG: "24",
+		unread: "231", warn: "214", err: "203", border: "238", cmd: "117",
+	},
+	"light": {
+		fg: "232", muted: "247", accent: "232", selectBG: "153",
+		unread: "16", warn: "130", err: "124", border: "250", cmd: "26",
+	},
+	"solarized-dark": {
+		fg: "230", muted: "240", accent: "254", selectBG: "23",
+		unread: "230", warn: "136", err: "160", border: "239", cmd: "37",
+	},
+	"solarized-light": {
+		fg: "235", muted: "245", accent: "235", selectBG: "230",
+		unread: "234", warn: "136", err: "160", border: "250", cmd: "33",
+	},
+	"high-contrast": {
+		fg: "15", muted: "15", accent: "0", selectBG: "11",
+		unread: "15", warn: "11", err: "9", border: "15", cmd: "14",
+	},
+}
+
+// ThemeByName returns the named theme, falling back to "default" when
+// the name is unknown. Caller is responsible for logging the fallback.
+func ThemeByName(name string) (Theme, bool) {
+	p, ok := presetPalettes[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return paletteToTheme(presetPalettes["default"]), false
+	}
+	return paletteToTheme(p), true
+}
+
+// DefaultTheme returns the "default" preset.
+func DefaultTheme() Theme { return paletteToTheme(presetPalettes["default"]) }
+
+func paletteToTheme(p palette) Theme {
 	border := lipgloss.NormalBorder()
 	return Theme{
-		Status:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")),
-		Folders:    lipgloss.NewStyle().Border(border, false, true, false, false),
-		FoldersSel: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")),
-		List:       lipgloss.NewStyle().Border(border, false, true, false, false),
-		ListSel:    lipgloss.NewStyle().Reverse(true),
-		ListUnread: lipgloss.NewStyle().Bold(true),
+		Status:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
+		Folders:    lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
+		FoldersSel: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
+		List:       lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
+		ListSel:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
+		ListUnread: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.unread)),
 		Viewer:     lipgloss.NewStyle(),
-		CommandBar: lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
-		Help:       lipgloss.NewStyle().Faint(true),
-		Modal:      lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2),
-		ErrorBar:   lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true),
-		Throttled:  lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
-		Dim:        lipgloss.NewStyle().Faint(true),
-		Bold:       lipgloss.NewStyle().Bold(true),
+		CommandBar: lipgloss.NewStyle().Foreground(lipgloss.Color(p.cmd)),
+		Help:       lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.muted)),
+		Modal:      lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(p.border)).Padding(1, 2),
+		ErrorBar:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.err)).Bold(true),
+		Throttled:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.warn)),
+		Dim:        lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.muted)),
+		Bold:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
 	}
 }

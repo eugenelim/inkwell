@@ -138,12 +138,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// UI
 	model := ui.New(ui.Deps{
-		Auth:     a,
-		Store:    st,
-		Engine:   engine,
-		Renderer: renderer,
-		Logger:   logger,
-		Account:  acc,
+		Auth:      a,
+		Store:     st,
+		Engine:    engine,
+		Renderer:  renderer,
+		Logger:    logger,
+		Account:   acc,
+		ThemeName: cfg.UI.Theme,
 	})
 	prog := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := prog.Run(); err != nil {

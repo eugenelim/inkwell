@@ -57,6 +57,32 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
 
+### Iter 6 — 2026-04-28 (height clip + viewer scroll + theme presets)
+- Triggers from real-tenant smoke after v0.2.7:
+  1. "had to scroll up initially to see sidebar and title bars" — and "if a message is too long it scrolls past the fixed view port and the menu bar on the top and the side bars disappear". Same root cause: lipgloss `Height(N)` *pads* but never *clips*. A long folder list or message body produced a body > bodyHeight; JoinHorizontal made the body taller than expected; total frame > terminal height; bubbletea wrote it out and the terminal scrolled, pushing the status bar off-screen.
+  2. "can you think of a good color scheme and make it configurable?" — single hard-coded palette. Six presets now ship; `[ui] theme` config key picks one.
+- Slice:
+  - `internal/ui/panes.go`:
+    - New `clipToCursorViewport(rows, cursor, room)` keeps the cursor visible by sliding the window. Folders and Messages panes use it. Long lists now scroll inside their pane instead of pushing chrome off-screen.
+    - Viewer: clips body to `(height - len(headers))` and supports j/k scroll via new `ViewerModel.scrollY` + `ScrollDown` / `ScrollUp`. Reset on every new message via `SetMessage`.
+  - `internal/ui/app.go`:
+    - Root `View` now hard-caps `lipgloss.JoinVertical(...)` to `m.height` lines. Belt-and-suspenders against any future pane forgetting to clip.
+    - `dispatchViewer` now handles `j`/`k` to scroll the body.
+  - `internal/ui/theme.go`: rewrite. New `palette` struct + `presetPalettes` map (default / dark / light / solarized-dark / solarized-light / high-contrast). `ThemeByName(name)` returns `(Theme, ok)`; ok=false means fallback used. `paletteToTheme` assembles the lipgloss styles. Borders and selected-row backgrounds now use semantic palette colors instead of magic ANSI numbers scattered through DefaultTheme.
+  - `internal/ui/app.go` `Deps` gains `ThemeName`. `New` resolves it via `ThemeByName`; falls back with a logged warning on unknown names.
+  - `internal/config/{config,defaults}.go`: `UIConfig.Theme` field, default `"default"`.
+  - `cmd/inkwell/cmd_run.go`: passes `cfg.UI.Theme` to `ui.New`.
+  - `docs/CONFIG.md`: `[ui] theme` row updated with the six valid values + fallback semantics.
+- Tests:
+  - `internal/ui/dispatch_test.go` adds:
+    - `TestViewerScrollDownAdvancesOffset` — j/k mutate scrollY in the focused viewer.
+    - `TestRenderedFrameNeverExceedsTerminalHeight` — at 80x24 the View output is ≤ 24 rows.
+    - `TestRenderedFrameWithLongBodyClipsToHeight` — a 200-line body at 100x30 still fits.
+    - `TestThemePresetsAreValid` — every preset resolves and renders.
+    - `TestThemeUnknownNameFallsBack` — unknown name returns `(default, false)`.
+  - The first overflow test caught an off-by-one (lipgloss padding leaves a trailing newline, JoinVertical inflates by 1). Fix: hard-cap in root View.
+- Discipline note: per CLAUDE.md §5.4 every new keymap entry needs a test; the j/k viewer-scroll bindings landed alongside `TestViewerScrollDownAdvancesOffset` in the same commit.
+
 ### Iter 5 — 2026-04-28 (visible affordances + dispatch unit tests + per-control e2e)
 - Trigger: real-tenant smoke after v0.2.6 — user reports "1 to open folder doesn't work well, j/k doesn't work well, enter doesn't open message". v0.2.6's e2e tests were passing because they asserted strings appeared in the buffer (which they did — the model state was mutating correctly), but the user couldn't *see* the cursor move or the focus marker change. The bug was 100% visual feedback.
 - Diagnostic — split the question into two halves:

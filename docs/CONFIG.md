@@ -96,7 +96,7 @@ Controls the terminal UI.
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `theme` | string | `"dark"` | `dark`, `light`, `auto` | Color theme. `auto` uses Lip Gloss's terminal background detection. |
+| `theme` | string | `"default"` | `default`, `dark`, `light`, `solarized-dark`, `solarized-light`, `high-contrast` | Color theme preset. Unknown values fall back to `default` with a logged warning. |
 | `folder_pane_width` | int | `25` | 15–60 | Width of the folders sidebar in columns. |
 | `list_pane_width` | int | `40` | 25–80 | Width of the message list pane in columns. |
 | `relative_dates_within` | duration | `"168h"` (7d) | 1h–720h | Show relative dates (e.g., "Sun 14:32") for messages received within this window; absolute dates beyond it. |
