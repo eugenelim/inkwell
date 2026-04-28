@@ -47,6 +47,12 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Spec 01 §11 gains a new failure-mode row documenting the retry + the trade-off.
 - Race + e2e green.
 
+### Iter 5 — 2026-04-28 (encrypted-on-disk MSAL cache)
+- Trigger: real-tenant smoke after v0.1.2 caught `signin: interactive auth: data passed to Set was too big`. zalando/go-keyring on Darwin shells out to `security` and caps the command at 4096 bytes. Token-heavy tenants (group claims, long ID tokens) blow past it.
+- Slice: redesign `keychainCache` to store a 32-byte AES-256 key in Keychain and the encrypted MSAL cache blob on disk under `~/Library/Application Support/inkwell/msal_cache.bin`. AES-GCM (nonce + sealed; tag in sealed). Atomic write via temp + rename. On Replace, decryption failure is treated as empty cache (so a rotated key doesn't brick the app). On Export, the key is generated lazily on first call. SignOut clears both Keychain entry and on-disk file. Pure Go, no CGO. Tests cover round-trip, large blobs (16KB), file mode 0600, plaintext-leak guard, missing-key, missing-file, rotated-key, GCM tamper-resistance, atomic-write temp-file cleanup.
+- Spec 01 §5.2 and §11 updated to document the design + the failure modes it deliberately prevents.
+- Race + e2e all green.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

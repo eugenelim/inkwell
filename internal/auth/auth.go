@@ -10,7 +10,6 @@ import (
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
-	"github.com/zalando/go-keyring"
 )
 
 // Service is the macOS Keychain service name. All MSAL cache blobs are
@@ -392,8 +391,9 @@ func (a *authenticator) SignOut(ctx context.Context) error {
 			return fmt.Errorf("remove account: %w", err)
 		}
 	}
-	if err := keyring.Delete(Service, keychainAccount(a.cfg.TenantID, a.cfg.ClientID)); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return fmt.Errorf("clear keychain: %w", err)
+	cache := newKeychainCache(keychainAccount(a.cfg.TenantID, a.cfg.ClientID), "")
+	if err := cache.clear(); err != nil {
+		return err
 	}
 	a.cachedToken = ""
 	a.cachedExp = time.Time{}
@@ -439,9 +439,7 @@ func keychainAccount(tenantID, clientID string) string {
 // newMSALSource builds the production TokenSource backed by MSAL Go.
 // cfg is expected to be the resolved value (defaults applied).
 func newMSALSource(cfg Config) (TokenSource, error) {
-	cacheAdapter := &keychainCache{
-		account: keychainAccount(cfg.TenantID, cfg.ClientID),
-	}
+	cacheAdapter := newKeychainCache(keychainAccount(cfg.TenantID, cfg.ClientID), "")
 	client, err := public.New(
 		cfg.ClientID,
 		public.WithAuthority(cfg.authority()),

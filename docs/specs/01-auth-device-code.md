@@ -162,37 +162,58 @@ Token acquisition flow:
    - Then call `result.AuthenticationResult(ctx)` which blocks polling until the user completes auth (or times out / errors).
 4. Return the resulting access token.
 
-### 5.2 Keychain cache adapter
+### 5.2 Keychain-backed encrypted-on-disk cache
 
-MSAL Go's cache interface is `cache.ExportReplace`. Implement an adapter that round-trips MSAL's serialized cache blob to the macOS Keychain.
+MSAL Go's cache interface is `cache.ExportReplace`. The natural approach — write the entire serialised MSAL cache blob into a Keychain Generic Password item — falls over on Microsoft 365 tenants that issue large tokens (group-claim-heavy tokens easily exceed the ~3-4KB practical limit `zalando/go-keyring` enforces on its `security` shellout, surfacing as `data passed to Set was too big`).
+
+Adopt the same pattern Microsoft's own `msal-extensions` / Authenticator libraries use on macOS: store a small **encryption key** in Keychain and write the **encrypted cache blob** to disk.
+
+- **Encryption key:** 32 random bytes (AES-256) generated once on first sign-in via `crypto/rand`. Stored in Keychain at `service="inkwell"`, `account=tenant:client`. 32 bytes is well under any size limit.
+- **Cipher:** AES-GCM (authenticated; tampering with the on-disk file makes decryption fail). Nonce is 12 random bytes per encryption, prepended to the ciphertext.
+- **On-disk file:** `~/Library/Application Support/inkwell/msal_cache.bin`, mode `0600`, written atomically (temp file + rename so a crash mid-write can't leave a half-written cache).
 
 ```go
 type keychainCache struct {
-    service string  // "inkwell"
-    account string  // tenant_id + ":" + client_id (composite key)
+    service     string  // "inkwell"
+    account     string  // tenant:client
+    cachePath   string  // ~/Library/Application Support/inkwell/msal_cache.bin
 }
 
-func (k *keychainCache) Replace(ctx context.Context, c cache.Unmarshaler, hints cache.ReplaceHints) error {
-    blob, err := keyring.Get(k.service, k.account)
-    if errors.Is(err, keyring.ErrNotFound) {
-        return nil // first run, empty cache
-    }
-    if err != nil {
-        return err
-    }
-    return c.Unmarshal([]byte(blob))
+func (k *keychainCache) Replace(_ context.Context, c cache.Unmarshaler, _ cache.ReplaceHints) error {
+    key, err := k.readKey()
+    if errors.Is(err, keyring.ErrNotFound) { return nil }   // first run
+    if err != nil                          { return err }
+
+    ct, err := os.ReadFile(k.cachePath)
+    if errors.Is(err, os.ErrNotExist)       { return nil }   // first run after key set
+    if err != nil                           { return err }
+
+    pt, err := decryptAESGCM(ct, key)
+    if err != nil { return nil }                            // stale / wrong key — treat as empty
+    return c.Unmarshal(pt)
 }
 
-func (k *keychainCache) Export(ctx context.Context, c cache.Marshaler, hints cache.ExportHints) error {
-    blob, err := c.Marshal()
-    if err != nil {
-        return err
-    }
-    return keyring.Set(k.service, k.account, string(blob))
+func (k *keychainCache) Export(_ context.Context, c cache.Marshaler, _ cache.ExportHints) error {
+    pt, err := c.Marshal()
+    if err != nil { return err }
+    key, err := k.getOrCreateKey()
+    if err != nil { return err }
+    ct, err := encryptAESGCM(pt, key)
+    if err != nil { return err }
+    return atomicWriteFile(k.cachePath, ct, 0o600)
 }
 ```
 
-Use `github.com/zalando/go-keyring`. On macOS this maps to `security` framework calls, storing the blob as a Generic Password keychain item. Access is gated by macOS Keychain ACLs — first-run prompt is normal.
+`SignOut` deletes both the Keychain entry and the on-disk file (idempotent: `ErrNotFound` and `os.IsNotExist` are not errors).
+
+Failure modes added by this design:
+- **Keychain access denied** (user rejected the prompt) — `keyring.Get` returns the macOS-specific access error. Surfaced to the user as "Keychain access denied; sign-in cannot proceed". No fallback to plaintext.
+- **Disk file deleted but Keychain key still present** — `Replace` returns nil empty cache; next sign-in re-creates the file and rotates the key.
+- **Disk file present but Keychain key missing or rotated** — decryption fails; we treat it as empty cache and the user signs in again. We do **not** error here because that would brick the app on key rotation.
+
+Use `github.com/zalando/go-keyring` for the Keychain side (storing a 32-byte key is well under its limit). The encryption is `crypto/aes` + `crypto/cipher.NewGCM` from the Go standard library — pure Go, no CGO, satisfies CLAUDE.md §1.
+
+The earlier all-in-Keychain approach is rejected: macOS Keychain Services *can* technically hold larger items via direct `SecItemAdd` calls, but `zalando/go-keyring`'s `security` CLI shellout caps the command-line at 4096 bytes. Switching to a different keychain library (e.g. `99designs/keyring`) would pull in CGO via `keybase/go-keychain`, violating our pure-Go constraint.
 
 ### 5.3 Concurrency
 
@@ -309,6 +330,7 @@ Do not log the access token. Do not log the refresh token. Do not log the cache 
 | Conditional Access denies token for other reasons (MFA, location, risk) | MSAL returns specific AADSTS error; surface a user-friendly message naming the policy class and link to https://aka.ms/MFASetup as appropriate. |
 | Interactive flow can't launch (no `open` command, headless SSH, no display) | In `Mode = Auto`: log a notice and fall back to device code. In `Mode = Interactive`: surface "Cannot open system browser; rerun in a desktop session or use --device-code on a tenant that allows it." |
 | Tenant declines `offline_access` (no long-lived refresh tokens) | MSAL Go raises `token response failed because declined scopes are present: offline_access`. The user *did* sign in successfully — the tenant just doesn't allow this client to hold a long-lived refresh token. Retry the same flow once with `offline_access` stripped from the scope list. The retry succeeds; the user is signed in. The cost: no silent refresh — when the access token expires (~60 minutes) the user re-auths via the same flow. We do not surface this as an error; we log a Warn telling future maintainers what happened. If the retry *also* errors, surface the second error to the user (the offline_access decline was not the root cause). |
+| MSAL cache blob exceeds the Keychain library's size limit | `zalando/go-keyring` shells out to `security` and caps the command at 4096 bytes. Token-heavy tenants (group claims, long ID tokens) blow past this and surface as `data passed to Set was too big`. §5.2 mitigates this by storing a 32-byte encryption key in Keychain and the encrypted MSAL blob on disk under `~/Library/Application Support/inkwell/msal_cache.bin`. There is no user-visible error path here; the design prevents it by construction. |
 | User signs in with a personal (Microsoft consumer) account | The `/common` authority technically allows this, but Inkwell targets work / school accounts only. Detect via `Account.Realm == "9188040d-6c67-4c5b-b112-36a304b66dad"` (the consumer tenant guid) at sign-in completion and refuse with a clear error message. |
 | Clock skew > 5 minutes                                | Token validation fails; surface as "system clock incorrect"; exit. |
 
