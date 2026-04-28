@@ -310,9 +310,9 @@ func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
 		setupKeys []string
 		wantHint  string
 	}{
-		{"list-focused", nil, "1: folders"},
-		{"folders-focused", []string{"1"}, "2: list"},
-		{"viewer-focused-after-open", []string{"\n"}, "h: back"},
+		{"list-focused", nil, "1 folders"},
+		{"folders-focused", []string{"1"}, "2 list"},
+		{"viewer-focused-after-open", []string{"\n"}, "h back"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -350,7 +350,9 @@ func TestFlattenFolderTreeOrdersAndIndentsCorrectly(t *testing.T) {
 		{ID: "user2", DisplayName: "Archive Old"}, // user folder, no well-known name
 		{ID: "junk", DisplayName: "Junk Email", WellKnownName: "junkemail"},
 	}
-	got := flattenFolderTree(in)
+	// All-expanded so we can assert the full tree shape.
+	expanded := map[string]bool{"inbox": true, "team-x": true}
+	got := flattenFolderTree(in, expanded)
 	require.Equal(t, 8, len(got))
 
 	// Expected order, with depth:
@@ -381,13 +383,74 @@ func TestFlattenFolderTreeHandlesUntrackedParents(t *testing.T) {
 		{ID: "stranger", DisplayName: "Stranger", ParentFolderID: "not-in-list"},
 		{ID: "inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
 	}
-	got := flattenFolderTree(in)
+	got := flattenFolderTree(in, nil)
 	require.Len(t, got, 2)
 	// Both should have depth 0; Inbox first by rank.
 	require.Equal(t, "inbox", got[0].f.ID)
 	require.Equal(t, 0, got[0].depth)
 	require.Equal(t, "stranger", got[1].f.ID)
 	require.Equal(t, 0, got[1].depth)
+}
+
+// TestFoldersCollapseHidesChildren seeds Inbox > Sub > Sub-Sub, asserts
+// Inbox is auto-expanded (default), then collapses Inbox via 'o' and
+// confirms the children disappear from m.folders.items.
+func TestFoldersCollapseHidesChildren(t *testing.T) {
+	in := []store.Folder{
+		{ID: "inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "sub", DisplayName: "Sub", ParentFolderID: "inbox"},
+		{ID: "subsub", DisplayName: "Sub Sub", ParentFolderID: "sub"},
+	}
+	fm := NewFolders()
+	fm.SetFolders(in)
+	// Default: Inbox expanded, Sub collapsed → 2 visible rows (Inbox, Sub).
+	require.Equal(t, 2, len(fm.items), "Inbox auto-expanded; Sub collapsed by default")
+	require.True(t, fm.items[0].expanded)
+	require.False(t, fm.items[1].expanded)
+	require.True(t, fm.items[1].hasKids, "Sub has Sub Sub")
+
+	// Cursor on Inbox → toggle collapses it.
+	fm.cursor = 0
+	fm.ToggleExpand()
+	require.Equal(t, 1, len(fm.items), "collapsed Inbox hides Sub")
+
+	// Re-expand Inbox, move cursor to Sub, expand Sub.
+	fm.ToggleExpand()
+	require.Equal(t, 2, len(fm.items))
+	fm.cursor = 1
+	fm.ToggleExpand()
+	require.Equal(t, 3, len(fm.items), "expanding Sub reveals Sub Sub")
+	require.Equal(t, "subsub", fm.items[2].f.ID)
+	require.Equal(t, 2, fm.items[2].depth)
+}
+
+// TestDispatchExpandKeyTogglesFolder confirms 'o' in the focused
+// folders pane invokes ToggleExpand on the cursor folder.
+func TestDispatchExpandKeyTogglesFolder(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Force a folder with children: add a subfolder under Inbox.
+	m.folders.raw = append(m.folders.raw, store.Folder{
+		ID: "subof-inbox", DisplayName: "Sub", ParentFolderID: "f-inbox",
+	})
+	m.folders.expanded["f-inbox"] = true // ensure parent visible
+	m.folders.rebuild()
+	beforeRows := len(m.folders.items)
+
+	// Focus folders, cursor onto Inbox.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m.folders.SelectByID("f-inbox")
+	require.Equal(t, FoldersPane, m.focused)
+
+	// Press 'o' → Inbox collapses → child row hidden.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Less(t, len(m.folders.items), beforeRows, "collapse must hide the subfolder")
+
+	// 'o' again → expanded → child row visible again.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Equal(t, beforeRows, len(m.folders.items))
 }
 
 // TestThemePresetsAreValid confirms every preset palette renders into

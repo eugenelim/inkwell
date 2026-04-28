@@ -14,39 +14,90 @@ import (
 
 // displayedFolder is one row in the rendered sidebar tree: the source
 // folder plus the depth at which it appears (0 for top-level, 1 for
-// its children, etc.).
+// its children, etc.) and a flag for whether it has any children
+// (used to render the disclosure glyph).
 type displayedFolder struct {
-	f     store.Folder
-	depth int
+	f        store.Folder
+	depth    int
+	hasKids  bool
+	expanded bool
 }
 
-// FoldersModel is the sidebar pane. It stores the folders pre-flattened
-// into display order so the cursor is a simple index into a slice and
-// View doesn't need to re-walk the tree on every render.
+// FoldersModel is the sidebar pane. It stores the raw folders + per-id
+// expansion state, then computes the displayed tree on demand. The
+// cursor is an index into the currently-visible items.
 type FoldersModel struct {
-	items  []displayedFolder
-	cursor int
+	raw      []store.Folder
+	expanded map[string]bool // folder ID → is-expanded
+	items    []displayedFolder
+	cursor   int
 }
 
-// NewFolders returns an empty folders pane.
-func NewFolders() FoldersModel { return FoldersModel{} }
+// NewFolders returns an empty folders pane. The default expansion
+// rule (applied per-folder on first sight): Inbox is expanded so the
+// user sees their nested project folders immediately; everything else
+// starts collapsed to keep the sidebar tidy in big mailboxes.
+func NewFolders() FoldersModel {
+	return FoldersModel{expanded: map[string]bool{}}
+}
 
 // SetFolders replaces the displayed list (called from FoldersLoadedMsg).
 // Tops are ordered Inbox → Sent → Drafts → Archive → user (alpha) →
 // Junk / Deleted / etc. Children of any folder are sorted alphabetically
-// regardless of well-known status (well-known names don't typically
-// nest under each other).
+// regardless of well-known status. Folders with children render a
+// disclosure glyph; the user toggles with `o`/space (KeyMap.Expand).
 func (m *FoldersModel) SetFolders(fs []store.Folder) {
-	m.items = flattenFolderTree(fs)
+	if m.expanded == nil {
+		m.expanded = map[string]bool{}
+	}
+	// Default-expand the Inbox so first-launch users see something
+	// useful even if their account has only nested user folders.
+	for _, f := range fs {
+		if f.WellKnownName == "inbox" {
+			if _, set := m.expanded[f.ID]; !set {
+				m.expanded[f.ID] = true
+			}
+		}
+	}
+	m.raw = fs
+	m.rebuild()
 	if m.cursor >= len(m.items) {
 		m.cursor = 0
 	}
 }
 
+// rebuild recomputes m.items from m.raw + m.expanded.
+func (m *FoldersModel) rebuild() {
+	m.items = flattenFolderTree(m.raw, m.expanded)
+}
+
+// ToggleExpand flips the expansion state of the folder under the
+// cursor. No-op if the folder has no children.
+func (m *FoldersModel) ToggleExpand() {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return
+	}
+	cur := m.items[m.cursor]
+	if !cur.hasKids {
+		return
+	}
+	id := cur.f.ID
+	m.expanded[id] = !m.expanded[id]
+	m.rebuild()
+	// Keep the cursor on the same folder after rebuild.
+	for i, it := range m.items {
+		if it.f.ID == id {
+			m.cursor = i
+			break
+		}
+	}
+}
+
 // flattenFolderTree returns folders in the order they should appear in
-// the sidebar: top-level folders ranked by [folderRank], children
-// indented under their parent and sorted alphabetically.
-func flattenFolderTree(fs []store.Folder) []displayedFolder {
+// the sidebar. Roots ranked by [folderRank], children indented under
+// their parent and sorted alphabetically. Children of a collapsed
+// parent are skipped.
+func flattenFolderTree(fs []store.Folder, expanded map[string]bool) []displayedFolder {
 	if len(fs) == 0 {
 		return nil
 	}
@@ -70,8 +121,18 @@ func flattenFolderTree(fs []store.Folder) []displayedFolder {
 	out := make([]displayedFolder, 0, len(fs))
 	var walk func(parent store.Folder, depth int)
 	walk = func(parent store.Folder, depth int) {
-		out = append(out, displayedFolder{f: parent, depth: depth})
 		kids := childrenOf[parent.ID]
+		hasKids := len(kids) > 0
+		isExpanded := hasKids && expanded[parent.ID]
+		out = append(out, displayedFolder{
+			f:        parent,
+			depth:    depth,
+			hasKids:  hasKids,
+			expanded: isExpanded,
+		})
+		if !isExpanded {
+			return
+		}
 		sort.SliceStable(kids, func(i, j int) bool {
 			return strings.ToLower(kids[i].DisplayName) < strings.ToLower(kids[j].DisplayName)
 		})
@@ -164,11 +225,18 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	rows := make([]string, 0, len(m.items))
 	for i, it := range m.items {
 		f := it.f
-		// Indentation: 2 spaces per depth level. Subfolders live to
-		// the right of their parent, like a tree pane in any other
-		// mail client.
 		indent := strings.Repeat("  ", it.depth)
-		line := indent + f.DisplayName
+		// Disclosure glyph for folders with children: ▾ open, ▸ closed.
+		// Leaf folders get a 2-space gap so names align.
+		disclosure := "  "
+		if it.hasKids {
+			if it.expanded {
+				disclosure = "▾ "
+			} else {
+				disclosure = "▸ "
+			}
+		}
+		line := indent + disclosure + f.DisplayName
 		if f.UnreadCount > 0 {
 			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
 		}
@@ -176,7 +244,7 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 		if i == m.cursor && focused {
 			marker = "▶ "
 		} else if i == m.cursor {
-			marker = "▸ "
+			marker = "· "
 		}
 		styled := truncate(marker+line, width-1)
 		if i == m.cursor && focused {

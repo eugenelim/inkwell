@@ -31,6 +31,8 @@ type KeyMap struct {
 	Home     key.Binding
 	End      key.Binding
 	Open     key.Binding
+	// Toggle expansion of a folder with children (folders pane only).
+	Expand key.Binding
 
 	// List actions (pane-scoped — list, viewer)
 	MarkRead        key.Binding
@@ -78,6 +80,7 @@ func DefaultKeyMap() KeyMap {
 		Home:     key.NewBinding(key.WithKeys("home", "g")),
 		End:      key.NewBinding(key.WithKeys("end", "G")),
 		Open:     key.NewBinding(key.WithKeys("enter")),
+		Expand:   key.NewBinding(key.WithKeys("o", " ")),
 
 		MarkRead:        key.NewBinding(key.WithKeys("r")),
 		MarkUnread:      key.NewBinding(key.WithKeys("R")),
