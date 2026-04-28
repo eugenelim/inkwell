@@ -1,0 +1,334 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/eu-gene-lim/inkwell/internal/store"
+)
+
+// FoldersModel is the sidebar pane.
+type FoldersModel struct {
+	folders []store.Folder
+	cursor  int
+}
+
+// NewFolders returns an empty folders pane.
+func NewFolders() FoldersModel { return FoldersModel{} }
+
+// SetFolders replaces the displayed list (called from FoldersLoadedMsg).
+func (m *FoldersModel) SetFolders(fs []store.Folder) {
+	m.folders = fs
+	if m.cursor >= len(fs) {
+		m.cursor = 0
+	}
+}
+
+// Up moves the cursor toward the top.
+func (m *FoldersModel) Up() {
+	if m.cursor > 0 {
+		m.cursor--
+	}
+}
+
+// Down moves the cursor toward the bottom.
+func (m *FoldersModel) Down() {
+	if m.cursor+1 < len(m.folders) {
+		m.cursor++
+	}
+}
+
+// Selected returns the highlighted folder, if any.
+func (m FoldersModel) Selected() (store.Folder, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.folders) {
+		return store.Folder{}, false
+	}
+	return m.folders[m.cursor], true
+}
+
+// SelectByID moves the cursor onto the folder with the given id.
+// No-op if not present.
+func (m *FoldersModel) SelectByID(id string) {
+	for i, f := range m.folders {
+		if f.ID == id {
+			m.cursor = i
+			return
+		}
+	}
+}
+
+// View renders the folders column.
+func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
+	var b strings.Builder
+	for i, f := range m.folders {
+		line := f.DisplayName
+		if f.UnreadCount > 0 {
+			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
+		}
+		if i == m.cursor && focused {
+			line = t.FoldersSel.Render("▸ " + line)
+		} else if i == m.cursor {
+			line = "▸ " + line
+		} else {
+			line = "  " + line
+		}
+		b.WriteString(truncate(line, width-1))
+		b.WriteByte('\n')
+	}
+	return t.Folders.Width(width).Height(height).Render(b.String())
+}
+
+// ListModel is the message-list pane.
+type ListModel struct {
+	FolderID string
+	messages []store.Message
+	cursor   int
+}
+
+// NewList returns an empty list pane.
+func NewList() ListModel { return ListModel{} }
+
+// SetMessages replaces the displayed list.
+func (m *ListModel) SetMessages(ms []store.Message) {
+	m.messages = ms
+	if m.cursor >= len(ms) {
+		m.cursor = 0
+	}
+}
+
+// Up / Down / Selected mirror the folders pane.
+func (m *ListModel) Up() {
+	if m.cursor > 0 {
+		m.cursor--
+	}
+}
+
+// Down moves the cursor toward newer messages.
+func (m *ListModel) Down() {
+	if m.cursor+1 < len(m.messages) {
+		m.cursor++
+	}
+}
+
+// Selected returns the highlighted message, if any.
+func (m ListModel) Selected() (store.Message, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.messages) {
+		return store.Message{}, false
+	}
+	return m.messages[m.cursor], true
+}
+
+// View renders the message column.
+func (m ListModel) View(t Theme, width, height int, focused bool) string {
+	if m.FolderID == "" {
+		return t.List.Width(width).Height(height).Render("(select a folder)")
+	}
+	var b strings.Builder
+	for i, msg := range m.messages {
+		when := relativeWhen(msg.ReceivedAt)
+		from := msg.FromName
+		if from == "" {
+			from = msg.FromAddress
+		}
+		line := fmt.Sprintf("%-10s %-18s %s", when, truncate(from, 18), msg.Subject)
+		styled := truncate(line, width-1)
+		if i == m.cursor && focused {
+			styled = t.ListSel.Render(styled)
+		} else if !msg.IsRead {
+			styled = t.ListUnread.Render(styled)
+		}
+		b.WriteString(styled)
+		b.WriteByte('\n')
+	}
+	return t.List.Width(width).Height(height).Render(b.String())
+}
+
+// ViewerModel is the read pane. Spec 04 ships a stub; spec 05 fills it
+// in with rendered headers, body conversion, attachment list, and
+// numbered links.
+type ViewerModel struct {
+	current *store.Message
+}
+
+// NewViewer returns an empty viewer.
+func NewViewer() ViewerModel { return ViewerModel{} }
+
+// SetMessage replaces the displayed message.
+func (m *ViewerModel) SetMessage(msg store.Message) {
+	m.current = &msg
+}
+
+// View renders the viewer column.
+func (m ViewerModel) View(t Theme, width, height int, _ bool) string {
+	if m.current == nil {
+		return t.Viewer.Width(width).Height(height).Render("(no message selected)")
+	}
+	from := m.current.FromName
+	if from == "" {
+		from = m.current.FromAddress
+	}
+	hdr := lipgloss.JoinVertical(lipgloss.Left,
+		"From: "+from,
+		"Subject: "+m.current.Subject,
+		"Date: "+m.current.ReceivedAt.Format(time.RFC1123),
+		"",
+		t.Dim.Render("(spec 05 will render the body here)"),
+	)
+	return t.Viewer.Width(width).Height(height).Render(hdr)
+}
+
+// CommandModel is the `:command` line.
+type CommandModel struct {
+	buf    string
+	active bool
+}
+
+// NewCommand returns an empty command bar.
+func NewCommand() CommandModel { return CommandModel{} }
+
+// Activate clears the buffer and marks the bar as accepting input.
+func (m *CommandModel) Activate() {
+	m.active = true
+	m.buf = ""
+}
+
+// Reset deactivates and clears the bar.
+func (m *CommandModel) Reset() {
+	m.active = false
+	m.buf = ""
+}
+
+// Buffer returns the current entered text.
+func (m CommandModel) Buffer() string { return m.buf }
+
+// HandleKey appends or backspaces buffered text.
+func (m *CommandModel) HandleKey(msg tea.KeyMsg) {
+	switch msg.Type {
+	case tea.KeyBackspace:
+		if len(m.buf) > 0 {
+			m.buf = m.buf[:len(m.buf)-1]
+		}
+	default:
+		m.buf += msg.String()
+	}
+}
+
+// View renders the command line.
+func (m CommandModel) View(t Theme, width int, active bool) string {
+	if !active && m.buf == "" {
+		return strings.Repeat(" ", width)
+	}
+	return t.CommandBar.Render(":" + m.buf)
+}
+
+// StatusModel is the top status bar.
+type StatusModel struct {
+	upn    string
+	tenant string
+}
+
+// NewStatus returns the top status bar prefilled with the signed-in account.
+func NewStatus(upn, tenant string) StatusModel {
+	return StatusModel{upn: upn, tenant: tenant}
+}
+
+// View renders the status line.
+func (m StatusModel) View(t Theme, width int, lastSync time.Time, throttled time.Duration) string {
+	left := "☰ inkwell"
+	if m.upn != "" {
+		left += " · " + m.upn
+	}
+	right := "—"
+	if !lastSync.IsZero() {
+		right = "✓ synced " + lastSync.Format("15:04")
+	}
+	if throttled > 0 {
+		right = t.Throttled.Render(fmt.Sprintf("⏳ throttled %ds", int(throttled.Seconds())))
+	}
+	pad := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if pad < 1 {
+		pad = 1
+	}
+	return t.Status.Render(left + strings.Repeat(" ", pad) + right)
+}
+
+// SignInModel is the device-code prompt.
+type SignInModel struct {
+	UserCode        string
+	VerificationURL string
+}
+
+// NewSignIn returns an empty sign-in modal.
+func NewSignIn() SignInModel { return SignInModel{} }
+
+// Set populates the modal with the prompt data delivered by the auth
+// package.
+func (m *SignInModel) Set(userCode, url string) {
+	m.UserCode = userCode
+	m.VerificationURL = url
+}
+
+// View renders the sign-in modal centered on the screen.
+func (m SignInModel) View(t Theme, width, height int) string {
+	body := "Sign in to Microsoft 365\n\n" +
+		"Open: " + m.VerificationURL + "\n" +
+		"Code: " + m.UserCode + "\n\n" +
+		t.Dim.Render("(press Esc to cancel)")
+	if m.VerificationURL == "" {
+		body = "Waiting for sign-in…\n\n" + t.Dim.Render("(press Esc to cancel)")
+	}
+	box := t.Modal.Render(body)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// ConfirmModel is the y/N modal.
+type ConfirmModel struct {
+	Topic   string
+	Message string
+}
+
+// NewConfirm returns an empty confirm modal.
+func NewConfirm() ConfirmModel { return ConfirmModel{} }
+
+// Ask returns a confirm modal seeded with topic + message.
+func (m ConfirmModel) Ask(message, topic string) ConfirmModel {
+	return ConfirmModel{Topic: topic, Message: message}
+}
+
+// View renders the y/N prompt.
+func (m ConfirmModel) View(t Theme, width, height int) string {
+	body := m.Message + "\n\n[y]es / [N]o"
+	box := t.Modal.Render(body)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// truncate cuts s to width characters.
+func truncate(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	r := []rune(s)
+	if len(r) > width {
+		return string(r[:width])
+	}
+	return s
+}
+
+// relativeWhen returns "Mon 14:32" or "2026-04-25".
+func relativeWhen(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	now := time.Now()
+	if now.Sub(t) < 7*24*time.Hour {
+		return t.Format("Mon 15:04")
+	}
+	return t.Format("2006-01-02")
+}
