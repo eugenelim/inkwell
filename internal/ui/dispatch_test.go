@@ -453,6 +453,86 @@ func TestDispatchExpandKeyTogglesFolder(t *testing.T) {
 	require.Equal(t, beforeRows, len(m.folders.items))
 }
 
+// TestDispatchViewerDeleteRunsTriageAndPopsToList confirms that 'd'
+// while the viewer pane is focused enqueues a soft_delete on the
+// currently-displayed message AND moves focus back to the list (so
+// the user sees what's next rather than staring at a deleted body).
+func TestDispatchViewerDeleteRunsTriageAndPopsToList(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Open the first message → focus moves to ViewerPane.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.NotNil(t, m.viewer.current)
+
+	called := atomicBool{}
+	m.deps.Triage = stubTriageDelete{onCall: called.set}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "d in viewer must return a Cmd")
+
+	// Run the Cmd to completion and feed the resulting Msg back.
+	msg := cmd()
+	m2, _ = m.Update(msg)
+	m = m2.(Model)
+
+	require.True(t, called.get(), "triage SoftDelete invoked")
+	require.Equal(t, ListPane, m.focused, "focus pops back to list after delete")
+	require.Nil(t, m.viewer.current, "viewer cleared after delete")
+}
+
+// TestDispatchViewerFlagRunsTriageAndStays confirms 'f' in the viewer
+// toggles the flag but keeps focus on the viewer (you flagged it so
+// you could keep reading).
+func TestDispatchViewerFlagRunsTriageAndStays(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	called := atomicBool{}
+	m.deps.Triage = stubTriageFlag{onCall: called.set}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	msg := cmd()
+	m2, _ = m.Update(msg)
+	m = m2.(Model)
+
+	require.True(t, called.get())
+	require.Equal(t, ViewerPane, m.focused, "flag toggle keeps viewer focus")
+	require.NotNil(t, m.viewer.current, "viewer not cleared on flag")
+}
+
+// stubTriageDelete satisfies ui.TriageExecutor for the delete path.
+type stubTriageDelete struct{ onCall func() }
+
+func (s stubTriageDelete) MarkRead(context.Context, int64, string) error          { return nil }
+func (s stubTriageDelete) MarkUnread(context.Context, int64, string) error        { return nil }
+func (s stubTriageDelete) ToggleFlag(context.Context, int64, string, bool) error  { return nil }
+func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error  { s.onCall(); return nil }
+func (s stubTriageDelete) Archive(context.Context, int64, string) error           { return nil }
+
+type stubTriageFlag struct{ onCall func() }
+
+func (s stubTriageFlag) MarkRead(context.Context, int64, string) error            { return nil }
+func (s stubTriageFlag) MarkUnread(context.Context, int64, string) error          { return nil }
+func (s stubTriageFlag) ToggleFlag(_ context.Context, _ int64, _ string, _ bool) error {
+	s.onCall()
+	return nil
+}
+func (s stubTriageFlag) SoftDelete(context.Context, int64, string) error { return nil }
+func (s stubTriageFlag) Archive(context.Context, int64, string) error    { return nil }
+
+// atomicBool is a tiny helper since sync/atomic.Bool is fine but adds
+// another import; this stays test-local.
+type atomicBool struct{ v bool }
+
+func (a *atomicBool) set()      { a.v = true }
+func (a *atomicBool) get() bool { return a.v }
+
 // TestThemePresetsAreValid confirms every preset palette renders into
 // a Theme without empty styles. A new preset that fails this check
 // would silently produce an unstyled UI in production.
