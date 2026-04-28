@@ -47,12 +47,22 @@ type ThrottledEvent struct{ RetryAfter time.Duration }
 // AuthRequiredEvent fires when the engine cannot acquire a token.
 type AuthRequiredEvent struct{ At time.Time }
 
-func (FolderSyncedEvent) isEvent()  {}
-func (SyncStartedEvent) isEvent()   {}
-func (SyncCompletedEvent) isEvent() {}
-func (SyncFailedEvent) isEvent()    {}
-func (ThrottledEvent) isEvent()     {}
-func (AuthRequiredEvent) isEvent()  {}
+// FoldersEnumeratedEvent fires after the per-cycle /me/mailFolders call
+// upserts the folder list into the store. The TUI uses it as a signal
+// to reload its sidebar BEFORE per-folder syncs complete — folders
+// appear immediately, even if a per-folder sync later errors out.
+type FoldersEnumeratedEvent struct {
+	Count int
+	At    time.Time
+}
+
+func (FolderSyncedEvent) isEvent()        {}
+func (FoldersEnumeratedEvent) isEvent()   {}
+func (SyncStartedEvent) isEvent()         {}
+func (SyncCompletedEvent) isEvent()       {}
+func (SyncFailedEvent) isEvent()          {}
+func (ThrottledEvent) isEvent()           {}
+func (AuthRequiredEvent) isEvent()        {}
 
 // State enumerates the engine's lifecycle.
 type State int
@@ -211,7 +221,19 @@ func (e *engine) SetActive(active bool) {
 // Pass a context that lives for the life of the app; cancel it to
 // shut the engine down.
 func (e *engine) Start(ctx context.Context) error {
-	go e.loop(ctx)
+	go func() {
+		// Panic recovery: bubbletea's alt-screen swallows stderr, so
+		// a goroutine panic without recovery is invisible. Capture
+		// it to the log AND surface as SyncFailedEvent so the TUI
+		// status bar shows it.
+		defer func() {
+			if r := recover(); r != nil {
+				e.logger.Error("engine: panic in loop", slog.Any("panic", r))
+				e.emit(SyncFailedEvent{At: time.Now(), Err: fmt.Errorf("engine panic: %v", r)})
+			}
+		}()
+		e.loop(ctx)
+	}()
 	return nil
 }
 
@@ -335,6 +357,10 @@ func (e *engine) runCycle(ctx context.Context) error {
 		slog.Int("total", len(folders)),
 		slog.Int("subscribed", len(subscribed)),
 	)
+	// Emit FoldersEnumeratedEvent so the TUI re-loads its sidebar
+	// BEFORE per-folder syncs complete. Folders show up the moment
+	// they hit the store, even if individual folder pulls later fail.
+	e.emit(FoldersEnumeratedEvent{Count: len(folders), At: time.Now()})
 	for _, f := range subscribed {
 		select {
 		case <-ctx.Done():

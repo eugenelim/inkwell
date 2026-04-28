@@ -80,9 +80,10 @@ type Model struct {
 	theme  Theme
 
 	// transient state shown by the status bar
-	throttledFor time.Duration
-	lastSyncAt   time.Time
-	lastError    error
+	throttledFor   time.Duration
+	lastSyncAt     time.Time
+	lastError      error
+	engineActivity string // "syncing folders…" / "syncing…" / ""
 }
 
 // New constructs the root model. After construction, callers run
@@ -466,17 +467,29 @@ func (m Model) consumeSyncEventsCmd() tea.Cmd {
 
 func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 	switch e := ev.(type) {
+	case isync.SyncStartedEvent:
+		m.engineActivity = "syncing…"
+		m.lastError = nil
 	case isync.SyncCompletedEvent:
+		m.engineActivity = ""
 		m.lastSyncAt = e.At
 	case isync.SyncFailedEvent:
+		m.engineActivity = ""
 		m.lastError = e.Err
 	case isync.ThrottledEvent:
 		m.throttledFor = e.RetryAfter
 	case isync.AuthRequiredEvent:
 		m.mode = SignInMode
 		m.signin = NewSignIn()
+	case isync.FoldersEnumeratedEvent:
+		// Folder list just landed in the store. Reload the sidebar
+		// IMMEDIATELY so the user sees folders even before per-folder
+		// sync completes (or even if it later errors out).
+		m.engineActivity = "syncing folders…"
+		return m, m.loadFoldersCmd()
 	case isync.FolderSyncedEvent:
 		m.lastSyncAt = e.At
+		m.engineActivity = "syncing…"
 		// Refresh the folder list (counts may have changed) and, if
 		// the user is on the synced folder, refresh the message list
 		// too. Spec 04 §10: the UI never blocks; both reloads are Cmds.
@@ -512,7 +525,12 @@ func (m Model) View() string {
 		return m.confirm.View(m.theme, m.width, m.height)
 	}
 
-	statusBar := m.status.View(m.theme, m.width, m.lastSyncAt, m.throttledFor)
+	statusBar := m.status.View(m.theme, m.width, StatusInputs{
+		LastSync:  m.lastSyncAt,
+		Throttled: m.throttledFor,
+		Activity:  m.engineActivity,
+		LastErr:   m.lastError,
+	})
 	cmdBar := m.cmd.View(m.theme, m.width, m.mode == CommandMode)
 
 	bodyHeight := m.height - 2 // status + command lines
