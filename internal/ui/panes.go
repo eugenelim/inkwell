@@ -104,23 +104,19 @@ func (m *FoldersModel) SelectByID(id string) {
 
 // View renders the folders column.
 func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
-	var b strings.Builder
-	b.WriteString(paneHeader(t, "Folders", focused))
-	b.WriteByte('\n')
+	lines := []string{paneHeader(t, "Folders", focused)}
 	if len(m.folders) == 0 {
-		b.WriteString(t.Dim.Render("  (waiting…)"))
-		b.WriteByte('\n')
+		lines = append(lines, t.Dim.Render("  (waiting…)"))
 	}
+	// Build all rows first, then clip to a viewport that keeps the
+	// cursor visible (clipToCursorViewport) — long folder lists no
+	// longer overflow bodyHeight and push the status bar off-screen.
+	rows := make([]string, 0, len(m.folders))
 	for i, f := range m.folders {
 		line := f.DisplayName
 		if f.UnreadCount > 0 {
 			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
 		}
-		// Cursor glyph is the canonical "this row is selected" signal,
-		// independent of color/reverse-video support in the user's
-		// terminal. The "▶" arrow appears on the focused pane's
-		// cursor; "▸" on unfocused (so the user always sees where
-		// they'll land when they switch back).
 		marker := "  "
 		if i == m.cursor && focused {
 			marker = "▶ "
@@ -131,10 +127,11 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 		if i == m.cursor && focused {
 			styled = t.FoldersSel.Render(styled)
 		}
-		b.WriteString(styled)
-		b.WriteByte('\n')
+		rows = append(rows, styled)
 	}
-	return t.Folders.Width(width).Height(height).Render(b.String())
+	visible := clipToCursorViewport(rows, m.cursor, height-len(lines))
+	lines = append(lines, visible...)
+	return t.Folders.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 // ListModel is the message-list pane.
@@ -179,24 +176,18 @@ func (m ListModel) Selected() (store.Message, bool) {
 
 // View renders the message column.
 func (m ListModel) View(t Theme, width, height int, focused bool) string {
-	var b strings.Builder
-	header := "Messages"
+	header := paneHeader(t, "Messages", focused)
 	if m.FolderID == "" {
-		b.WriteString(paneHeader(t, header, focused))
-		b.WriteByte('\n')
-		b.WriteString(t.Dim.Render("  (select a folder)"))
-		return t.List.Width(width).Height(height).Render(b.String())
+		body := strings.Join([]string{header, t.Dim.Render("  (select a folder)")}, "\n")
+		return t.List.Width(width).Height(height).Render(body)
 	}
-	b.WriteString(paneHeader(t, header, focused))
-	b.WriteByte('\n')
+	rows := make([]string, 0, len(m.messages))
 	for i, msg := range m.messages {
 		when := relativeWhen(msg.ReceivedAt)
 		from := msg.FromName
 		if from == "" {
 			from = msg.FromAddress
 		}
-		// Cursor glyph carries the "selected" signal even on terminals
-		// where reverse video isn't visible.
 		marker := "  "
 		if i == m.cursor && focused {
 			marker = "▶ "
@@ -210,35 +201,51 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if !msg.IsRead {
 			styled = t.ListUnread.Render(styled)
 		}
-		b.WriteString(styled)
-		b.WriteByte('\n')
+		rows = append(rows, styled)
 	}
-	return t.List.Width(width).Height(height).Render(b.String())
+	visible := clipToCursorViewport(rows, m.cursor, height-1)
+	out := append([]string{header}, visible...)
+	return t.List.Width(width).Height(height).Render(strings.Join(out, "\n"))
 }
 
 // ViewerModel is the read pane. Headers + body + attachments routed
 // through internal/render.
 type ViewerModel struct {
-	current      *store.Message
-	body         string
-	bodyState    int // mirrors render.BodyState; kept as int to avoid import cycle
-	showFullHdr  bool
+	current     *store.Message
+	body        string
+	bodyState   int // mirrors render.BodyState; kept as int to avoid import cycle
+	showFullHdr bool
+	scrollY     int // body line offset for j/k scroll
 }
 
 // NewViewer returns an empty viewer.
 func NewViewer() ViewerModel { return ViewerModel{} }
 
-// SetMessage replaces the displayed message; clears any prior body.
+// SetMessage replaces the displayed message; clears any prior body
+// and resets the scroll offset.
 func (m *ViewerModel) SetMessage(msg store.Message) {
 	m.current = &msg
 	m.body = ""
 	m.bodyState = 0
+	m.scrollY = 0
 }
 
 // SetBody is invoked after a fetch completes (or the cache hits).
 func (m *ViewerModel) SetBody(text string, state int) {
 	m.body = text
 	m.bodyState = state
+}
+
+// ScrollDown advances the body viewport by one line.
+func (m *ViewerModel) ScrollDown() {
+	m.scrollY++
+}
+
+// ScrollUp moves the body viewport up by one line.
+func (m *ViewerModel) ScrollUp() {
+	if m.scrollY > 0 {
+		m.scrollY--
+	}
 }
 
 // CurrentMessageID returns the id of the currently-displayed message,
@@ -252,31 +259,45 @@ func (m ViewerModel) CurrentMessageID() string {
 
 // View renders the viewer column.
 func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
-	var b strings.Builder
-	b.WriteString(paneHeader(t, "Message", focused))
-	b.WriteByte('\n')
+	header := paneHeader(t, "Message", focused)
 	if m.current == nil {
-		b.WriteString(t.Dim.Render("  (no message selected)"))
-		return t.Viewer.Width(width).Height(height).Render(b.String())
+		body := strings.Join([]string{header, t.Dim.Render("  (no message selected)")}, "\n")
+		return t.Viewer.Width(width).Height(height).Render(body)
 	}
 	from := m.current.FromName
 	if from == "" {
 		from = m.current.FromAddress
 	}
-	headers := lipgloss.JoinVertical(lipgloss.Left,
-		"From:    "+from,
-		"To:      "+joinAddrs(m.current.ToAddresses),
-		"Date:    "+m.current.ReceivedAt.Format(time.RFC1123),
-		"Subject: "+m.current.Subject,
+	hdrs := []string{
+		header,
+		"From:    " + from,
+		"To:      " + joinAddrs(m.current.ToAddresses),
+		"Date:    " + m.current.ReceivedAt.Format(time.RFC1123),
+		"Subject: " + m.current.Subject,
 		"",
-	)
+	}
 	body := m.body
 	if body == "" {
 		body = t.Dim.Render("(loading…)")
 	}
-	b.WriteString(headers)
-	b.WriteString(body)
-	return t.Viewer.Width(width).Height(height).Render(b.String())
+	bodyLines := strings.Split(body, "\n")
+	// Apply scroll offset and clip to remaining height. The window
+	// renders [scrollY, scrollY+room) of the body; scrolling past EOF
+	// is harmless (we just show fewer rows).
+	room := height - len(hdrs)
+	if room < 1 {
+		room = 1
+	}
+	if m.scrollY >= len(bodyLines) {
+		bodyLines = nil
+	} else {
+		bodyLines = bodyLines[m.scrollY:]
+	}
+	if len(bodyLines) > room {
+		bodyLines = bodyLines[:room]
+	}
+	out := append(hdrs, bodyLines...)
+	return t.Viewer.Width(width).Height(height).Render(strings.Join(out, "\n"))
 }
 
 // joinAddrs renders a recipient list as "name <addr>, name2 <addr2>".
@@ -455,6 +476,29 @@ func paneHeader(t Theme, title string, focused bool) string {
 		return t.Bold.Render("▌ " + title)
 	}
 	return t.Dim.Render("  " + title)
+}
+
+// clipToCursorViewport returns the slice of `rows` that fits in `room`
+// rows while keeping `cursor` visible. If `rows` already fits, the
+// whole list is returned. Otherwise we slide the window so the cursor
+// stays inside the visible range.
+func clipToCursorViewport(rows []string, cursor, room int) []string {
+	if room <= 0 {
+		return nil
+	}
+	if len(rows) <= room {
+		return rows
+	}
+	// Center the cursor when possible. Top edge clamped to 0; bottom
+	// edge clamped so we never overshoot the slice.
+	top := cursor - room/2
+	if top < 0 {
+		top = 0
+	}
+	if top+room > len(rows) {
+		top = len(rows) - room
+	}
+	return rows[top : top+room]
 }
 
 // truncate cuts s to width characters.

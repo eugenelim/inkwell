@@ -61,10 +61,14 @@ type SyncConfig struct {
 
 // UIConfig owns the [ui] section (spec 04).
 type UIConfig struct {
-	FoldersWidth         int           `toml:"folders_width"`
-	ListWidth            int           `toml:"list_width"`
-	RelativeDatesWithin  time.Duration `toml:"relative_dates_within"`
-	Timezone             string        `toml:"timezone"`
+	FoldersWidth        int           `toml:"folders_width"`
+	ListWidth           int           `toml:"list_width"`
+	RelativeDatesWithin time.Duration `toml:"relative_dates_within"`
+	Timezone            string        `toml:"timezone"`
+	// Theme is the named color scheme. One of: "default", "dark",
+	// "light", "solarized-dark", "solarized-light", "high-contrast".
+	// Unknown values fall back to "default" with a logged warning.
+	Theme string `toml:"theme"`
 }
 
 // BindingsConfig owns the [bindings] section (spec 04).

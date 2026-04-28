@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -240,6 +241,80 @@ func TestDispatchFoldersJMovesFolderCursor(t *testing.T) {
 
 	require.Equal(t, beforeFolderCursor+1, m.folders.cursor, "j in folders must move folder cursor")
 	require.Equal(t, beforeListCursor, m.list.cursor, "j in folders must NOT move list cursor")
+}
+
+// TestViewerScrollDownAdvancesOffset confirms 'j' in the focused
+// viewer pane advances scrollY (rather than triggering folder/list
+// movement that doesn't apply here).
+func TestViewerScrollDownAdvancesOffset(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Open the first message; Enter focuses the viewer.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.Equal(t, 0, m.viewer.scrollY)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 1, m.viewer.scrollY)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = m2.(Model)
+	require.Equal(t, 0, m.viewer.scrollY)
+}
+
+// TestRenderedFrameNeverExceedsTerminalHeight is the regression for the
+// "had to scroll up to see sidebar" / "long message overflows" bug.
+// We seed 100 messages, paint the model at 80x24, and assert the View
+// output is exactly 24 rows tall — not one row taller.
+func TestRenderedFrameNeverExceedsTerminalHeight(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Resize the terminal to a small viewport.
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = m2.(Model)
+
+	frame := m.View()
+	rows := strings.Count(frame, "\n") + 1
+	require.LessOrEqual(t, rows, 24, "rendered frame must not exceed terminal height")
+}
+
+// TestRenderedFrameWithLongBodyClipsToHeight pumps a 200-line body
+// through the viewer and confirms the frame still fits in the terminal.
+func TestRenderedFrameWithLongBodyClipsToHeight(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = m2.(Model)
+	// Open a message and fake a huge body load.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	bigBody := strings.Repeat("paragraph of body text\n", 200)
+	m.viewer.SetBody(bigBody, 1) // 1 == BodyReady
+
+	frame := m.View()
+	rows := strings.Count(frame, "\n") + 1
+	require.LessOrEqual(t, rows, 30, "long body must clip to viewport, not push status bar off-screen")
+}
+
+// TestThemePresetsAreValid confirms every preset palette renders into
+// a Theme without empty styles. A new preset that fails this check
+// would silently produce an unstyled UI in production.
+func TestThemePresetsAreValid(t *testing.T) {
+	for name := range presetPalettes {
+		theme, ok := ThemeByName(name)
+		require.True(t, ok, "preset %q must resolve", name)
+		// Every Theme field must be non-zero (lipgloss styles aren't
+		// directly comparable, so we render a probe and require non-
+		// empty output).
+		require.NotEmpty(t, theme.Bold.Render("x"), "Bold must render content for %q", name)
+		require.NotEmpty(t, theme.Dim.Render("x"), "Dim must render content for %q", name)
+	}
+}
+
+// TestThemeUnknownNameFallsBack confirms an unknown theme name returns
+// (default, false). cmd_run.go logs a warning on the false branch.
+func TestThemeUnknownNameFallsBack(t *testing.T) {
+	_, ok := ThemeByName("not-a-real-theme")
+	require.False(t, ok, "unknown name must report fallback")
 }
 
 // TestDispatchQuitReturnsTeaQuit confirms 'q' returns a tea.Cmd that

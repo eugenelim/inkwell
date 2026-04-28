@@ -33,6 +33,7 @@ func Defaults() *Config {
 			ListWidth:           40,
 			RelativeDatesWithin: 24 * time.Hour,
 			Timezone:            "Local",
+			Theme:               "default",
 		},
 		Bindings: BindingsConfig{
 			Quit:            "q",
