@@ -428,15 +428,97 @@ func TestExpectedUPNGuardrailAcceptsMatchCaseInsensitive(t *testing.T) {
 	require.Equal(t, "tok", tok)
 }
 
-func TestDefaultScopesIncludesOfflineAccess(t *testing.T) {
+func TestDefaultScopesOmitsOfflineAccessByDefault(t *testing.T) {
 	scopes := DefaultScopes()
+	for _, s := range scopes {
+		require.NotEqual(t, "offline_access", s,
+			"spec 01 §6.1: offline_access is opt-in; default must omit it")
+	}
+}
+
+func TestScopesWithOfflineAccessIncludesItWhenAsked(t *testing.T) {
+	scopes := ScopesWithOfflineAccess(true)
 	found := false
 	for _, s := range scopes {
 		if s == "offline_access" {
 			found = true
 		}
 	}
-	require.True(t, found, "offline_access scope must be present (spec 01 §6)")
+	require.True(t, found, "offline_access must be appended when requestOfflineAccess=true")
+}
+
+func TestConfigResolvedHonoursRequestOfflineAccess(t *testing.T) {
+	r := Config{RequestOfflineAccess: true}.resolved()
+	require.Contains(t, r.Scopes, "offline_access")
+
+	r2 := Config{}.resolved()
+	require.NotContains(t, r2.Scopes, "offline_access")
+}
+
+func TestIsSignedInReturnsTrueOnSilentHit(t *testing.T) {
+	src := &fakeSource{
+		accounts:     []Account{{UPN: "u@example.invalid", TenantID: "T"}},
+		silentResult: AuthResult{AccessToken: "tok", ExpiresOn: time.Now().Add(time.Hour), Account: Account{UPN: "u@example.invalid", TenantID: "T"}},
+	}
+	a := newTestAuth(t, src, nil)
+	require.True(t, a.IsSignedIn(context.Background()))
+	require.Equal(t, int32(0), src.interactiveCalls.Load(), "IsSignedIn must NEVER call interactive")
+	require.Equal(t, int32(0), src.deviceCalls.Load(), "IsSignedIn must NEVER call device-code")
+	upn, tenant, signed := a.Account()
+	require.True(t, signed)
+	require.Equal(t, "u@example.invalid", upn)
+	require.Equal(t, "T", tenant)
+}
+
+func TestIsSignedInReturnsTrueFromInMemoryCache(t *testing.T) {
+	src := &fakeSource{
+		accounts:     []Account{{UPN: "u@example.invalid"}},
+		silentResult: AuthResult{AccessToken: "tok", ExpiresOn: time.Now().Add(time.Hour)},
+	}
+	a := newTestAuth(t, src, nil)
+	// Prime the cache.
+	_, err := a.Token(context.Background())
+	require.NoError(t, err)
+	silentBefore := src.silentCalls.Load()
+
+	// IsSignedIn should hit the in-memory cache without calling MSAL.
+	require.True(t, a.IsSignedIn(context.Background()))
+	require.Equal(t, silentBefore, src.silentCalls.Load(),
+		"in-memory cache hit; no extra silent call")
+}
+
+func TestIsSignedInReturnsFalseWhenNoAccounts(t *testing.T) {
+	src := &fakeSource{accounts: nil}
+	a := newTestAuth(t, src, nil)
+	require.False(t, a.IsSignedIn(context.Background()))
+	require.Equal(t, int32(0), src.interactiveCalls.Load(),
+		"no fallback to interactive — that's the whole point")
+	require.Equal(t, int32(0), src.deviceCalls.Load())
+}
+
+func TestIsSignedInReturnsFalseWhenSilentFails(t *testing.T) {
+	src := &fakeSource{
+		accounts:  []Account{{UPN: "u@example.invalid"}},
+		silentErr: errors.New("refresh expired"),
+	}
+	a := newTestAuth(t, src, nil)
+	require.False(t, a.IsSignedIn(context.Background()))
+	require.Equal(t, int32(0), src.interactiveCalls.Load(),
+		"silent failure must NOT trigger interactive — surface false to the caller")
+}
+
+func TestIsSignedInRefusesConsumerAccount(t *testing.T) {
+	src := &fakeSource{
+		accounts: []Account{{UPN: "p@outlook.com", TenantID: ConsumerTenantID}},
+		silentResult: AuthResult{
+			AccessToken: "tok",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "p@outlook.com", TenantID: ConsumerTenantID},
+		},
+	}
+	a := newTestAuth(t, src, nil)
+	require.False(t, a.IsSignedIn(context.Background()),
+		"consumer (personal MSA) accounts are blocked by checkAccount")
 }
 
 func TestRetriesWithoutOfflineAccessOnDecline(t *testing.T) {

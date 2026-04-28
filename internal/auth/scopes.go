@@ -17,27 +17,46 @@ const CommonAuthority = "https://login.microsoftonline.com/common"
 // against it — see spec 01 §11.
 const ConsumerTenantID = "9188040d-6c67-4c5b-b112-36a304b66dad"
 
-// DefaultScopes returns the locked scope list (spec 01 §6). Adding or
-// removing scopes changes the surface area we ask the user to consent
-// to and must be done via a code change, not user config.
-//
-// offline_access is mandatory: without it MSAL will not issue a refresh
-// token and the user device-codes on every launch.
+// resourceScopes is the locked Microsoft Graph resource scope list
+// (spec 01 §6). Adding or removing scopes here changes the surface
+// area we ask the user to consent to and must be done via a code
+// change, not user config.
 //
 // PRD §3.2 forbids requesting Mail.Send / Calendars.ReadWrite /
 // Mail.*.Shared / etc. even though the public client we use may
 // technically support them. CI lint guards reject any code that adds
 // such a scope.
+var resourceScopes = []string{
+	"https://graph.microsoft.com/Mail.Read",
+	"https://graph.microsoft.com/Mail.ReadBasic",
+	"https://graph.microsoft.com/Mail.ReadWrite",
+	"https://graph.microsoft.com/MailboxSettings.Read",
+	"https://graph.microsoft.com/MailboxSettings.ReadWrite",
+	"https://graph.microsoft.com/Calendars.Read",
+	"https://graph.microsoft.com/User.Read",
+	"https://graph.microsoft.com/Presence.Read.All",
+}
+
+// DefaultScopes returns the default scope list (spec 01 §6).
+//
+// offline_access is **opt-in** per §6.1: the default omits it so
+// signin opens the browser exactly once on every tenant. Tenants that
+// grant offline_access can opt in via [account].request_offline_access
+// in config; pass requestOfflineAccess=true here to mirror that.
+//
+// Trade-off without offline_access: no silent refresh — the user
+// re-auths whenever the access token expires (~60 minutes).
 func DefaultScopes() []string {
-	return []string{
-		"https://graph.microsoft.com/Mail.Read",
-		"https://graph.microsoft.com/Mail.ReadBasic",
-		"https://graph.microsoft.com/Mail.ReadWrite",
-		"https://graph.microsoft.com/MailboxSettings.Read",
-		"https://graph.microsoft.com/MailboxSettings.ReadWrite",
-		"https://graph.microsoft.com/Calendars.Read",
-		"https://graph.microsoft.com/User.Read",
-		"https://graph.microsoft.com/Presence.Read.All",
-		"offline_access",
+	return ScopesWithOfflineAccess(false)
+}
+
+// ScopesWithOfflineAccess returns the resource scopes, optionally
+// extended with `offline_access`.
+func ScopesWithOfflineAccess(requestOfflineAccess bool) []string {
+	out := make([]string, 0, len(resourceScopes)+1)
+	out = append(out, resourceScopes...)
+	if requestOfflineAccess {
+		out = append(out, "offline_access")
 	}
+	return out
 }

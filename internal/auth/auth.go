@@ -72,7 +72,8 @@ func ParseSignInMode(s string) (SignInMode, error) {
 // Config is the auth-layer configuration. All fields are optional; the
 // zero value is the supported production wiring (PRD §4):
 // /common authority + Microsoft Graph CLI Tools client + the locked
-// scope list from [DefaultScopes] + ModeAuto.
+// resource-scope list from [DefaultScopes] + ModeAuto + offline_access
+// off.
 type Config struct {
 	// TenantID overrides the authority. Empty or "common" → the
 	// multi-tenant /common authority. Setting a specific tenant GUID
@@ -81,9 +82,16 @@ type Config struct {
 	// ClientID overrides the OAuth client. Empty → [PublicClientID].
 	// Overriding is supported for tests; production should leave empty.
 	ClientID string
-	// Scopes is the list of OAuth scopes to request. Empty → [DefaultScopes].
-	// Adding scopes is a code change reviewed against PRD §3.
+	// Scopes overrides the scope list. Empty → derived from
+	// [ScopesWithOfflineAccess] using RequestOfflineAccess. When set
+	// explicitly, RequestOfflineAccess is ignored. Adding scopes is a
+	// code change reviewed against PRD §3.
 	Scopes []string
+	// RequestOfflineAccess decides whether `offline_access` is added
+	// to the default scope list (spec 01 §6.1). Off by default to give
+	// every tenant a single-browser-open signin. Tenants that grant
+	// offline_access can flip this on to get ~90-day refresh tokens.
+	RequestOfflineAccess bool
 	// Mode picks the sign-in flow when the silent path fails. The zero
 	// value is [ModeAuto].
 	Mode SignInMode
@@ -100,7 +108,7 @@ func (c Config) resolved() Config {
 		c.ClientID = PublicClientID
 	}
 	if len(c.Scopes) == 0 {
-		c.Scopes = DefaultScopes()
+		c.Scopes = ScopesWithOfflineAccess(c.RequestOfflineAccess)
 	}
 	return c
 }
@@ -133,9 +141,19 @@ type DeviceCodePrompt struct {
 // Authenticator is the only auth surface exposed to other packages.
 type Authenticator interface {
 	// Token returns a Graph access token. It refreshes silently when
-	// possible and falls back to the device-code prompt when needed.
-	// Safe to call concurrently; refresh attempts are serialised.
+	// possible and falls back to the configured sign-in flow when
+	// needed. Safe to call concurrently; refresh attempts are
+	// serialised.
 	Token(ctx context.Context) (string, error)
+
+	// IsSignedIn reports whether the user can be served a token
+	// without an interactive sign-in. Implementation only consults
+	// the silent path: list accounts → AcquireTokenSilent → check.
+	// NEVER opens a browser, NEVER hits the device-code endpoint.
+	// Use this as the probe for "should I launch the TUI or refuse
+	// with a sign-in prompt?". Network failure or expired refresh
+	// returns false; the caller should ask the user to re-run signin.
+	IsSignedIn(ctx context.Context) bool
 
 	// Invalidate drops the in-memory cached token, forcing the next
 	// [Token] call to consult MSAL. Invoked by the auth transport on a
@@ -367,6 +385,30 @@ func (a *authenticator) checkAccount(acct Account) error {
 		return fmt.Errorf("auth: signed-in account does not match configured account.upn")
 	}
 	return nil
+}
+
+// IsSignedIn implements [Authenticator]. Silent-only — never invokes
+// interactive or device-code flows.
+func (a *authenticator) IsSignedIn(ctx context.Context) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.cachedToken != "" && a.now().Add(proactiveRefreshWindow).Before(a.cachedExp) {
+		return true
+	}
+	accts, err := a.src.Accounts(ctx)
+	if err != nil || len(accts) == 0 {
+		return false
+	}
+	res, err := a.src.AcquireTokenSilent(ctx, a.cfg.Scopes, accts[0])
+	if err != nil {
+		return false
+	}
+	if err := a.checkAccount(res.Account); err != nil {
+		return false
+	}
+	a.applyResult(res)
+	return true
 }
 
 // Invalidate implements [Authenticator].
