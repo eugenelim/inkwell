@@ -35,11 +35,20 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger, logCloser, err := openLogFile(cfg.Account.UPN)
+	level := slog.LevelInfo
+	if rc.verbose {
+		level = slog.LevelDebug
+	}
+	logger, logCloser, err := openLogFile(cfg.Account.UPN, level)
 	if err != nil {
 		return err
 	}
 	defer logCloser.Close()
+	logger.Info("inkwell: starting",
+		slog.String("version", version),
+		slog.String("commit", commit),
+		slog.Bool("verbose", rc.verbose),
+	)
 
 	// Auth
 	mode, err := auth.ParseSignInMode(cfg.Account.SignInMode)
@@ -109,30 +118,16 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	// Renderer with the production graph-backed body fetcher.
 	renderer := render.New(st, render.NewGraphBodyFetcher(gc))
 
-	// Kick off the engine. Quick-start backfill runs once in the
-	// background; subsequent ticks drain next_link progressively.
+	// Kick off the engine. Its loop runs an immediate first cycle
+	// (spec 03 §5: "On Start():") which enumerates folders and pulls
+	// the last-50-per-folder via the lazy progressive backfill. The
+	// goroutines from v0.2.0 that called SyncAll/QuickStartBackfill
+	// from the cmd layer are gone — they duplicated work and
+	// swallowed errors.
+	logger.Info("engine: starting", slog.Int64("account_id", acc.ID))
 	if err := engine.Start(ctx); err != nil {
 		return fmt.Errorf("start engine: %w", err)
 	}
-	go func() {
-		if err := engine.SyncAll(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Warn("sync: initial sync failed", slog.String("err", err.Error()))
-		}
-	}()
-	go func() {
-		// Quick-start runs once; if there are any folders without a
-		// delta_token row this will populate them. If everything is
-		// already cached it's a no-op.
-		eng, ok := engine.(interface {
-			QuickStartBackfill(context.Context) error
-		})
-		if !ok {
-			return
-		}
-		if err := eng.QuickStartBackfill(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Warn("sync: quick-start backfill failed", slog.String("err", err.Error()))
-		}
-	}()
 
 	// UI
 	model := ui.New(ui.Deps{
@@ -159,7 +154,7 @@ func storeDBPath() string {
 // openLogFile opens (or creates) the log file under
 // ~/Library/Logs/inkwell/. Returns a redacting slog.Logger pointed at
 // it. The caller closes the io.Closer at shutdown.
-func openLogFile(ownUPN string) (*slog.Logger, io.Closer, error) {
+func openLogFile(ownUPN string, level slog.Level) (*slog.Logger, io.Closer, error) {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, "Library", "Logs", "inkwell")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -170,7 +165,7 @@ func openLogFile(ownUPN string) (*slog.Logger, io.Closer, error) {
 	if err != nil {
 		return nil, noopCloser{}, fmt.Errorf("open log file: %w", err)
 	}
-	logger := ilog.New(f, ilog.Options{Level: slog.LevelInfo, AllowOwnUPN: ownUPN})
+	logger := ilog.New(f, ilog.Options{Level: level, AllowOwnUPN: ownUPN})
 	return logger, f, nil
 }
 

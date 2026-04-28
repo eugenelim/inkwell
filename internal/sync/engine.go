@@ -252,7 +252,18 @@ func (e *engine) ResetDelta(ctx context.Context, folderID string) error {
 // loop is the main timer loop. A single time.Timer is reset to the
 // active interval after each cycle, avoiding the leak pattern of two
 // concurrent tickers.
+//
+// The first iteration runs IMMEDIATELY (no initial wait) so the TUI
+// gets folders + last-50-per-folder within seconds instead of waiting
+// the full foreground interval. Spec 03 §5: "On Start():" — this is
+// where first-launch detection happens.
 func (e *engine) loop(ctx context.Context) {
+	e.logger.Info("engine: loop starting; running first cycle immediately")
+	if err := e.runCycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		e.logger.Error("engine: first cycle failed", slog.String("err", err.Error()))
+		e.emit(SyncFailedEvent{At: time.Now(), Err: err})
+	}
+
 	timer := time.NewTimer(e.interval())
 	defer timer.Stop()
 	for {
@@ -271,6 +282,7 @@ func (e *engine) loop(ctx context.Context) {
 			}
 		}
 		if err := e.runCycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			e.logger.Error("engine: cycle failed", slog.String("err", err.Error()))
 			e.emit(SyncFailedEvent{At: time.Now(), Err: err})
 		}
 		timer.Reset(e.interval())
@@ -294,9 +306,12 @@ func (e *engine) kick() {
 }
 
 // runCycle implements ARCH §4: drain actions → enumerate folders → sync
-// each subscribed folder.
+// each subscribed folder. Folders are iterated in spec §5.1 priority
+// order (Inbox first, then well-known, then user folders alpha) so the
+// user sees Inbox messages before anything else fills in.
 func (e *engine) runCycle(ctx context.Context) error {
 	start := time.Now()
+	e.logger.Info("sync: cycle starting")
 	e.emit(SyncStartedEvent{At: start})
 	e.setState(StateDrainingActions)
 	if err := e.drain.Drain(ctx); err != nil {
@@ -315,7 +330,11 @@ func (e *engine) runCycle(ctx context.Context) error {
 		e.setState(StateIdle)
 		return fmt.Errorf("list folders: %w", err)
 	}
-	subscribed := filterSubscribed(folders, e.opts.SubscribedFolders)
+	subscribed := orderForQuickStart(filterSubscribed(folders, e.opts.SubscribedFolders))
+	e.logger.Info("sync: enumerated folders",
+		slog.Int("total", len(folders)),
+		slog.Int("subscribed", len(subscribed)),
+	)
 	for _, f := range subscribed {
 		select {
 		case <-ctx.Done():
@@ -323,9 +342,11 @@ func (e *engine) runCycle(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
+		e.logger.Debug("sync: folder begin", slog.String("folder_id", f.ID), slog.String("name", f.DisplayName))
 		if err := e.syncFolder(ctx, f.ID); err != nil {
 			e.logger.Warn("sync: folder failed",
 				slog.String("folder_id", f.ID),
+				slog.String("name", f.DisplayName),
 				slog.String("err", err.Error()),
 			)
 			// Continue with remaining folders; surface error via
@@ -333,6 +354,10 @@ func (e *engine) runCycle(ctx context.Context) error {
 		}
 	}
 	e.setState(StateIdle)
+	e.logger.Info("sync: cycle complete",
+		slog.Int("folders", len(subscribed)),
+		slog.Duration("duration", time.Since(start)),
+	)
 	e.emit(SyncCompletedEvent{
 		At:            time.Now(),
 		FoldersSynced: len(subscribed),
