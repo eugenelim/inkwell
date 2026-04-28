@@ -40,6 +40,15 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - Privacy test was too loose: `bodyPreview` contains the substring `body`. Tightened to comma-split + word equality.
 - Final: `go test -race -timeout 90s ./...` green across the whole tree.
 
+### Iter 7 — 2026-04-27 (wellKnownName tenant-quirk workaround)
+- Trigger: real-tenant smoke after v0.2.4. The `$select=...,wellKnownName,...` introduced in iter 6 caused Graph to 400 on at least one tenant: "Could not find a property named 'wellKnownName' on type 'microsoft.graph.mailFolder'." TUI showed "Folders (waiting)" and never recovered. The property IS on the resource but isn't returnable via `$select` on the LIST endpoint for every tenant.
+- Slice:
+  - `internal/graph/folders.go`: dropped the `$select` entirely. `ListFolders` now hits `/me/mailFolders?$top=100` and lets Graph return its default property set (which includes displayName, parentFolderId, totalItemCount, unreadItemCount, isHidden, but NOT wellKnownName).
+  - `internal/sync/folders.go`: added `englishDisplayNameToWellKnown` map covering the canonical 10 standard folders (Inbox, Sent Items, Drafts, Archive, Junk Email + "Junk E-mail" variant, Deleted Items, Conversation History, Sync Issues, Outbox) and `inferWellKnownName(displayName) string`. `syncFolders` infers it from DisplayName when Graph returns it empty, before UpsertFolder.
+  - `internal/ui/panes.go`: bumped status-bar error truncation from 60 → 120 chars so future Graph 400s (which are verbose) are at least partially readable in the bar; full text is in the log file.
+- Limitation noted in code: locale-sensitive. Non-English tenants see empty well-known mappings and fall back to display-name match in the Inbox-default picker (already in place from iter 6). A future iter can switch to per-folder accessor calls (GET /me/mailFolders/{name}) for locale-agnostic resolution; left as low-prio since target audience is English M365 mailboxes.
+- Tests: existing `TestSyncFolderEnumerationNullsOutUntrackedParents` still passes. No new test for the inference helper since it's a pure map lookup; behaviour is exercised by the existing folder-enum tests when `WellKnownName` is empty in the fixture.
+
 ### Iter 6 — 2026-04-28 (newest-by-receivedDateTime + wellKnownName fix + URL encoding fix)
 - Triggers from real-tenant smoke after v0.2.3:
   1. "It's not the most recent emails." First-launch was hitting `/messages/delta?$top=50`, but Graph v1.0's delta endpoint doesn't support `$orderby`. The 50 returned were in Graph's internal order (typically by `lastModifiedDateTime`).

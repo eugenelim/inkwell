@@ -351,8 +351,8 @@ func (m StatusModel) View(t Theme, width int, in StatusInputs) string {
 		errMsg := in.LastErr.Error()
 		// Trim very long errors so they don't blow the line. The full
 		// text is in the log file via the redactor.
-		if len(errMsg) > 60 {
-			errMsg = errMsg[:57] + "…"
+		if len(errMsg) > 120 {
+			errMsg = errMsg[:117] + "…"
 		}
 		right = t.ErrorBar.Render("ERR: " + errMsg)
 	case in.Throttled > 0:

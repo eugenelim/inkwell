@@ -7,20 +7,24 @@ import (
 	"net/http"
 )
 
-// FolderSelectFields is the locked $select for the /me/mailFolders
-// listing. CRITICAL: wellKnownName is NOT returned by default; Graph
-// only emits it when explicitly $select-ed. Without this, every
-// folder comes back with wellKnownName="" and filterSubscribed
-// can't tell Inbox from Sync Issues — the symptom reported in real-
-// tenant smoke after v0.2.3 (Junk E-mail and Sync Issues both being
-// synced; the Inbox-default picker falling back to alphabetical first).
-const FolderSelectFields = "id,displayName,parentFolderId,wellKnownName,totalItemCount,unreadItemCount,isHidden"
-
 // ListFolders enumerates all mailFolders for the signed-in user. It
 // follows nextLinks until exhausted. Spec §7 calls this on every sync
 // cycle; <100 folders is typical.
+//
+// We do NOT $select wellKnownName despite it being documented on the
+// mailFolder resource. v0.2.4's real-tenant smoke caught Graph 400'ing
+// with "Could not find a property named 'wellKnownName' on type
+// 'microsoft.graph.mailFolder'" on at least one tenant. The property
+// IS available via the per-folder accessor (GET /me/mailFolders/{name})
+// but not via $select on the list endpoint for every tenant.
+//
+// Workaround: ListFolders returns folders with WellKnownName empty;
+// the sync layer infers it from DisplayName via a heuristic that
+// works for English tenants. See internal/sync/folders.go.
+// Localisation is a future iter — see spec 03 §7.
 func (c *Client) ListFolders(ctx context.Context) ([]MailFolder, error) {
-	url := "/me/mailFolders?$top=100&$select=" + FolderSelectFields
+	url := "/me/mailFolders?$top=100"
+
 	var out []MailFolder
 	for url != "" {
 		resp, err := c.Do(ctx, http.MethodGet, url, nil, nil)
