@@ -30,6 +30,17 @@ type Engine interface {
 	Notifications() <-chan isync.Event
 }
 
+// TriageExecutor is the action surface the UI consumes for single-
+// message triage operations. Defined here at the consumer site so the
+// UI does not import internal/action's full surface (CLAUDE.md §2).
+type TriageExecutor interface {
+	MarkRead(ctx context.Context, accountID int64, messageID string) error
+	MarkUnread(ctx context.Context, accountID int64, messageID string) error
+	ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error
+	SoftDelete(ctx context.Context, accountID int64, messageID string) error
+	Archive(ctx context.Context, accountID int64, messageID string) error
+}
+
 // Deps wires the UI to its lower-layer collaborators.
 type Deps struct {
 	Auth     Authenticator
@@ -38,6 +49,10 @@ type Deps struct {
 	Renderer render.Renderer
 	Logger   *slog.Logger
 	Account  *store.Account
+	// Triage executes single-message triage actions (mark read, flag,
+	// archive, etc.). Optional — when nil, the corresponding key
+	// bindings are no-ops.
+	Triage TriageExecutor
 	// ThemeName is the [ui] theme key from config. Empty falls back to
 	// "default". Unknown values fall back with a logged warning.
 	ThemeName string
@@ -209,6 +224,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ConfirmMode owns dispatch; return to Normal and let Update
 		// hand the result to the registered callback in a future spec.
 		m.mode = NormalMode
+		return m, nil
+
+	case triageDoneMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("%s: %w", msg.name, msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		// Reload the message list so the optimistic mutation (or its
+		// rollback) is reflected in the current pane.
+		if msg.folderID != "" && msg.folderID == m.list.FolderID {
+			return m, m.loadMessagesCmd(msg.folderID)
+		}
 		return m, nil
 	}
 
@@ -395,8 +423,61 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focused = ViewerPane
 			return m, m.openMessageCmd(sel)
 		}
+	case key.Matches(msg, m.keymap.MarkRead):
+		return m.runTriage("mark_read", func(ctx context.Context, accID int64, sel store.Message) error {
+			return m.deps.Triage.MarkRead(ctx, accID, sel.ID)
+		})
+	case key.Matches(msg, m.keymap.MarkUnread):
+		return m.runTriage("mark_unread", func(ctx context.Context, accID int64, sel store.Message) error {
+			return m.deps.Triage.MarkUnread(ctx, accID, sel.ID)
+		})
+	case key.Matches(msg, m.keymap.ToggleFlag):
+		return m.runTriage("toggle_flag", func(ctx context.Context, accID int64, sel store.Message) error {
+			return m.deps.Triage.ToggleFlag(ctx, accID, sel.ID, sel.FlagStatus == "flagged")
+		})
+	case key.Matches(msg, m.keymap.Delete):
+		return m.runTriage("soft_delete", func(ctx context.Context, accID int64, sel store.Message) error {
+			return m.deps.Triage.SoftDelete(ctx, accID, sel.ID)
+		})
+	case key.Matches(msg, m.keymap.Archive):
+		return m.runTriage("archive", func(ctx context.Context, accID int64, sel store.Message) error {
+			return m.deps.Triage.Archive(ctx, accID, sel.ID)
+		})
 	}
 	return m, nil
+}
+
+// runTriage is the shared dispatch boilerplate for r/R/f/d/a. Captures
+// the focused message, fires the triage callback in a goroutine (so
+// Update returns promptly), and reloads the list when done. Errors
+// land in m.lastError via the post-completion message.
+func (m Model) runTriage(name string, fn func(context.Context, int64, store.Message) error) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("triage: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	sel, ok := m.list.Selected()
+	if !ok {
+		return m, nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	folderID := m.list.FolderID
+	cmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := fn(ctx, accountID, sel)
+		return triageDoneMsg{name: name, folderID: folderID, err: err}
+	}
+	return m, cmd
+}
+
+type triageDoneMsg struct {
+	name     string
+	folderID string
+	err      error
 }
 
 // openMessageCmd renders headers immediately, then either reads the
@@ -627,7 +708,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case FoldersPane:
 		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"1", "folders"}, {"3", "viewer"}, {"q", "quit"}}
+		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"r/R", "read"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	case ViewerPane:
 		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"2", "list"}, {"q", "quit"}}
 	default:
