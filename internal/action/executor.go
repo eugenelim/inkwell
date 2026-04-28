@@ -1,0 +1,218 @@
+package action
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/eugenelim/inkwell/internal/graph"
+	"github.com/eugenelim/inkwell/internal/store"
+)
+
+// Type is a re-export of store.ActionType for callers that don't want
+// to import internal/store directly.
+type Type = store.ActionType
+
+// Action types this executor handles. The full list lives in
+// internal/store/types.go; v0.3.0 implements the most-used subset.
+const (
+	TypeMarkRead    = store.ActionMarkRead
+	TypeMarkUnread  = store.ActionMarkUnread
+	TypeFlag        = store.ActionFlag
+	TypeUnflag      = store.ActionUnflag
+	TypeSoftDelete  = store.ActionSoftDelete
+	TypeArchive     = store.ActionMove // archive resolves to move-to-archive
+	TypeMove        = store.ActionMove
+)
+
+// Executor applies optimistic local mutations and dispatches Graph
+// calls. It implements [sync.ActionDrainer] so the sync engine drains
+// the queue at every cycle (handles retry-after-failure transparently).
+type Executor struct {
+	st     store.Store
+	gc     *graph.Client
+	logger *slog.Logger
+	// archiveFolderID is the resolved Graph folder ID for the user's
+	// Archive folder. Cached at construction; falls back to the
+	// well-known "archive" alias if the lookup fails.
+	archiveFolderID string
+}
+
+// New constructs an executor.
+func New(st store.Store, gc *graph.Client, logger *slog.Logger) *Executor {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Executor{st: st, gc: gc, logger: logger, archiveFolderID: "archive"}
+}
+
+// SetArchiveFolderID overrides the archive destination. The TUI
+// resolves this from the synced folders list.
+func (e *Executor) SetArchiveFolderID(id string) {
+	if id != "" {
+		e.archiveFolderID = id
+	}
+}
+
+// MarkRead enqueues + applies a mark-read action.
+func (e *Executor) MarkRead(ctx context.Context, accountID int64, messageID string) error {
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       TypeMarkRead,
+		MessageIDs: []string{messageID},
+	})
+}
+
+// MarkUnread enqueues + applies a mark-unread action.
+func (e *Executor) MarkUnread(ctx context.Context, accountID int64, messageID string) error {
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       TypeMarkUnread,
+		MessageIDs: []string{messageID},
+	})
+}
+
+// ToggleFlag flags an unflagged message and unflags a flagged one.
+// Caller passes the current state (read from the cached envelope).
+func (e *Executor) ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error {
+	t := TypeFlag
+	if currentlyFlagged {
+		t = TypeUnflag
+	}
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       t,
+		MessageIDs: []string{messageID},
+	})
+}
+
+// SoftDelete moves a message to Deleted Items.
+func (e *Executor) SoftDelete(ctx context.Context, accountID int64, messageID string) error {
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       TypeSoftDelete,
+		MessageIDs: []string{messageID},
+		Params:     map[string]any{"destination_folder_id": "deleteditems"},
+	})
+}
+
+// Archive moves a message to the Archive folder.
+func (e *Executor) Archive(ctx context.Context, accountID int64, messageID string) error {
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       TypeArchive,
+		MessageIDs: []string{messageID},
+		Params:     map[string]any{"destination_folder_id": e.archiveFolderID},
+	})
+}
+
+// run is the synchronous Execute path: optimistic local apply →
+// enqueue → Graph dispatch → update status. Failures roll back the
+// local mutation (best-effort) and surface to the caller.
+func (e *Executor) run(ctx context.Context, a store.Action) error {
+	a.CreatedAt = time.Now()
+	a.Status = store.StatusPending
+
+	// Snapshot pre-state for rollback.
+	if len(a.MessageIDs) != 1 {
+		return fmt.Errorf("action: v0.3.0 only supports single-message actions")
+	}
+	id := a.MessageIDs[0]
+	pre, err := e.st.GetMessage(ctx, id)
+	if err != nil {
+		return fmt.Errorf("action: snapshot %s: %w", id, err)
+	}
+
+	if err := applyLocal(ctx, e.st, a, pre); err != nil {
+		return fmt.Errorf("action: apply local: %w", err)
+	}
+	if err := e.st.EnqueueAction(ctx, a); err != nil {
+		// Local applied but queue insert failed — try to roll back so
+		// the UI doesn't show inconsistent state.
+		_ = rollbackLocal(ctx, e.st, a, pre)
+		return fmt.Errorf("action: enqueue: %w", err)
+	}
+
+	// Dispatch synchronously. Most triage actions are <1s on Graph.
+	if err := e.dispatch(ctx, a); err != nil {
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+		_ = rollbackLocal(ctx, e.st, a, pre)
+		return fmt.Errorf("action: dispatch: %w", err)
+	}
+	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
+		e.logger.Warn("action: status update failed", "action_id", a.ID, "err", err)
+	}
+	return nil
+}
+
+// Drain implements sync.ActionDrainer. The sync engine calls this at
+// the top of every cycle to retry actions that failed transiently. We
+// keep it simple: re-dispatch every Pending/InFlight, mark Done on
+// success, leave Pending on transient failure (engine retries next
+// cycle), Failed on hard failure.
+func (e *Executor) Drain(ctx context.Context) error {
+	pending, err := e.st.PendingActions(ctx)
+	if err != nil {
+		return fmt.Errorf("action drain: list pending: %w", err)
+	}
+	for _, a := range pending {
+		if err := e.dispatch(ctx, a); err != nil {
+			classification := classifyDispatchError(err)
+			switch classification {
+			case classRetryable:
+				e.logger.Warn("action drain: retry next cycle", "action_id", a.ID, "err", err)
+				continue
+			default:
+				e.logger.Error("action drain: hard failure", "action_id", a.ID, "err", err)
+				_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+			}
+			continue
+		}
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, "")
+	}
+	return nil
+}
+
+func newActionID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+type errClass int
+
+const (
+	classRetryable errClass = iota
+	classHard
+)
+
+func classifyDispatchError(err error) errClass {
+	if err == nil {
+		return classRetryable
+	}
+	if graph.IsThrottled(err) {
+		return classRetryable
+	}
+	if graph.IsAuth(err) {
+		return classRetryable // engine triggers re-auth, then retries.
+	}
+	var ge *graph.GraphError
+	if errors.As(err, &ge) {
+		// 5xx is transient.
+		if ge.StatusCode >= 500 {
+			return classRetryable
+		}
+		return classHard
+	}
+	// Network / DNS errors are retryable.
+	return classRetryable
+}

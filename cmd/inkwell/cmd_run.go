@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/eugenelim/inkwell/internal/action"
 	"github.com/eugenelim/inkwell/internal/auth"
 	"github.com/eugenelim/inkwell/internal/graph"
 	ilog "github.com/eugenelim/inkwell/internal/log"
@@ -104,8 +105,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return fmt.Errorf("graph client: %w", err)
 	}
 
+	// Action executor (spec 07): handles single-message triage. Implements
+	// sync.ActionDrainer so the engine retries pending actions every
+	// cycle (handles transient throttle / network failure).
+	exec := action.New(st, gc, logger)
+
 	// Sync engine
-	engine, err := isync.New(gc, st, nil, isync.Options{
+	engine, err := isync.New(gc, st, exec, isync.Options{
 		AccountID:          acc.ID,
 		Logger:             logger,
 		ForegroundInterval: cfg.Sync.ForegroundInterval,
@@ -144,6 +150,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Renderer:  renderer,
 		Logger:    logger,
 		Account:   acc,
+		Triage:    exec,
 		ThemeName: cfg.UI.Theme,
 	})
 	prog := tea.NewProgram(model, tea.WithAltScreen())

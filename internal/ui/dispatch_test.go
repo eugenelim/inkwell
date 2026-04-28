@@ -310,7 +310,7 @@ func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
 		setupKeys []string
 		wantHint  string
 	}{
-		{"list-focused", nil, "1 folders"},
+		{"list-focused", nil, "r/R"},
 		{"folders-focused", []string{"1"}, "2 list"},
 		{"viewer-focused-after-open", []string{"\n"}, "h back"},
 	}
