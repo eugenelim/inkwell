@@ -105,11 +105,7 @@ func (m *FoldersModel) SelectByID(id string) {
 // View renders the folders column.
 func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	var b strings.Builder
-	header := "Folders"
-	if focused {
-		header = "▌ Folders"
-	}
-	b.WriteString(t.Bold.Render(header))
+	b.WriteString(paneHeader(t, "Folders", focused))
 	b.WriteByte('\n')
 	if len(m.folders) == 0 {
 		b.WriteString(t.Dim.Render("  (waiting…)"))
@@ -120,14 +116,22 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 		if f.UnreadCount > 0 {
 			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
 		}
+		// Cursor glyph is the canonical "this row is selected" signal,
+		// independent of color/reverse-video support in the user's
+		// terminal. The "▶" arrow appears on the focused pane's
+		// cursor; "▸" on unfocused (so the user always sees where
+		// they'll land when they switch back).
+		marker := "  "
 		if i == m.cursor && focused {
-			line = t.FoldersSel.Render("▸ " + line)
+			marker = "▶ "
 		} else if i == m.cursor {
-			line = "▸ " + line
-		} else {
-			line = "  " + line
+			marker = "▸ "
 		}
-		b.WriteString(truncate(line, width-1))
+		styled := truncate(marker+line, width-1)
+		if i == m.cursor && focused {
+			styled = t.FoldersSel.Render(styled)
+		}
+		b.WriteString(styled)
 		b.WriteByte('\n')
 	}
 	return t.Folders.Width(width).Height(height).Render(b.String())
@@ -175,17 +179,31 @@ func (m ListModel) Selected() (store.Message, bool) {
 
 // View renders the message column.
 func (m ListModel) View(t Theme, width, height int, focused bool) string {
-	if m.FolderID == "" {
-		return t.List.Width(width).Height(height).Render("(select a folder)")
-	}
 	var b strings.Builder
+	header := "Messages"
+	if m.FolderID == "" {
+		b.WriteString(paneHeader(t, header, focused))
+		b.WriteByte('\n')
+		b.WriteString(t.Dim.Render("  (select a folder)"))
+		return t.List.Width(width).Height(height).Render(b.String())
+	}
+	b.WriteString(paneHeader(t, header, focused))
+	b.WriteByte('\n')
 	for i, msg := range m.messages {
 		when := relativeWhen(msg.ReceivedAt)
 		from := msg.FromName
 		if from == "" {
 			from = msg.FromAddress
 		}
-		line := fmt.Sprintf("%-10s %-14s %s", when, truncate(from, 14), msg.Subject)
+		// Cursor glyph carries the "selected" signal even on terminals
+		// where reverse video isn't visible.
+		marker := "  "
+		if i == m.cursor && focused {
+			marker = "▶ "
+		} else if i == m.cursor {
+			marker = "▸ "
+		}
+		line := fmt.Sprintf("%s%-10s %-14s %s", marker, when, truncate(from, 14), msg.Subject)
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
@@ -233,9 +251,13 @@ func (m ViewerModel) CurrentMessageID() string {
 }
 
 // View renders the viewer column.
-func (m ViewerModel) View(t Theme, width, height int, _ bool) string {
+func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
+	var b strings.Builder
+	b.WriteString(paneHeader(t, "Message", focused))
+	b.WriteByte('\n')
 	if m.current == nil {
-		return t.Viewer.Width(width).Height(height).Render("(no message selected)")
+		b.WriteString(t.Dim.Render("  (no message selected)"))
+		return t.Viewer.Width(width).Height(height).Render(b.String())
 	}
 	from := m.current.FromName
 	if from == "" {
@@ -252,7 +274,9 @@ func (m ViewerModel) View(t Theme, width, height int, _ bool) string {
 	if body == "" {
 		body = t.Dim.Render("(loading…)")
 	}
-	return t.Viewer.Width(width).Height(height).Render(headers + body)
+	b.WriteString(headers)
+	b.WriteString(body)
+	return t.Viewer.Width(width).Height(height).Render(b.String())
 }
 
 // joinAddrs renders a recipient list as "name <addr>, name2 <addr2>".
@@ -420,6 +444,17 @@ func (m ConfirmModel) View(t Theme, width, height int) string {
 	body := m.Message + "\n\n[y]es / [N]o"
 	box := t.Modal.Render(body)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// paneHeader renders a pane title with a focus-state marker. Every
+// pane uses this so the user always sees which pane has focus,
+// independent of terminal color support: "▌ Messages" when focused,
+// "  Messages" otherwise. Bold styling on top.
+func paneHeader(t Theme, title string, focused bool) string {
+	if focused {
+		return t.Bold.Render("▌ " + title)
+	}
+	return t.Dim.Render("  " + title)
 }
 
 // truncate cuts s to width characters.

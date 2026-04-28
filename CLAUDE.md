@@ -134,6 +134,32 @@ four layers green.
 - Wire a fake `sync.Engine` and in-memory `store.Store` so tests are
   deterministic.
 
+**Per-control coverage is mandatory.** Every key binding in
+`internal/ui/keys.go` and every visible state transition (focus change,
+cursor move, mode change, pane content swap) must have an e2e test.
+The test's pass condition must be the **visible delta a real user would
+notice**, not just "some string appears in the buffer". Concretely:
+
+- Cursor moves: capture frame before and after, assert the cursor glyph
+  (`▶` or whatever the theme uses) is on a different row.
+- Focus changes: assert the focus marker (`▌ <Pane>`) moves OFF the
+  previously-focused pane AND onto the newly-focused one.
+- Open / activate: assert the destination pane's content visibly
+  changes (e.g. viewer was "(no message selected)", is now
+  "From: …\nSubject: …").
+- Mode changes: assert the mode-specific UI element renders (command
+  bar shows `:`, sign-in modal renders centered, etc.).
+
+A binding without a test is a binding that doesn't work in production.
+We learned this the hard way after v0.2.6 shipped with passing tests
+that asserted strings in the buffer, while real-tenant users couldn't
+see the cursor move or focus change because the assertions never
+verified visible feedback.
+
+The `internal/ui/app_e2e_test.go` file is the source of truth: any
+new keymap entry, any new pane, any new mode must land alongside a
+test that exercises it the way a user would.
+
 ### 5.5 What we never test
 
 - Live tenant calls in CI. Manual smoke is documented in

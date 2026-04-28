@@ -57,6 +57,25 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
 
+### Iter 5 — 2026-04-28 (visible affordances + dispatch unit tests + per-control e2e)
+- Trigger: real-tenant smoke after v0.2.6 — user reports "1 to open folder doesn't work well, j/k doesn't work well, enter doesn't open message". v0.2.6's e2e tests were passing because they asserted strings appeared in the buffer (which they did — the model state was mutating correctly), but the user couldn't *see* the cursor move or the focus marker change. The bug was 100% visual feedback.
+- Diagnostic — split the question into two halves:
+  1. **Does dispatch fire?** New `internal/ui/dispatch_test.go` (10 tests) calls `Update` directly with key messages and asserts `m.list.cursor`, `m.folders.cursor`, `m.focused`, `m.viewer.current`, `m.list.FolderID` mutate as expected. ALL pass — dispatch is bulletproof.
+  2. **Is the visible feedback adequate?** The previous `lipgloss.NewStyle().Reverse(true)` for cursor highlight is invisible in many terminal themes (especially low-contrast or accessibility configurations).
+- Slice:
+  - `internal/ui/panes.go`:
+    - New `paneHeader(title, focused)` helper. Every pane now renders a header: "▌ <title>" when focused (bold), "  <title>" otherwise (dim). Visible focus state on every pane, not just folders.
+    - `ListModel.View`: explicit cursor glyph "▶ " on the focused row, "▸ " on unfocused (so the user always sees where they'll land when they switch back). Glyph carries the signal independent of color/reverse-video support.
+    - `FoldersModel.View`: same glyph pattern.
+    - `ViewerModel.View`: now takes the focus marker too.
+  - `internal/ui/dispatch_test.go`: 10 unit tests pinning every dispatch path. These run under `-race` (no e2e tag) so the binary feedback loop is fast.
+  - `internal/ui/app_e2e_test.go`: hardened existing nav tests to assert the visible delta:
+    - Focus tests: "▌ X" must appear on the new pane AND disappear from the old pane.
+    - Cursor tests: introduces `cursorOnLineWith(buf, text)` helper that splits the framebuffer on newlines AND ANSI cursor-position escapes, then asserts "▶" and the message text live on the same visual line.
+    - Tab cycle: walks all three panes and asserts the marker moves at every step.
+    - Open: viewer must transition from "(no message selected)" to "Subject: …" headers.
+- CLAUDE.md §5.4 updated: per-control e2e coverage is now mandatory. Tests must assert the visible delta a real user would notice, not just substring presence in the buffer. The v0.2.6 → v0.2.7 episode is cited as the reason.
+
 ### Iter 4 — 2026-04-28 (layout rebalance + e2e regression tests)
 - Triggers from real-tenant smoke after v0.2.5:
   1. "more text space allocated to see the email title" — at 120-col terminal, list pane was hard-coded to 40 cols. Format string (`%-10s %-18s %s`) consumed 30 chars on date+sender, leaving ~9 chars for subject. Subjects were unreadable: "Accepted:", "[External", "RE: Agent".
