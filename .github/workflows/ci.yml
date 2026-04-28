@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test -race ./...
+      - run: go test -tags=integration ./...
+      - run: go test -tags=e2e ./...
+      - run: go test -bench=. -benchmem -run=^$ ./...
+        continue-on-error: true
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - run: staticcheck ./...
+        continue-on-error: true
+      - name: Privacy guard — testdata never contains real domains
+        run: |
+          set -e
+          if grep -rEi --include='*.json' --include='*.golden' --include='*.html' \
+              -- '@(?!example\.invalid)([A-Za-z0-9._-]+\.(com|org|net|io|co))' internal/; then
+            echo "::error::testdata contains a non-example.invalid domain"
+            exit 1
+          fi
