@@ -94,3 +94,9 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
 
 ## Iter — auth pivot 2026-04-27
 - Spec 05 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
+
+### Iter 4 — 2026-04-28 (production BodyFetcher adapter)
+- Trigger: same v0.2.0 smoke as the other specs — `render.BodyFetcher` was defined in iter 1 and stub-implemented in tests, but no production adapter calls `graph.Client.GetMessageBody`. Without one the renderer can never serve a body when the cache misses; the viewer is permanently stuck on `(loading…)`.
+- Slice: `internal/render/graphfetcher.go` — small adapter struct holding `*graph.Client`, implementing `FetchBody(ctx, messageID) (FetchedBody, error)` by calling `c.GetMessageBody(ctx, id)` and mapping `graph.Message.Body.{ContentType,Content}` → `render.FetchedBody`.
+- This file lives in `internal/render` (not `internal/graph`) because rendering is the consumer-side; the dependency direction is render → graph, which is allowed by ARCH §2 layering.
+- Tests: stubBodyFetcher already covers the rendering side. The adapter itself is mostly a type conversion; covered by smoke (the v0.2.0 release will exercise it on first message-open).

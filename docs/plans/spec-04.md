@@ -56,3 +56,12 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
+
+### Iter 3 — 2026-04-28 (TUI runtime wiring)
+- Trigger: real-tenant smoke after v0.1.3 — sign-in works but `./inkwell` (no subcommand) prints cobra help and exits. The Bubble Tea program never starts in production code; only `teatest` exercised it.
+- Slice:
+  - `cmd/inkwell` default action (`inkwell` no subcommand → `runRoot`): build Authenticator → load Account from store → open Store → build graph.Client wired to the Authenticator → build sync.Engine wired to graph + store → build render.Renderer wired to the production BodyFetcher (spec 05 iter 4) → build ui.Model with all of the above → `tea.NewProgram(m).Run()`.
+  - Close the spec-04-iter-2 TODO: `handleSyncEvent` for `FolderSyncedEvent` returns `m.loadMessagesCmd(e.FolderID)` when the event matches the focused folder. Lazy-pulled envelopes appear in the list pane within one Update cycle of the engine emitting the event.
+  - `AuthRequiredEvent`: TUI transitions to SignIn mode AND dispatches an interactive re-auth Cmd that calls the same `auth.Token()` path as the cmd-layer signin. Esc cancels.
+- Pre-condition: spec 03 iter 3 (lazy backfill) lands first since the engine startup behaviour is what the runtime wiring boots.
+- Tests: existing teatest e2e covers in-program behaviour. The cobra runner is exercised via smoke.

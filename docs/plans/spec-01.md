@@ -53,6 +53,12 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Spec 01 §5.2 and §11 updated to document the design + the failure modes it deliberately prevents.
 - Race + e2e all green.
 
+### Iter 6 — 2026-04-28 (persist account on signin)
+- Trigger: real-tenant smoke after v0.1.3 surfaced the question "after signin works, what does it take to actually see my email?". The TUI's data-access path (`store.ListFolders(accountID)`, `store.ListMessages(accountID, …)`) needs an `accounts` row to scope every query against. Spec 02 §5 already exposes `PutAccount(ctx, a) (id, err)`; nothing was calling it.
+- Slice: at the end of `runSignin` after `auth.Token()` succeeds, open the local store, call `PutAccount(Account{TenantID: resolvedTenant, ClientID: cfg.ClientID, UPN: resolvedUPN, LastSignin: now})`, close. `whoami` still works without writes — it's a read-only path. The TUI default-action flow (spec 04 iter 3) reads the row before constructing `Deps.Account`.
+- Layering: this stays in `cmd/inkwell` rather than `internal/auth`; auth must not import store (CLAUDE.md §2). The cmd layer is the natural place for the auth → store handoff.
+- Tests: cmd-layer wiring is hard to unit-test because it builds a real store + real auth; covered by smoke instead.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

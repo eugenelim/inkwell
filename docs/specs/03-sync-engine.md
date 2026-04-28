@@ -130,28 +130,54 @@ State transitions are driven by:
 
 State is stored in memory in the engine; not persisted. On restart, the engine starts in `idle` and a tick is scheduled immediately.
 
-## 5. First-launch detection and backfill
+## 5. First-launch detection and lazy progressive backfill
+
+The first-launch path is optimised for **time to first paint** rather than completeness. On a heavy mailbox we don't want the user staring at an empty TUI for several minutes; on a light mailbox we don't want gratuitous "loading" spinners.
+
+The strategy is **last-50-per-folder, drained progressively** using the existing `delta_tokens.next_link` column from spec 02 §3.7. The schema was deliberately designed for this — a `next_link` value means "we're mid-pagination, resume from here on the next tick."
 
 On `Start()`:
 
-1. Query the store for delta tokens. If none exist for any folder → first-launch.
-2. First-launch flow:
-   - Enumerate all mail folders via `GET /me/mailFolders` (paginated).
-   - Persist folders.
-   - For each folder marked "subscribed" (see §5.1), kick off a backfill bounded to **last 90 days**.
-   - Backfill uses `GET /me/mailFolders/{id}/messages?$filter=receivedDateTime ge {now-90d}&$top=100&$select={envelope_fields}` paginating until exhausted.
-   - After backfill of a folder, fire one delta call to obtain the initial `@odata.deltaLink`. Persist it.
-3. Subsequent launches: skip backfill, jump to delta polling.
+1. Run **folder enumeration** once (cheap: <100 folders for typical users; one paginated `GET /me/mailFolders` call).
+2. Detect first-launch per folder by `delta_tokens` row absence (spec 02 §3.7).
+3. For first-launch folders, **kick the quick-start path** (§5.2). Inbox first, then the rest of the subscribed set sequentially.
+4. On each subsequent sync tick, the engine looks for any folder whose `delta_tokens` row has a non-empty `next_link`. If found, it follows ONE more page (50 envelopes), persists the new `next_link` (or the final `delta_link` if pagination exhausted), and emits a `FolderSyncedEvent` so the UI re-loads.
+5. Once `delta_link` is set on a folder, that folder shifts to the standard incremental delta loop (§6) — already implemented.
 
 ### 5.1 Subscribed folders
 
 By default, subscribed = `Inbox` + `Sent Items` + `Drafts` + `Archive` + every user-created folder (NOT `Deleted Items`, NOT `Junk Email`, NOT `Conversation History`, NOT `Sync Issues`, NOT search folders).
 
+The first-launch quick-start ordering is:
+
+1. **Inbox first.** Enables interactive use within seconds.
+2. Then `Sent Items`, `Drafts`, `Archive`, in that order.
+3. Then user-created folders, alphabetically.
+
+This order is sequential, not parallel — the per-mailbox concurrency cap of 4 (ARCH §5.2) is shared with body fetches and action drains, and we want the user's first inbox view to land before the engine starts grinding through 30 user folders.
+
 The user can override per-folder subscription via `:folder subscribe <name>` / `:folder unsubscribe <name>`. Subscription state lives in `folders.last_synced_at` (NULL = unsubscribed; non-NULL = subscribed and last synced).
 
-### 5.2 Backfill envelope $select
+### 5.2 Quick-start: last 50 per folder
 
-Use `$select` to keep response size manageable:
+For each first-launch folder, call the delta endpoint with `$top=50`:
+
+```
+GET /me/mailFolders/{id}/messages/delta?$select={envelope_fields}&$top=50
+Prefer: odata.maxpagesize=50
+```
+
+Three possible responses:
+
+| Response | Action |
+|---|---|
+| Has `@odata.deltaLink` (tiny folder, all in one page) | Persist the deltaLink. Folder shifts to incremental sync immediately. |
+| Has `@odata.nextLink` (more to drain) | Persist the nextLink. The next sync tick will follow ONE more page. |
+| Has both (rare; spec-compliant Graph never does) | Prefer deltaLink. |
+
+In all cases, parse the page's messages and `UpsertMessagesBatch` them. Emit one `FolderSyncedEvent` per page so the UI re-loads.
+
+The envelope `$select` is unchanged from the previous design:
 
 ```
 $select=id,internetMessageId,conversationId,conversationIndex,subject,bodyPreview,
@@ -162,19 +188,35 @@ $select=id,internetMessageId,conversationId,conversationIndex,subject,bodyPrevie
         parentFolderId,lastModifiedDateTime
 ```
 
-That's the tier-1 envelope set, exactly matching `messages` columns.
+### 5.3 Drain `next_link` across sync ticks
 
-### 5.3 Backfill page handling
+The delta loop in §6 is updated to consult `delta_tokens` in this order on every call:
 
-- `Prefer: odata.maxpagesize=100`
-- Process each page as it arrives — `UpsertMessagesBatch(100)` with the parsed messages.
-- On page completion: emit a `FolderSyncedEvent` so the UI updates progress.
-- On `@odata.nextLink`: follow it. Continue until no nextLink.
-- Backfill is bounded by the date filter; it terminates naturally.
+1. If `next_link` is non-empty: follow it (mid-pagination). On response, store the new `next_link` (still draining) or `delta_link` (drained). Done for this tick.
+2. Else if `delta_link` is non-empty: standard incremental delta call. Process the page; if the response carries another `nextLink` (delta result was paginated), persist it as `next_link` and drain on subsequent ticks.
+3. Else (first-launch with no row at all): quick-start (§5.2).
 
-### 5.4 Older-than-90-days backfill
+The result: the user's inbox is filled progressively. After the first tick they see the newest 50; after the second, 100; and so on. No magic 90-day cliff.
 
-The user can run `:backfill <folder> <date>` to fetch messages older than 90 days. Same mechanism as initial backfill but with a different date filter. This is a foreground-blocking operation by default; offer `--background` flag. Emits `FolderSyncedEvent`s as it progresses.
+### 5.4 Older mail on demand
+
+The 90-day cliff is gone from the auto-backfill. To pull older mail explicitly, the user runs:
+
+```
+:backfill <folder> <duration>
+```
+
+…where `<duration>` is e.g. `30d`, `6m`, `2y`. Implementation: `GET /me/mailFolders/{id}/messages?$filter=receivedDateTime ge {now-duration}&$top=100&$select={envelope_fields}` with full pagination (this *is* foreground-blocking and the user is asked to wait).
+
+The TUI command-bar plumbing for `:backfill` lands with spec 07 (which adds argument-taking commands generally). For v0.2.0 the engine method exists (`engine.Backfill(ctx, folderID, until time.Time)`) but is only callable via the existing CLI interface or programmatically — that's fine; the CLI use-case is spec 14.
+
+### 5.5 Why this is better than the previous "90-day" design
+
+- **Time to first paint** drops from "tens of seconds to several minutes" to "~2 seconds" on heavy mailboxes — bounded by 50 × N folders, not by mailbox depth.
+- **Predictable bandwidth**: the engine never grabs more than 50 envelopes per folder per tick (~25 KB/folder/tick at typical envelope sizes). On a slow connection the user still gets useful data quickly.
+- **Schema reuse**: the `next_link` column was specced in spec 02 §3.7 from the start. We're using something that was always there.
+- **Progressive disclosure**: identical to the UX modern mail clients use (Apple Mail, Outlook web). Newest-first; older mail trickles in automatically; explicit "load older" gesture is the escape hatch.
+- **Fewer magic numbers**: no "90 days" appears in user-visible semantics. The user only sees "last 50."
 
 ## 6. Delta sync per folder
 
@@ -185,14 +227,21 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
     token, err := e.store.GetDeltaToken(ctx, e.accountID, folderID)
     if err != nil { return err }
 
+    // Cursor selection (§5.3):
+    //   - non-empty next_link → mid-pagination resume; follow exactly one page
+    //   - else non-empty delta_link → standard incremental
+    //   - else first-launch → quick-start with $top=50
     var url string
-    if token == nil || token.DeltaLink == "" {
-        // No prior sync. Initialize.
-        url = fmt.Sprintf("/me/mailFolders/%s/messages/delta", folderID)
-        // Request only changes since now-90d to bound initial sync.
-        // After first deltaLink, server tracks all subsequent changes.
-    } else {
+    drainOnePageOnly := false
+    switch {
+    case token != nil && token.NextLink != "":
+        url = token.NextLink
+        drainOnePageOnly = true
+    case token != nil && token.DeltaLink != "":
         url = token.DeltaLink
+    default:
+        url = fmt.Sprintf("/me/mailFolders/%s/messages/delta?$top=50", folderID)
+        drainOnePageOnly = true
     }
 
     var added, updated, deleted int
@@ -223,15 +272,30 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
         }
 
         if resp.NextLink != "" {
+            if drainOnePageOnly {
+                // Quick-start or mid-pagination resume: persist the
+                // nextLink and yield. The next sync tick continues
+                // the drain.
+                e.store.PutDeltaToken(ctx, store.DeltaToken{
+                    AccountID:   e.accountID,
+                    FolderID:    folderID,
+                    NextLink:    resp.NextLink,
+                    LastDeltaAt: time.Now().Unix(),
+                })
+                break
+            }
             url = resp.NextLink
             continue
         }
         if resp.DeltaLink != "" {
-            // Round complete.
+            // Pagination drained. Persist the deltaLink and clear
+            // any lingering next_link so subsequent ticks use the
+            // standard incremental path.
             e.store.PutDeltaToken(ctx, store.DeltaToken{
                 AccountID:   e.accountID,
                 FolderID:    folderID,
                 DeltaLink:   resp.DeltaLink,
+                NextLink:    "",
                 LastDeltaAt: time.Now().Unix(),
             })
             break
