@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,11 +22,51 @@ type FoldersModel struct {
 func NewFolders() FoldersModel { return FoldersModel{} }
 
 // SetFolders replaces the displayed list (called from FoldersLoadedMsg).
+// Folders are reordered Inbox-first for sidebar display.
 func (m *FoldersModel) SetFolders(fs []store.Folder) {
-	m.folders = fs
-	if m.cursor >= len(fs) {
+	m.folders = sortFoldersForSidebar(fs)
+	if m.cursor >= len(m.folders) {
 		m.cursor = 0
 	}
+}
+
+// sortFoldersForSidebar returns folders in the canonical sidebar
+// order: Inbox → Sent Items → Drafts → Archive → user folders (alpha)
+// → Junk Email / Deleted Items / Conversation History / Sync Issues
+// (well-known but usually uninteresting; bottom of the list).
+func sortFoldersForSidebar(in []store.Folder) []store.Folder {
+	rank := func(f store.Folder) int {
+		switch f.WellKnownName {
+		case "inbox":
+			return 0
+		case "sentitems":
+			return 1
+		case "drafts":
+			return 2
+		case "archive":
+			return 3
+		case "junkemail":
+			return 5
+		case "deleteditems":
+			return 6
+		case "conversationhistory":
+			return 7
+		case "syncissues":
+			return 8
+		default:
+			return 4 // user folders, alphabetically among themselves
+		}
+	}
+	out := make([]store.Folder, len(in))
+	copy(out, in)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := rank(out[i]), rank(out[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return out[i].DisplayName < out[j].DisplayName
+	})
+	return out
 }
 
 // Up moves the cursor toward the top.
@@ -64,6 +105,16 @@ func (m *FoldersModel) SelectByID(id string) {
 // View renders the folders column.
 func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	var b strings.Builder
+	header := "Folders"
+	if focused {
+		header = "▌ Folders"
+	}
+	b.WriteString(t.Bold.Render(header))
+	b.WriteByte('\n')
+	if len(m.folders) == 0 {
+		b.WriteString(t.Dim.Render("  (waiting…)"))
+		b.WriteByte('\n')
+	}
 	for i, f := range m.folders {
 		line := f.DisplayName
 		if f.UnreadCount > 0 {

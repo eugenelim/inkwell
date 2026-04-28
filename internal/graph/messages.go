@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -28,31 +29,28 @@ type ListMessagesResponse struct {
 // ListMessagesInFolder paginates through a folder's messages. The
 // initial backfill (spec §5) consumes the result.
 func (c *Client) ListMessagesInFolder(ctx context.Context, folderID string, opts ListMessagesOpts) (*ListMessagesResponse, error) {
-	url := "/me/mailFolders/" + folderID + "/messages"
-	q := ""
-	add := func(k, v string) {
-		sep := "&"
-		if q == "" {
-			sep = "?"
-		}
-		q += sep + k + "=" + v
-	}
+	path := "/me/mailFolders/" + folderID + "/messages"
 	if opts.Select == "" && !opts.IncludeBodies {
 		opts.Select = EnvelopeSelectFields
 	}
+	q := url.Values{}
 	if opts.Select != "" {
-		add("$select", opts.Select)
+		q.Set("$select", opts.Select)
 	}
 	if opts.Filter != "" {
-		add("$filter", opts.Filter)
+		q.Set("$filter", opts.Filter)
 	}
 	if opts.Top > 0 {
-		add("$top", strconv.Itoa(opts.Top))
+		q.Set("$top", strconv.Itoa(opts.Top))
 	}
 	if opts.OrderBy != "" {
-		add("$orderby", opts.OrderBy)
+		q.Set("$orderby", opts.OrderBy)
 	}
-	resp, err := c.Do(ctx, http.MethodGet, url+q, nil, nil)
+	full := path
+	if encoded := q.Encode(); encoded != "" {
+		full = path + "?" + encoded
+	}
+	resp, err := c.Do(ctx, http.MethodGet, full, nil, nil)
 	if err != nil {
 		return nil, err
 	}

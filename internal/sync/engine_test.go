@@ -168,14 +168,15 @@ func TestSyncFolderEnumerationUpsertsAndDeletes(t *testing.T) {
 	require.Len(t, got2, 2)
 }
 
-func TestSyncFolderDeltaInitialPersistsToken(t *testing.T) {
+func TestSyncFolderQuickStartPersistsMessages(t *testing.T) {
+	// v0.2.4: first-launch path is /messages, not /messages/delta.
 	eng, srv, st, acc := newSyncTest(t)
 	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
 	}))
 
-	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, graph.DeltaResponse{
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.ListMessagesResponse{
 			Value: []graph.Message{
 				{
 					ID:               "m-1",
@@ -191,7 +192,6 @@ func TestSyncFolderDeltaInitialPersistsToken(t *testing.T) {
 					From:             &graph.Recipient{EmailAddress: graph.EmailAddress{Name: "Bob", Address: "bob@example.invalid"}},
 				},
 			},
-			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=abc",
 		})
 	})
 
@@ -203,7 +203,8 @@ func TestSyncFolderDeltaInitialPersistsToken(t *testing.T) {
 
 	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
 	require.NoError(t, err)
-	require.Contains(t, tok.DeltaLink, "deltatoken=abc")
+	require.False(t, tok.LastDeltaAt.IsZero(), "LastDeltaAt set so next tick takes pullSince")
+	require.Empty(t, tok.DeltaLink, "no delta cursor seeded yet")
 }
 
 func TestSyncFolderDeltaResumesFromCursor(t *testing.T) {
@@ -236,6 +237,10 @@ func TestSyncFolderDeltaResumesFromCursor(t *testing.T) {
 }
 
 func TestSyncFolderHandlesSyncStateNotFound(t *testing.T) {
+	// On 410 Gone (syncStateNotFound), the engine clears the token
+	// and re-runs syncFolder. v0.2.4: that re-run takes the quickStart
+	// path (/messages, not /messages/delta) since there's no cursor
+	// left.
 	eng, srv, st, acc := newSyncTest(t)
 	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
@@ -244,34 +249,42 @@ func TestSyncFolderHandlesSyncStateNotFound(t *testing.T) {
 		AccountID: acc, FolderID: "f-inbox", DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=stale",
 	}))
 
-	var hits atomic.Int32
+	var deltaHits atomic.Int32
 	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
-		switch hits.Add(1) {
-		case 1:
-			require.Equal(t, "stale", r.URL.Query().Get("$deltatoken"))
-			w.WriteHeader(http.StatusGone)
-			_, _ = w.Write([]byte(`{"error":{"code":"syncStateNotFound","message":"resync"}}`))
-		default:
-			require.Empty(t, r.URL.Query().Get("$deltatoken"))
-			writeJSON(w, graph.DeltaResponse{
-				Value:     []graph.Message{{ID: "m-fresh"}},
-				DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=fresh",
-			})
-		}
+		deltaHits.Add(1)
+		require.Equal(t, "stale", r.URL.Query().Get("$deltatoken"))
+		w.WriteHeader(http.StatusGone)
+		_, _ = w.Write([]byte(`{"error":{"code":"syncStateNotFound","message":"resync"}}`))
+	})
+	var quickStartHits atomic.Int32
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, _ *http.Request) {
+		quickStartHits.Add(1)
+		writeJSON(w, graph.ListMessagesResponse{
+			Value: []graph.Message{{ID: "m-fresh"}},
+		})
 	})
 
 	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
-	require.Equal(t, int32(2), hits.Load(), "first call gets 410, second re-inits")
+	require.Equal(t, int32(1), deltaHits.Load(), "delta call returned 410")
+	require.Equal(t, int32(1), quickStartHits.Load(), "recovery falls through to quickStart")
 
 	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
 	require.NoError(t, err)
-	require.Contains(t, tok.DeltaLink, "deltatoken=fresh")
+	require.False(t, tok.LastDeltaAt.IsZero(), "quickStart sets LastDeltaAt on the recovered row")
 }
 
 func TestSyncFolderPaginatesNextLink(t *testing.T) {
+	// Tests followDeltaPage with a pre-seeded NextLink (mid-pagination
+	// resume). v0.2.4 splits first-launch (quickStart) from cursor
+	// resumption (followDeltaPage); this test exercises the latter.
 	eng, srv, st, acc := newSyncTest(t)
 	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
+	}))
+	// Pre-seed a NextLink so the first call goes through followDeltaPage.
+	require.NoError(t, st.PutDeltaToken(context.Background(), store.DeltaToken{
+		AccountID: acc, FolderID: "f-inbox",
+		NextLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta",
 	}))
 
 	page2 := srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$skiptoken=p2"
@@ -316,13 +329,19 @@ func TestSyncFolderPaginatesNextLink(t *testing.T) {
 }
 
 func TestSyncFolderAppliesRemovedTombstones(t *testing.T) {
+	// @removed tombstones only come through the delta endpoint, which
+	// is now followDeltaPage. Pre-seed a DeltaLink to exercise that
+	// path; v0.2.4's quickStart / pullSince paths don't track deletes.
 	eng, srv, st, acc := newSyncTest(t)
 	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
 	}))
-	// Pre-cache a message; delta will tombstone it.
 	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
 		ID: "m-doomed", AccountID: acc, FolderID: "f-inbox", Subject: "doomed",
+	}))
+	require.NoError(t, st.PutDeltaToken(context.Background(), store.DeltaToken{
+		AccountID: acc, FolderID: "f-inbox",
+		DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=cur",
 	}))
 
 	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
@@ -344,11 +363,8 @@ func TestRunCycleEmitsCompletedEvent(t *testing.T) {
 			Value: []graph.MailFolder{{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"}},
 		})
 	})
-	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, graph.DeltaResponse{
-			Value:     []graph.Message{{ID: "m-1"}},
-			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=ok",
-		})
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.ListMessagesResponse{Value: []graph.Message{{ID: "m-1"}}})
 	})
 
 	require.NoError(t, eng.SyncAll(context.Background()))
@@ -423,20 +439,20 @@ func TestPrivacyNoBodyContentReachedDuringDeltaSync(t *testing.T) {
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
 	}))
 
-	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
-		// Spec §6 / §5.2: delta sync requests must not include the
-		// 'body' column in $select. bodyPreview is fine — that's the
-		// 255-char preview Graph returns by default.
+	// v0.2.4: first-launch is /messages, not /messages/delta. The
+	// body-column privacy check applies to whichever endpoint is in
+	// use, so we attach the same handler to both routes.
+	check := func(w http.ResponseWriter, r *http.Request) {
 		sel := r.URL.Query().Get("$select")
 		fields := strings.Split(sel, ",")
 		for _, f := range fields {
 			require.NotEqual(t, "body", strings.TrimSpace(f),
 				"delta sync must NEVER request body content (spec §5.2)")
 		}
-		writeJSON(w, graph.DeltaResponse{
-			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=ok",
-		})
-	})
+		writeJSON(w, graph.ListMessagesResponse{Value: nil})
+	}
+	srv.Handle("/me/mailFolders/f-inbox/messages", check)
+	srv.Handle("/me/mailFolders/f-inbox/messages/delta", check)
 	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
 }
 
@@ -462,18 +478,18 @@ func TestQuickStartBackfillInboxFirst(t *testing.T) {
 		})
 	})
 
-	// Track the ORDER folders are hit during quick-start.
+	// Track the ORDER folders are hit during quick-start. v0.2.4
+	// switched from /messages/delta to /messages?$orderby for the
+	// first-launch path; this test follows.
 	var order []string
 	var orderMu stdsync.Mutex
 	for _, fid := range []string{"f-inbox", "f-archive", "f-zebra", "f-aardvarks"} {
 		fid := fid
-		srv.Handle("/me/mailFolders/"+fid+"/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
+		srv.Handle("/me/mailFolders/"+fid+"/messages", func(w http.ResponseWriter, _ *http.Request) {
 			orderMu.Lock()
 			order = append(order, fid)
 			orderMu.Unlock()
-			writeJSON(w, graph.DeltaResponse{
-				DeltaLink: srv.URL() + "/me/mailFolders/" + fid + "/messages/delta?$deltatoken=ok",
-			})
+			writeJSON(w, graph.ListMessagesResponse{Value: nil})
 		})
 	}
 
@@ -490,22 +506,27 @@ func TestQuickStartBackfillInboxFirst(t *testing.T) {
 	require.Len(t, folders, 4, "all enumerated folders persisted")
 }
 
-func TestQuickStartBackfillUsesTop50OnFirstHit(t *testing.T) {
+func TestQuickStartBackfillUsesTop50AndOrderByReceivedDateTime(t *testing.T) {
+	// v0.2.4: first-launch hits /messages with $top=50 AND
+	// $orderby=receivedDateTime desc. The Graph delta endpoint
+	// doesn't support $orderby in v1.0, so we use the non-delta
+	// endpoint to guarantee newest-first.
 	eng, srv, _, _ := newSyncTest(t)
 	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"}},
 		})
 	})
-	var topSeen string
-	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
+	var topSeen, orderbySeen string
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, r *http.Request) {
 		topSeen = r.URL.Query().Get("$top")
-		writeJSON(w, graph.DeltaResponse{
-			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=ok",
-		})
+		orderbySeen = r.URL.Query().Get("$orderby")
+		writeJSON(w, graph.ListMessagesResponse{Value: nil})
 	})
 	require.NoError(t, eng.(*engine).QuickStartBackfill(context.Background()))
-	require.Equal(t, "50", topSeen, "first-launch quick-start must pin $top=50 (spec §5.2)")
+	require.Equal(t, "50", topSeen, "first-launch must pin $top=50")
+	require.Equal(t, "receivedDateTime desc", orderbySeen,
+		"first-launch must order by receivedDateTime desc so the user sees newest mail first")
 }
 
 func TestSyncFolderResumesPersistedNextLink(t *testing.T) {
@@ -538,31 +559,54 @@ func TestSyncFolderResumesPersistedNextLink(t *testing.T) {
 	require.Contains(t, tok.DeltaLink, "deltatoken=done")
 }
 
-func TestSyncFolderQuickStartYieldsAfterOnePage(t *testing.T) {
+func TestSyncFolderQuickStartPersistsLastDeltaAt(t *testing.T) {
+	// v0.2.4: first-launch persists LastDeltaAt only (no DeltaLink,
+	// no NextLink). The next tick takes the pullSince path, which
+	// uses $filter=receivedDateTime gt {LastDeltaAt}.
 	eng, srv, st, acc := newSyncTest(t)
 	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
 	}))
 
-	page2 := srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$skiptoken=p2"
-	var hits atomic.Int32
-	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		// Quick-start ALWAYS uses $top=50; if the test sees a missing
-		// or different $top the production code regressed.
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "50", r.URL.Query().Get("$top"))
-		writeJSON(w, graph.DeltaResponse{
-			Value:    []graph.Message{{ID: "m-1"}},
-			NextLink: page2,
-		})
+		require.Equal(t, "receivedDateTime desc", r.URL.Query().Get("$orderby"))
+		writeJSON(w, graph.ListMessagesResponse{Value: []graph.Message{{ID: "m-1"}}})
 	})
 
 	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
-	require.Equal(t, int32(1), hits.Load(), "quick-start must yield after exactly one page")
-
 	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
 	require.NoError(t, err)
-	require.Contains(t, tok.NextLink, "skiptoken=p2")
+	require.Empty(t, tok.NextLink, "quick-start does not seed a delta cursor")
+	require.Empty(t, tok.DeltaLink, "quick-start does not seed a delta cursor")
+	require.False(t, tok.LastDeltaAt.IsZero(), "LastDeltaAt is set so the next tick takes pullSince")
+}
+
+func TestSyncFolderPullSinceUsesFilter(t *testing.T) {
+	// After quick-start, subsequent ticks use /messages with a
+	// $filter=receivedDateTime gt {last_delta_at} clause to fetch
+	// any new messages received since.
+	eng, srv, st, acc := newSyncTest(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
+	}))
+	prior := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	require.NoError(t, st.PutDeltaToken(context.Background(), store.DeltaToken{
+		AccountID:   acc,
+		FolderID:    "f-inbox",
+		LastDeltaAt: prior,
+	}))
+
+	var filterSeen string
+	srv.Handle("/me/mailFolders/f-inbox/messages", func(w http.ResponseWriter, r *http.Request) {
+		filterSeen = r.URL.Query().Get("$filter")
+		writeJSON(w, graph.ListMessagesResponse{Value: []graph.Message{{ID: "m-new"}}})
+	})
+
+	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
+	require.Contains(t, filterSeen, "receivedDateTime gt ")
+	require.Contains(t, filterSeen, prior.Format("2006-01-02"),
+		"$filter must include the persisted last-delta timestamp")
 }
 
 // helper: silence unused-import in some build configurations.
