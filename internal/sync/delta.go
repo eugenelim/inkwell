@@ -12,16 +12,27 @@ import (
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
-// syncFolder runs the per-folder delta loop (spec §6). Initial call
-// uses the /me/mailFolders/{id}/messages/delta endpoint; subsequent
-// calls follow the persisted deltaLink.
+// QuickStartPageSize is the per-folder envelope budget for the very
+// first page of a folder's lazy backfill (spec §5.2).
+const QuickStartPageSize = 50
+
+// syncFolder runs the per-folder delta loop (spec §6).
+//
+// Cursor selection:
+//  1. non-empty next_link → mid-pagination resume; follow ONE page only
+//  2. else non-empty delta_link → standard incremental delta
+//  3. else first-launch → quick-start with $top=50, follow ONE page only
+//
+// "Drain one page only" means we yield after a single page so other
+// folders can advance on the same tick. Subsequent ticks resume by
+// reading next_link again.
 func (e *engine) syncFolder(ctx context.Context, folderID string) error {
 	tok, err := e.st.GetDeltaToken(ctx, e.opts.AccountID, folderID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("get delta token: %w", err)
 	}
 
-	url := deltaURL(tok, folderID)
+	url, drainOnePageOnly := pickURL(tok, folderID)
 	var added, updated, deleted int
 
 	for {
@@ -32,7 +43,7 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
 		}
 		resp, err := e.gc.GetDelta(ctx, url, graph.DeltaOpts{
 			Select:      graph.EnvelopeSelectFields,
-			MaxPageSize: 100,
+			MaxPageSize: pageSizeForCursor(drainOnePageOnly),
 		})
 		if err != nil {
 			if graph.IsSyncStateNotFound(err) {
@@ -41,7 +52,7 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
 				if err := e.st.ClearDeltaToken(ctx, e.opts.AccountID, folderID); err != nil {
 					return err
 				}
-				return e.syncFolderFresh(ctx, folderID)
+				return e.syncFolder(ctx, folderID) // retry once with fresh cursor selection
 			}
 			return err
 		}
@@ -66,14 +77,31 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
 		}
 
 		if resp.NextLink != "" {
+			if drainOnePageOnly {
+				// Quick-start or mid-pagination resume: persist the
+				// nextLink and yield. The next sync tick continues
+				// the drain.
+				if err := e.st.PutDeltaToken(ctx, store.DeltaToken{
+					AccountID:   e.opts.AccountID,
+					FolderID:    folderID,
+					NextLink:    resp.NextLink,
+					LastDeltaAt: time.Now(),
+				}); err != nil {
+					return err
+				}
+				break
+			}
 			url = resp.NextLink
 			continue
 		}
 		if resp.DeltaLink != "" {
+			// Pagination drained. Persist deltaLink and clear any
+			// lingering next_link.
 			if err := e.st.PutDeltaToken(ctx, store.DeltaToken{
 				AccountID:   e.opts.AccountID,
 				FolderID:    folderID,
 				DeltaLink:   resp.DeltaLink,
+				NextLink:    "",
 				LastDeltaAt: time.Now(),
 			}); err != nil {
 				return err
@@ -93,42 +121,46 @@ func (e *engine) syncFolder(ctx context.Context, folderID string) error {
 	return nil
 }
 
-// syncFolderFresh re-initialises the delta cursor by hitting the bare
-// /messages/delta endpoint. The next deltaLink we get becomes the
-// resume cursor.
-func (e *engine) syncFolderFresh(ctx context.Context, folderID string) error {
-	url := "/me/mailFolders/" + folderID + "/messages/delta"
-	for {
-		resp, err := e.gc.GetDelta(ctx, url, graph.DeltaOpts{
-			Select:      graph.EnvelopeSelectFields,
-			MaxPageSize: 100,
-		})
-		if err != nil {
-			return err
-		}
-		for _, item := range resp.Value {
-			if item.Removed != nil {
-				_ = e.st.DeleteMessage(ctx, item.ID)
-				continue
-			}
-			if _, err := e.applyMessage(ctx, folderID, item); err != nil {
-				return err
-			}
-		}
-		if resp.NextLink != "" {
-			url = resp.NextLink
-			continue
-		}
-		if resp.DeltaLink != "" {
-			return e.st.PutDeltaToken(ctx, store.DeltaToken{
-				AccountID:   e.opts.AccountID,
-				FolderID:    folderID,
-				DeltaLink:   resp.DeltaLink,
-				LastDeltaAt: time.Now(),
-			})
-		}
-		return errors.New("graph delta init: missing both nextLink and deltaLink")
+// pickURL implements the cursor-selection rules of spec §5.3.
+// Returns the URL to call and whether the caller should yield after a
+// single page (true for quick-start and mid-pagination resume).
+func pickURL(tok *store.DeltaToken, folderID string) (url string, drainOnePageOnly bool) {
+	switch {
+	case tok != nil && tok.NextLink != "":
+		return tok.NextLink, true
+	case tok != nil && tok.DeltaLink != "":
+		return tok.DeltaLink, false
+	default:
+		return "/me/mailFolders/" + folderID + "/messages/delta?$top=" + intToA(QuickStartPageSize), true
 	}
+}
+
+// pageSizeForCursor decides the Prefer odata.maxpagesize hint. On
+// quick-start / mid-pagination resume we ask for QuickStartPageSize so
+// the user's first paint is bounded; on incremental delta we use the
+// standard 100.
+func pageSizeForCursor(drainOnePageOnly bool) int {
+	if drainOnePageOnly {
+		return QuickStartPageSize
+	}
+	return 100
+}
+
+// intToA is a stdlib-only int→ascii helper to avoid importing strconv
+// just for one call site.
+func intToA(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	const digits = "0123456789"
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = digits[n%10]
+		n /= 10
+	}
+	return string(buf[i:])
 }
 
 // applyMessage upserts a delta-returned message into the store. Returns
@@ -184,12 +216,3 @@ func recipientsToStore(rs []graph.Recipient) []store.EmailAddress {
 	return out
 }
 
-// deltaURL returns the URL the next delta call should hit. When the
-// cursor is empty, the caller falls back to the bare /messages/delta
-// endpoint.
-func deltaURL(t *store.DeltaToken, folderID string) string {
-	if t == nil || t.DeltaLink == "" {
-		return "/me/mailFolders/" + folderID + "/messages/delta"
-	}
-	return t.DeltaLink
-}

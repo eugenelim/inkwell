@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	stdsync "sync"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -238,7 +239,6 @@ func TestSyncFolderPaginatesNextLink(t *testing.T) {
 		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
 	}))
 
-	page1 := srv.URL() + "/me/mailFolders/f-inbox/messages/delta"
 	page2 := srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$skiptoken=p2"
 
 	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
@@ -256,12 +256,28 @@ func TestSyncFolderPaginatesNextLink(t *testing.T) {
 		}
 	})
 
+	// Spec §5.3: each Sync call yields after one page during lazy
+	// progressive backfill. The first tick stores m-1 and persists
+	// the nextLink as next_link.
 	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
-	_ = page1 // referenced for log
-
 	msgs, err := st.ListMessages(context.Background(), store.MessageQuery{AccountID: acc, FolderID: "f-inbox", Limit: 50})
 	require.NoError(t, err)
-	require.Len(t, msgs, 3)
+	require.Len(t, msgs, 1, "tick 1 drains one page only")
+	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
+	require.NoError(t, err)
+	require.Contains(t, tok.NextLink, "skiptoken=p2")
+	require.Empty(t, tok.DeltaLink, "no deltaLink yet — still mid-pagination")
+
+	// Second tick consumes the persisted nextLink, drains the final
+	// page, and seeds the deltaLink.
+	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
+	msgs, err = st.ListMessages(context.Background(), store.MessageQuery{AccountID: acc, FolderID: "f-inbox", Limit: 50})
+	require.NoError(t, err)
+	require.Len(t, msgs, 3, "tick 2 drains the second page")
+	tok, err = st.GetDeltaToken(context.Background(), acc, "f-inbox")
+	require.NoError(t, err)
+	require.Empty(t, tok.NextLink, "next_link cleared once deltaLink is set")
+	require.Contains(t, tok.DeltaLink, "deltatoken=final")
 }
 
 func TestSyncFolderAppliesRemovedTombstones(t *testing.T) {
@@ -396,6 +412,122 @@ func TestParseRetryAfterIsExportedThroughGraphPackageContract(t *testing.T) {
 	_ = graph.IsAuth
 	_ = graph.IsSyncStateNotFound
 	_ = graph.IsNotFound
+}
+
+func TestQuickStartBackfillInboxFirst(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive"},
+				{ID: "f-zebra", DisplayName: "ZebraTalk"},
+				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+				{ID: "f-aardvarks", DisplayName: "Aardvarks"},
+			},
+		})
+	})
+
+	// Track the ORDER folders are hit during quick-start.
+	var order []string
+	var orderMu stdsync.Mutex
+	for _, fid := range []string{"f-inbox", "f-archive", "f-zebra", "f-aardvarks"} {
+		fid := fid
+		srv.Handle("/me/mailFolders/"+fid+"/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
+			orderMu.Lock()
+			order = append(order, fid)
+			orderMu.Unlock()
+			writeJSON(w, graph.DeltaResponse{
+				DeltaLink: srv.URL() + "/me/mailFolders/" + fid + "/messages/delta?$deltatoken=ok",
+			})
+		})
+	}
+
+	require.NoError(t, eng.(*engine).QuickStartBackfill(context.Background()))
+
+	// Inbox first, then well-known (archive), then user folders alpha.
+	orderMu.Lock()
+	defer orderMu.Unlock()
+	require.Equal(t, []string{"f-inbox", "f-archive", "f-aardvarks", "f-zebra"}, order,
+		"quick-start must hit Inbox before Archive before user folders alpha")
+
+	folders, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, folders, 4, "all enumerated folders persisted")
+}
+
+func TestQuickStartBackfillUsesTop50OnFirstHit(t *testing.T) {
+	eng, srv, _, _ := newSyncTest(t)
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"}},
+		})
+	})
+	var topSeen string
+	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
+		topSeen = r.URL.Query().Get("$top")
+		writeJSON(w, graph.DeltaResponse{
+			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=ok",
+		})
+	})
+	require.NoError(t, eng.(*engine).QuickStartBackfill(context.Background()))
+	require.Equal(t, "50", topSeen, "first-launch quick-start must pin $top=50 (spec §5.2)")
+}
+
+func TestSyncFolderResumesPersistedNextLink(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
+	}))
+	// Pre-seed a next_link as if a prior tick had drained one page.
+	resumeURL := srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$skiptoken=mid"
+	require.NoError(t, st.PutDeltaToken(context.Background(), store.DeltaToken{
+		AccountID: acc, FolderID: "f-inbox", NextLink: resumeURL,
+	}))
+
+	var hits atomic.Int32
+	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		require.Equal(t, "mid", r.URL.Query().Get("$skiptoken"), "next_link must be followed verbatim")
+		writeJSON(w, graph.DeltaResponse{
+			Value:     []graph.Message{{ID: "m-resumed"}},
+			DeltaLink: srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$deltatoken=done",
+		})
+	})
+
+	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
+	require.Equal(t, int32(1), hits.Load())
+
+	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
+	require.NoError(t, err)
+	require.Empty(t, tok.NextLink, "next_link cleared on completion")
+	require.Contains(t, tok.DeltaLink, "deltatoken=done")
+}
+
+func TestSyncFolderQuickStartYieldsAfterOnePage(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox",
+	}))
+
+	page2 := srv.URL() + "/me/mailFolders/f-inbox/messages/delta?$skiptoken=p2"
+	var hits atomic.Int32
+	srv.Handle("/me/mailFolders/f-inbox/messages/delta", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		// Quick-start ALWAYS uses $top=50; if the test sees a missing
+		// or different $top the production code regressed.
+		require.Equal(t, "50", r.URL.Query().Get("$top"))
+		writeJSON(w, graph.DeltaResponse{
+			Value:    []graph.Message{{ID: "m-1"}},
+			NextLink: page2,
+		})
+	})
+
+	require.NoError(t, eng.Sync(context.Background(), "f-inbox"))
+	require.Equal(t, int32(1), hits.Load(), "quick-start must yield after exactly one page")
+
+	tok, err := st.GetDeltaToken(context.Background(), acc, "f-inbox")
+	require.NoError(t, err)
+	require.Contains(t, tok.NextLink, "skiptoken=p2")
 }
 
 // helper: silence unused-import in some build configurations.
