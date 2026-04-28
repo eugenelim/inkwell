@@ -8,21 +8,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultsValidateWithRequiredAccount(t *testing.T) {
+func TestDefaultsValidateWithoutAccountConfig(t *testing.T) {
 	c := Defaults()
-	err := c.Validate()
-	require.Error(t, err, "defaults should not validate without account fields")
-	require.Contains(t, err.Error(), "tenant_id")
+	require.NoError(t, c.Validate(), "[account] is optional per PRD §4; defaults must validate")
+	require.Equal(t, "common", c.Account.TenantID)
+	require.Equal(t, "14d82eec-204b-4c2f-b7e8-296a70dab67e", c.Account.ClientID)
+	require.Empty(t, c.Account.UPN, "UPN is populated at sign-in, not in defaults")
 }
 
-func TestValidateForAccountless(t *testing.T) {
+func TestValidateForAccountlessIsEquivalentToValidate(t *testing.T) {
+	// Deprecated alias still works.
 	c := Defaults()
 	require.NoError(t, c.ValidateForAccountless())
 }
 
-func TestLoadMissingFileFallsBackToDefaultsAndFailsOnAccount(t *testing.T) {
-	_, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
-	require.Error(t, err)
+func TestLoadMissingFileFallsBackToDefaultsAndPasses(t *testing.T) {
+	cfg, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
+	require.NoError(t, err, "missing config file is fine; defaults are valid")
+	require.Equal(t, "common", cfg.Account.TenantID)
 }
 
 func TestLoadParsesUserOverride(t *testing.T) {
@@ -30,8 +33,6 @@ func TestLoadParsesUserOverride(t *testing.T) {
 	path := filepath.Join(dir, "config.toml")
 	require.NoError(t, writeFile(path, `
 [account]
-tenant_id = "TENANT"
-client_id = "CLIENT"
 upn = "user@example.invalid"
 
 [sync]
@@ -39,14 +40,14 @@ max_concurrent = 6
 `))
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, "TENANT", cfg.Account.TenantID)
+	require.Equal(t, "user@example.invalid", cfg.Account.UPN)
+	require.Equal(t, "common", cfg.Account.TenantID, "untouched key keeps default")
 	require.Equal(t, 6, cfg.Sync.MaxConcurrent)
 	require.Equal(t, 500, cfg.Cache.BodyCacheMaxCount, "default preserved when key absent")
 }
 
 func TestValidateRejectsMaxConcurrentOutOfRange(t *testing.T) {
 	c := Defaults()
-	c.Account = AccountConfig{TenantID: "T", ClientID: "C", UPN: "u@x.invalid"}
 	c.Sync.MaxConcurrent = 99
 	require.Error(t, c.Validate())
 	c.Sync.MaxConcurrent = 0
@@ -55,7 +56,6 @@ func TestValidateRejectsMaxConcurrentOutOfRange(t *testing.T) {
 
 func TestValidateRejectsBadLogLevel(t *testing.T) {
 	c := Defaults()
-	c.Account = AccountConfig{TenantID: "T", ClientID: "C", UPN: "u@x.invalid"}
 	c.Logging.Level = "spam"
 	err := c.Validate()
 	require.Error(t, err)

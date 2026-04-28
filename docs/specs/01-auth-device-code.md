@@ -18,16 +18,26 @@ Implement OAuth 2.0 device code flow against Microsoft Entra ID (Azure AD), back
 
 Browser-redirect flows (auth code with PKCE) require either a localhost listener or an embedded webview. Both are awkward in a TUI. Device code flow trades one extra user step (typing a code in a browser tab) for a clean terminal-only experience that also plays well with users on locked-down corporate machines where opening a webview from a CLI tool is suspicious.
 
-## 3. Tenant prerequisites (out of code scope, document for ops)
+## 3. Tenant prerequisites
 
-The README and onboarding doc must specify that the following has been done in the tenant by an admin:
+**Inkwell deliberately does not require an Entra ID app registration in the user's tenant** (PRD §4). Inkwell uses the well-known Microsoft Graph Command Line Tools first-party public client against the multi-tenant `/common` authority. The user's home tenant is **inferred** at sign-in from the MSAL `AuthResult`, not pre-configured.
 
-- An Entra ID app registration of type "Public client / native".
-- "Allow public client flows" enabled (this is what unlocks device code flow).
-- Delegated Microsoft Graph permissions granted: see PRD §3.1.
-- Admin consent granted for the tenant.
-- Redirect URI: `https://login.microsoftonline.com/common/oauth2/nativeclient` (added automatically when public client is enabled).
-- The resulting `client_id` and `tenant_id` are written into the user's `~/.config/inkwell/config.toml`.
+Practical consequences:
+
+- **No tenant-side onboarding step.** A user can install the binary, run `inkwell signin`, complete the device-code flow, and start using it. There is no `client_id` or `tenant_id` to obtain or paste into config.
+- **Conditional Access still applies.** If the user's tenant requires device compliance (Intune), MFA, or the Microsoft Enterprise SSO plug-in for Apple devices, those policies still gate the sign-in. Inkwell inherits the posture; failures surface as user-readable AADSTS errors (§11).
+- **Tenants that block the public client.** Some tenants explicitly disable user-consent for Microsoft-published apps or block the Microsoft Graph CLI Tools client under Conditional Access. Sign-in then fails with a specific AADSTS error. The user-facing message names the policy class; recovery is the tenant admin's call. We do not add a workaround.
+
+Locked constants (defined in `internal/auth/scopes.go`):
+
+```go
+const (
+    PublicClientID  = "14d82eec-204b-4c2f-b7e8-296a70dab67e" // Microsoft Graph Command Line Tools
+    CommonAuthority = "https://login.microsoftonline.com/common"
+)
+```
+
+Changing either of these constants is a code change, not user config.
 
 ## 4. Public Go API
 
@@ -54,9 +64,16 @@ type Authenticator interface {
 // device-code auth is needed; the caller is responsible for displaying the
 // code and verification URL to the user (this lets the TUI render it nicely
 // vs the CLI mode printing it to stderr).
+//
+// Empty cfg.ClientID and cfg.TenantID fall back to the locked constants
+// PublicClientID and CommonAuthority — see §3. Production code passes
+// the zero Config value.
 func New(cfg Config, prompt PromptFn) (Authenticator, error)
 
 type Config struct {
+    // TenantID and ClientID are optional. Empty falls back to the
+    // /common authority and the Microsoft Graph CLI Tools public client.
+    // Tests may override these to pin behaviour.
     TenantID string
     ClientID string
     Scopes   []string // e.g., ["Mail.ReadWrite", "Calendars.Read", ...]
@@ -81,12 +98,22 @@ Use `github.com/AzureAD/microsoft-authentication-library-for-go/apps/public`. Th
 Construction:
 
 ```go
+clientID := cfg.ClientID
+if clientID == "" {
+    clientID = PublicClientID // 14d82eec-204b-4c2f-b7e8-296a70dab67e
+}
+authority := CommonAuthority // https://login.microsoftonline.com/common
+if cfg.TenantID != "" && cfg.TenantID != "common" {
+    authority = "https://login.microsoftonline.com/" + cfg.TenantID
+}
 client, err := public.New(
-    cfg.ClientID,
-    public.WithAuthority("https://login.microsoftonline.com/" + cfg.TenantID),
+    clientID,
+    public.WithAuthority(authority),
     public.WithCache(keychainCache),  // see §5.2
 )
 ```
+
+The `/common` authority lets a user from any Entra tenant sign in. After the first successful sign-in MSAL knows the user's home tenant; subsequent silent calls happily resolve.
 
 Token acquisition flow:
 
@@ -241,7 +268,9 @@ Do not log the access token. Do not log the refresh token. Do not log the cache 
 | Keychain access denied by user                        | Fall through to in-memory-only token; warn in status line; tokens lost on exit. |
 | User aborts device code flow                          | Return context.Canceled; UI returns to sign-in screen.        |
 | Tenant admin revokes consent mid-session              | Next Graph call returns 401; auth layer triggers re-auth via device code; UI shows re-auth modal. |
+| Tenant admin disables user-consent for Microsoft-published apps OR blocks the Microsoft Graph CLI Tools app via Conditional Access | MSAL returns AADSTS error (e.g., AADSTS65001 / AADSTS530002 / AADSTS50105). Surface a user-friendly message: "Your tenant blocks the Microsoft Graph Command Line Tools app — ask your IT admin to allow it or grant user-consent for first-party Microsoft apps." Do not retry; do not fall back to a different client_id. |
 | Conditional Access denies token (device non-compliant) | MSAL returns specific AADSTS error; surface a user-friendly message naming the policy class (compliance, MFA, etc.) and link to https://aka.ms/MFASetup as appropriate. |
+| User signs in with a personal (Microsoft consumer) account | The `/common` authority technically allows this, but Inkwell targets work / school accounts only. Detect via `Account.Realm == "9188040d-6c67-4c5b-b112-36a304b66dad"` (the consumer tenant guid) at sign-in completion and refuse with a clear error message. |
 | Clock skew > 5 minutes                                | Token validation fails; surface as "system clock incorrect"; exit. |
 
 ## 12. Definition of done
@@ -259,9 +288,11 @@ This spec owns the `[account]` section. Full reference in `CONFIG.md`.
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `account.tenant_id` | (required, no default) | Provided by enterprise IT. |
-| `account.client_id` | (required, no default) | Provided by enterprise IT. |
-| `account.upn` | (required, no default) | User's UPN. |
+| `account.tenant_id` | `common` | Optional. Defaults to the multi-tenant common authority. Set to a specific tenant GUID only to pin sign-in to a single tenant (rare; useful in CI scripting against a service principal — out of scope for v1). |
+| `account.client_id` | `14d82eec-204b-4c2f-b7e8-296a70dab67e` | Optional. Defaults to the Microsoft Graph Command Line Tools first-party public client. Overriding is possible but unsupported; PRD §4 explains why. |
+| `account.upn` | (optional, populated at sign-in) | Optional. If set, the auth layer asserts the signed-in account matches this UPN and refuses otherwise. Useful as a guardrail when a user has multiple accounts. After successful sign-in, the resolved UPN is also persisted to the local `accounts` row. |
+
+**The whole `[account]` section is optional.** A user with no `~/.config/inkwell/config.toml` at all can run `inkwell signin` and Inkwell will use the locked first-party defaults. After sign-in the resolved `tenant_id` and `upn` are persisted in the local SQLite store.
 
 The auth module reads these values from `*config.Config` at construction time. It does not read environment variables or flags directly; the loader at `cmd/inkwell/main.go` is responsible for assembling the final `Config` and passing it down.
 

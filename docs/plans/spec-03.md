@@ -57,3 +57,6 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - [x] Logs: all auth/throttle/request lines go through the redacting slog handler.
 - [x] CLI mode: spec 14 will add `inkwell sync` CLI.
 - [x] Tests: unit + integration via httptest + race-clean.
+
+## Iter — auth pivot 2026-04-27
+- Spec 03 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.

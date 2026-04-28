@@ -234,11 +234,71 @@ func TestKeychainAccountKeyIsLowercased(t *testing.T) {
 	require.Equal(t, "tenant:client", keychainAccount("  Tenant  ", " CLIENT "))
 }
 
-func TestNewRequiresTenantAndClient(t *testing.T) {
-	_, err := New(Config{}, nil)
+func TestNewWithEmptyConfigUsesPublicClientDefaults(t *testing.T) {
+	a, err := New(Config{}, nil)
+	require.NoError(t, err, "zero Config must construct using PublicClientID + /common")
+	require.NotNil(t, a)
+}
+
+func TestConfigResolvedFillsDefaults(t *testing.T) {
+	r := Config{}.resolved()
+	require.Equal(t, PublicClientID, r.ClientID)
+	require.NotEmpty(t, r.Scopes)
+}
+
+func TestConfigAuthorityHandlesEmptyAndCommonAndPinned(t *testing.T) {
+	require.Equal(t, CommonAuthority, Config{}.authority())
+	require.Equal(t, CommonAuthority, Config{TenantID: "common"}.authority())
+	require.Equal(t, CommonAuthority, Config{TenantID: "  Common  "}.authority())
+	require.Equal(t, "https://login.microsoftonline.com/12345678-1234-1234-1234-123456789abc",
+		Config{TenantID: "12345678-1234-1234-1234-123456789abc"}.authority())
+}
+
+func TestRefusesConsumerMicrosoftAccount(t *testing.T) {
+	src := &fakeSource{
+		deviceResult: AuthResult{
+			AccessToken: "tok",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account: Account{
+				UPN:      "personal@outlook.com",
+				TenantID: ConsumerTenantID,
+			},
+		},
+	}
+	a := newTestAuth(t, src, nil)
+	_, err := a.Token(context.Background())
 	require.Error(t, err)
-	_, err = New(Config{TenantID: "T"}, nil)
+	require.Contains(t, err.Error(), "personal Microsoft accounts")
+	_, _, signed := a.Account()
+	require.False(t, signed, "rejected sign-in must not populate Account()")
+}
+
+func TestExpectedUPNGuardrailRejectsMismatch(t *testing.T) {
+	src := &fakeSource{
+		deviceResult: AuthResult{
+			AccessToken: "tok",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "real@example.invalid", TenantID: "T"},
+		},
+	}
+	a := NewWithSource(Config{ExpectedUPN: "expected@example.invalid"}, nil, src)
+	_, err := a.Token(context.Background())
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match")
+}
+
+func TestExpectedUPNGuardrailAcceptsMatchCaseInsensitive(t *testing.T) {
+	src := &fakeSource{
+		deviceResult: AuthResult{
+			AccessToken: "tok",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "User@Example.Invalid", TenantID: "T"},
+		},
+	}
+	a := NewWithSource(Config{ExpectedUPN: "user@example.invalid"}, nil, src)
+	tok, err := a.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "tok", tok)
 }
 
 func TestDefaultScopesIncludesOfflineAccess(t *testing.T) {

@@ -38,15 +38,15 @@ Errors include the file path and line number.
 
 ---
 
-## `[account]` (required)
+## `[account]` (entirely optional)
 
-Provided one-time during onboarding. The user typically does not edit this manually after setup.
+Inkwell uses the well-known Microsoft Graph Command Line Tools first-party public client against the multi-tenant `/common` authority by default (PRD §4). The whole `[account]` section is optional; a clean install with no config file can run `inkwell signin` directly. The resolved tenant ID and UPN are persisted to the local SQLite `accounts` row after first sign-in.
 
 | Key | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `tenant_id` | string (UUID) | — | yes | Microsoft Entra ID tenant ID. |
-| `client_id` | string (UUID) | — | yes | App registration client ID provided by enterprise IT. |
-| `upn` | string | — | yes | The user's UPN (e.g., `firstname.lastname@accenture.com`). Used to disambiguate tokens in Keychain. |
+| `tenant_id` | string (UUID or `"common"`) | `"common"` | no | Override the authority. Default `common` lets any Entra tenant sign in; the user's actual home tenant is inferred from the `AuthResult`. |
+| `client_id` | string (UUID) | `"14d82eec-204b-4c2f-b7e8-296a70dab67e"` | no | Override the OAuth client. Default is the Microsoft-owned Graph CLI Tools app — see PRD §4. Overriding is possible but unsupported. |
+| `upn` | string | — | no | If set, the auth layer asserts the signed-in account matches this UPN and refuses otherwise. Useful as a multi-account guardrail. After sign-in the resolved UPN is also written to the local store. |
 
 **Owner spec:** 01.
 
@@ -353,9 +353,10 @@ I changed `refresh` from `"R"` (which conflicted with mark_unread) to `"ctrl+r"`
 A user's `~/.config/inkwell/config.toml` overriding defaults:
 
 ```toml
+# [account] is optional. Inkwell uses the Microsoft Graph CLI Tools
+# first-party public client against /common by default. Set upn here
+# only if you want a guardrail against signing in as the wrong account.
 [account]
-tenant_id = "12345678-1234-1234-1234-123456789abc"
-client_id = "abcdef00-0000-0000-0000-000000000000"
 upn = "eu.gene@accenture.com"
 
 [sync]

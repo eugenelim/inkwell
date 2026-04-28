@@ -2,12 +2,16 @@ package config
 
 import "time"
 
-// Defaults returns the compiled-in default configuration. Every key has a
-// default; AccountConfig fields are required and have empty defaults so
-// validation flags missing values explicitly.
+// Defaults returns the compiled-in default configuration. The [account]
+// section ships with the locked Microsoft-Graph-CLI-Tools first-party
+// client and the multi-tenant /common authority (PRD §4). The user's
+// UPN is left empty until first sign-in resolves it.
 func Defaults() *Config {
 	return &Config{
-		Account: AccountConfig{},
+		Account: AccountConfig{
+			TenantID: "common",
+			ClientID: "14d82eec-204b-4c2f-b7e8-296a70dab67e",
+		},
 		Cache: CacheConfig{
 			BodyCacheMaxCount:    500,
 			BodyCacheMaxBytes:    200 * 1024 * 1024,
