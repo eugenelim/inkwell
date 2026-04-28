@@ -232,8 +232,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.lastError = nil
-		// Reload the message list so the optimistic mutation (or its
-		// rollback) is reflected in the current pane.
+		// If the action removed the current viewer message from the
+		// active folder (delete, archive, move), clear the viewer and
+		// shift focus per the dispatcher's hint.
+		removed := msg.name == "soft_delete" || msg.name == "archive"
+		if removed && m.viewer.CurrentMessageID() == msg.msgID {
+			m.viewer.SetMessage(store.Message{}) // clears current
+			m.viewer.current = nil
+		}
+		if msg.postFocus != 0 {
+			m.focused = msg.postFocus
+		}
+		// Reload the list so the optimistic mutation (or rollback) is
+		// reflected in the current pane.
 		if msg.folderID != "" && msg.folderID == m.list.FolderID {
 			return m, m.loadMessagesCmd(msg.folderID)
 		}
@@ -424,40 +435,57 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openMessageCmd(sel)
 		}
 	case key.Matches(msg, m.keymap.MarkRead):
-		return m.runTriage("mark_read", func(ctx context.Context, accID int64, sel store.Message) error {
-			return m.deps.Triage.MarkRead(ctx, accID, sel.ID)
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.runTriage("mark_read", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.MarkRead(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.MarkUnread):
-		return m.runTriage("mark_unread", func(ctx context.Context, accID int64, sel store.Message) error {
-			return m.deps.Triage.MarkUnread(ctx, accID, sel.ID)
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.runTriage("mark_unread", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.MarkUnread(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.ToggleFlag):
-		return m.runTriage("toggle_flag", func(ctx context.Context, accID int64, sel store.Message) error {
-			return m.deps.Triage.ToggleFlag(ctx, accID, sel.ID, sel.FlagStatus == "flagged")
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.runTriage("toggle_flag", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.ToggleFlag(ctx, accID, src.ID, src.FlagStatus == "flagged")
 		})
 	case key.Matches(msg, m.keymap.Delete):
-		return m.runTriage("soft_delete", func(ctx context.Context, accID int64, sel store.Message) error {
-			return m.deps.Triage.SoftDelete(ctx, accID, sel.ID)
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.runTriage("soft_delete", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.Archive):
-		return m.runTriage("archive", func(ctx context.Context, accID int64, sel store.Message) error {
-			return m.deps.Triage.Archive(ctx, accID, sel.ID)
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.runTriage("archive", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.Archive(ctx, accID, src.ID)
 		})
 	}
 	return m, nil
 }
 
-// runTriage is the shared dispatch boilerplate for r/R/f/d/a. Captures
-// the focused message, fires the triage callback in a goroutine (so
-// Update returns promptly), and reloads the list when done. Errors
-// land in m.lastError via the post-completion message.
-func (m Model) runTriage(name string, fn func(context.Context, int64, store.Message) error) (tea.Model, tea.Cmd) {
+// runTriage is the shared dispatch boilerplate. The caller supplies
+// the source message (from list selection or viewer.current) and a
+// post-action focus hint (where to put focus after Graph confirms).
+// Errors land in m.lastError via triageDoneMsg.
+func (m Model) runTriage(name string, src store.Message, postFocus Pane,
+	fn func(context.Context, int64, store.Message) error) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
 		m.lastError = fmt.Errorf("triage: not wired (run from cmd_run.go path)")
-		return m, nil
-	}
-	sel, ok := m.list.Selected()
-	if !ok {
 		return m, nil
 	}
 	var accountID int64
@@ -468,16 +496,18 @@ func (m Model) runTriage(name string, fn func(context.Context, int64, store.Mess
 	cmd := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		err := fn(ctx, accountID, sel)
-		return triageDoneMsg{name: name, folderID: folderID, err: err}
+		err := fn(ctx, accountID, src)
+		return triageDoneMsg{name: name, folderID: folderID, postFocus: postFocus, msgID: src.ID, err: err}
 	}
 	return m, cmd
 }
 
 type triageDoneMsg struct {
-	name     string
-	folderID string
-	err      error
+	name      string
+	folderID  string
+	postFocus Pane
+	msgID     string
+	err       error
 }
 
 // openMessageCmd renders headers immediately, then either reads the
@@ -520,6 +550,30 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer.ScrollDown()
 	case key.Matches(msg, m.keymap.Up):
 		m.viewer.ScrollUp()
+	case key.Matches(msg, m.keymap.ToggleFlag):
+		if cur := m.viewer.current; cur != nil {
+			return m.runTriage("toggle_flag", *cur, ViewerPane, func(ctx context.Context, accID int64, src store.Message) error {
+				return m.deps.Triage.ToggleFlag(ctx, accID, src.ID, src.FlagStatus == "flagged")
+			})
+		}
+	case key.Matches(msg, m.keymap.Delete):
+		if cur := m.viewer.current; cur != nil {
+			// After delete, the message is gone — pop back to the list
+			// so the user sees what's next. The triageDoneMsg handler
+			// applies the postFocus hint.
+			return m.runTriage("soft_delete", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+				return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
+			})
+		}
+	case key.Matches(msg, m.keymap.Archive):
+		if cur := m.viewer.current; cur != nil {
+			return m.runTriage("archive", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+				return m.deps.Triage.Archive(ctx, accID, src.ID)
+			})
+		}
+		// r / R are reserved for reply / reply-all per spec 15 §9.
+		// They land alongside spec 15 (compose). Until then, the user
+		// can mark-read by going back to the list pane (h, then r).
 	}
 	return m, nil
 }
@@ -710,7 +764,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case ListPane:
 		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"r/R", "read"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"2", "list"}, {"q", "quit"}}
+		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}
