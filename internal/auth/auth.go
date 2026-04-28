@@ -24,10 +24,56 @@ const proactiveRefreshWindow = 5 * time.Minute
 // ErrNotSignedIn is returned by methods that require an active account.
 var ErrNotSignedIn = errors.New("not signed in")
 
+// SignInMode selects the fallback flow when the silent token path
+// fails. See spec 01 §5.0.
+type SignInMode int
+
+const (
+	// ModeAuto attempts the interactive system-browser flow first and
+	// falls back to device code only when the browser fails to launch
+	// (no `open` command, no display, headless SSH).
+	ModeAuto SignInMode = iota
+	// ModeInteractive forces the system-browser flow. Recommended for
+	// managed-device tenants where Conditional Access requires the
+	// device-compliance signal that only the OS enterprise SSO plug-in
+	// can provide.
+	ModeInteractive
+	// ModeDeviceCode forces device-code flow. Useful for headless or
+	// SSH usage on tenants that do not enforce a device-compliance
+	// Conditional Access policy.
+	ModeDeviceCode
+)
+
+// String returns the canonical lowercase name.
+func (m SignInMode) String() string {
+	switch m {
+	case ModeInteractive:
+		return "interactive"
+	case ModeDeviceCode:
+		return "device_code"
+	default:
+		return "auto"
+	}
+}
+
+// ParseSignInMode converts a TOML / CLI string to a [SignInMode]. Empty
+// string is ModeAuto.
+func ParseSignInMode(s string) (SignInMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "auto":
+		return ModeAuto, nil
+	case "interactive", "browser":
+		return ModeInteractive, nil
+	case "device_code", "device-code", "devicecode":
+		return ModeDeviceCode, nil
+	}
+	return ModeAuto, fmt.Errorf("auth: unknown signin_mode %q (auto|interactive|device_code)", s)
+}
+
 // Config is the auth-layer configuration. All fields are optional; the
 // zero value is the supported production wiring (PRD §4):
 // /common authority + Microsoft Graph CLI Tools client + the locked
-// scope list from [DefaultScopes].
+// scope list from [DefaultScopes] + ModeAuto.
 type Config struct {
 	// TenantID overrides the authority. Empty or "common" → the
 	// multi-tenant /common authority. Setting a specific tenant GUID
@@ -39,6 +85,9 @@ type Config struct {
 	// Scopes is the list of OAuth scopes to request. Empty → [DefaultScopes].
 	// Adding scopes is a code change reviewed against PRD §3.
 	Scopes []string
+	// Mode picks the sign-in flow when the silent path fails. The zero
+	// value is [ModeAuto].
+	Mode SignInMode
 	// ExpectedUPN is an optional guardrail. When non-empty, the auth
 	// layer refuses any sign-in whose resolved UPN does not case-
 	// insensitively match.
@@ -171,15 +220,74 @@ func (a *authenticator) Token(ctx context.Context) (string, error) {
 		// even producing them.
 	}
 
-	res, err := a.src.AcquireTokenByDeviceCode(ctx, a.cfg.Scopes, a.prompt)
+	res, err := a.acquireFallback(ctx)
 	if err != nil {
-		return "", fmt.Errorf("device code auth: %w", err)
+		return "", err
 	}
 	if err := a.checkAccount(res.Account); err != nil {
 		return "", err
 	}
 	a.applyResult(res)
 	return res.AccessToken, nil
+}
+
+// acquireFallback runs the configured sign-in flow when silent token
+// acquisition has failed. ModeAuto tries interactive first and falls
+// back to device code only when the browser cannot be launched
+// (spec 01 §5.0).
+func (a *authenticator) acquireFallback(ctx context.Context) (AuthResult, error) {
+	switch a.cfg.Mode {
+	case ModeDeviceCode:
+		res, err := a.src.AcquireTokenByDeviceCode(ctx, a.cfg.Scopes, a.prompt)
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("device code auth: %w", err)
+		}
+		return res, nil
+	case ModeInteractive:
+		res, err := a.src.AcquireTokenInteractive(ctx, a.cfg.Scopes)
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("interactive auth: %w", err)
+		}
+		return res, nil
+	default:
+		// ModeAuto: interactive first, fall back to device code only
+		// on launch errors so the SSH / no-display case still works.
+		res, ierr := a.src.AcquireTokenInteractive(ctx, a.cfg.Scopes)
+		if ierr == nil {
+			return res, nil
+		}
+		if !isBrowserLaunchError(ierr) {
+			return AuthResult{}, fmt.Errorf("interactive auth: %w", ierr)
+		}
+		dres, derr := a.src.AcquireTokenByDeviceCode(ctx, a.cfg.Scopes, a.prompt)
+		if derr != nil {
+			return AuthResult{}, fmt.Errorf("device code fallback (after browser launch failed: %v): %w", ierr, derr)
+		}
+		return dres, nil
+	}
+}
+
+// isBrowserLaunchError returns true when err looks like the OS could
+// not open a browser (no `open` binary, no $DISPLAY, headless session).
+// AAD / consent / network errors are deliberately NOT classified as
+// launch errors — those bubble straight up so the user sees the real
+// reason instead of a confusing "fell back to device code" path.
+func isBrowserLaunchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "exec:") && strings.Contains(msg, "executable file not found"):
+		return true
+	case strings.Contains(msg, "open command not found"):
+		return true
+	case strings.Contains(msg, "no $display"), strings.Contains(msg, "no display"):
+		return true
+	case strings.Contains(msg, "exec: \"open\""):
+		return true
+	}
+	return false
 }
 
 // checkAccount enforces spec 01 §11 guardrails: refuse personal MSA

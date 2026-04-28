@@ -42,6 +42,11 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Sprintf("logging.level %q invalid (debug|info|warn|error)", c.Logging.Level))
 	}
+	switch strings.ToLower(strings.TrimSpace(c.Account.SignInMode)) {
+	case "", "auto", "interactive", "browser", "device_code", "device-code", "devicecode":
+	default:
+		errs = append(errs, fmt.Sprintf("account.signin_mode %q invalid (auto|interactive|device_code)", c.Account.SignInMode))
+	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}

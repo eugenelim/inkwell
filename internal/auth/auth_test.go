@@ -22,6 +22,10 @@ type fakeSource struct {
 	silentErr    error
 	silentCalls  atomic.Int32
 
+	interactiveResult AuthResult
+	interactiveErr    error
+	interactiveCalls  atomic.Int32
+
 	deviceResult AuthResult
 	deviceErr    error
 	deviceCalls  atomic.Int32
@@ -43,6 +47,17 @@ func (f *fakeSource) AcquireTokenSilent(_ context.Context, _ []string, _ Account
 		return AuthResult{}, f.silentErr
 	}
 	return f.silentResult, nil
+}
+
+func (f *fakeSource) AcquireTokenInteractive(_ context.Context, _ []string) (AuthResult, error) {
+	f.interactiveCalls.Add(1)
+	if f.interactiveErr != nil {
+		return AuthResult{}, f.interactiveErr
+	}
+	f.mu.Lock()
+	f.accounts = append(f.accounts, f.interactiveResult.Account)
+	f.mu.Unlock()
+	return f.interactiveResult, nil
 }
 
 func (f *fakeSource) AcquireTokenByDeviceCode(ctx context.Context, _ []string, prompt PromptFn) (AuthResult, error) {
@@ -120,44 +135,134 @@ func TestTokenRefreshesWhenWithinProactiveWindow(t *testing.T) {
 	require.Equal(t, int32(2), src.silentCalls.Load())
 }
 
-func TestTokenFallsBackToDeviceCodeWhenNoAccount(t *testing.T) {
-	var promptCalls atomic.Int32
-	prompt := func(_ context.Context, p DeviceCodePrompt) error {
-		promptCalls.Add(1)
-		require.Equal(t, "FAKECODE", p.UserCode)
-		return nil
-	}
+func TestModeAutoUsesInteractiveWhenNoAccount(t *testing.T) {
 	src := &fakeSource{
-		accounts:     nil,
-		deviceResult: AuthResult{AccessToken: "tok-device", ExpiresOn: time.Now().Add(time.Hour), Account: Account{UPN: "u@example.invalid", TenantID: "T"}},
+		accounts: nil,
+		interactiveResult: AuthResult{
+			AccessToken: "tok-browser",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "u@example.invalid", TenantID: "T"},
+		},
 	}
-	a := newTestAuth(t, src, prompt)
+	a := newTestAuth(t, src, nil)
 
 	tok, err := a.Token(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "tok-device", tok)
-	require.Equal(t, int32(1), promptCalls.Load())
-	upn, tenant, signed := a.Account()
-	require.True(t, signed)
-	require.Equal(t, "u@example.invalid", upn)
-	require.Equal(t, "T", tenant)
+	require.Equal(t, "tok-browser", tok)
+	require.Equal(t, int32(1), src.interactiveCalls.Load(), "auto mode tries interactive first")
+	require.Equal(t, int32(0), src.deviceCalls.Load(), "device code must NOT be invoked when interactive succeeds")
 }
 
-func TestTokenFallsBackToDeviceWhenSilentFails(t *testing.T) {
+func TestModeAutoFallsBackToDeviceCodeOnLaunchError(t *testing.T) {
 	prompted := false
 	src := &fakeSource{
-		accounts:     []Account{{UPN: "u@example.invalid"}},
-		silentErr:    errors.New("refresh expired"),
-		deviceResult: AuthResult{AccessToken: "tok-d", ExpiresOn: time.Now().Add(time.Hour)},
+		interactiveErr: errors.New(`exec: "open": executable file not found in $PATH`),
+		deviceResult: AuthResult{
+			AccessToken: "tok-fallback",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "u@example.invalid", TenantID: "T"},
+		},
 	}
 	a := newTestAuth(t, src, func(_ context.Context, _ DeviceCodePrompt) error {
 		prompted = true
 		return nil
 	})
+
 	tok, err := a.Token(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "tok-d", tok)
+	require.Equal(t, "tok-fallback", tok)
+	require.Equal(t, int32(1), src.interactiveCalls.Load())
+	require.Equal(t, int32(1), src.deviceCalls.Load())
 	require.True(t, prompted)
+}
+
+func TestModeAutoDoesNotFallBackOnAADError(t *testing.T) {
+	src := &fakeSource{
+		interactiveErr: errors.New("AADSTS50105: tenant blocks user"),
+		deviceResult:   AuthResult{AccessToken: "should-not-be-used", ExpiresOn: time.Now().Add(time.Hour)},
+	}
+	a := newTestAuth(t, src, nil)
+
+	_, err := a.Token(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "AADSTS50105")
+	require.Equal(t, int32(0), src.deviceCalls.Load(), "AAD error must surface; do not silently fall back")
+}
+
+func TestModeInteractiveDoesNotFallBack(t *testing.T) {
+	src := &fakeSource{
+		interactiveErr: errors.New(`exec: "open": executable file not found in $PATH`),
+		deviceResult:   AuthResult{AccessToken: "should-not-be-used", ExpiresOn: time.Now().Add(time.Hour)},
+	}
+	a := NewWithSource(Config{Mode: ModeInteractive}, nil, src)
+	_, err := a.Token(context.Background())
+	require.Error(t, err)
+	require.Equal(t, int32(0), src.deviceCalls.Load(), "ModeInteractive must never invoke device code")
+}
+
+func TestModeDeviceCodeSkipsInteractive(t *testing.T) {
+	src := &fakeSource{
+		interactiveResult: AuthResult{AccessToken: "should-not-be-used"},
+		deviceResult: AuthResult{
+			AccessToken: "tok-dc",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "u@example.invalid", TenantID: "T"},
+		},
+	}
+	a := NewWithSource(Config{Mode: ModeDeviceCode}, func(context.Context, DeviceCodePrompt) error { return nil }, src)
+	tok, err := a.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "tok-dc", tok)
+	require.Equal(t, int32(0), src.interactiveCalls.Load())
+}
+
+func TestTokenFallsBackInteractiveWhenSilentFails(t *testing.T) {
+	src := &fakeSource{
+		accounts:  []Account{{UPN: "u@example.invalid"}},
+		silentErr: errors.New("refresh expired"),
+		interactiveResult: AuthResult{
+			AccessToken: "tok-i",
+			ExpiresOn:   time.Now().Add(time.Hour),
+			Account:     Account{UPN: "u@example.invalid", TenantID: "T"},
+		},
+	}
+	a := newTestAuth(t, src, nil)
+	tok, err := a.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "tok-i", tok)
+}
+
+func TestParseSignInMode(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want SignInMode
+		ok   bool
+	}{
+		{"", ModeAuto, true},
+		{"auto", ModeAuto, true},
+		{"interactive", ModeInteractive, true},
+		{"browser", ModeInteractive, true},
+		{"device_code", ModeDeviceCode, true},
+		{"device-code", ModeDeviceCode, true},
+		{"deviceCode", ModeDeviceCode, true},
+		{"banana", ModeAuto, false},
+	} {
+		got, err := ParseSignInMode(tc.in)
+		if tc.ok {
+			require.NoError(t, err, tc.in)
+			require.Equal(t, tc.want, got, tc.in)
+		} else {
+			require.Error(t, err, tc.in)
+		}
+	}
+}
+
+func TestIsBrowserLaunchErrorClassification(t *testing.T) {
+	require.True(t, isBrowserLaunchError(errors.New(`exec: "open": executable file not found in $PATH`)))
+	require.True(t, isBrowserLaunchError(errors.New("DISPLAY environment variable not set; no display")))
+	require.False(t, isBrowserLaunchError(nil))
+	require.False(t, isBrowserLaunchError(errors.New("AADSTS50105: tenant blocks user")))
+	require.False(t, isBrowserLaunchError(errors.New("user cancelled the auth flow")))
 }
 
 func TestInvalidateForcesReacquire(t *testing.T) {
@@ -256,7 +361,7 @@ func TestConfigAuthorityHandlesEmptyAndCommonAndPinned(t *testing.T) {
 
 func TestRefusesConsumerMicrosoftAccount(t *testing.T) {
 	src := &fakeSource{
-		deviceResult: AuthResult{
+		interactiveResult: AuthResult{
 			AccessToken: "tok",
 			ExpiresOn:   time.Now().Add(time.Hour),
 			Account: Account{
@@ -275,7 +380,7 @@ func TestRefusesConsumerMicrosoftAccount(t *testing.T) {
 
 func TestExpectedUPNGuardrailRejectsMismatch(t *testing.T) {
 	src := &fakeSource{
-		deviceResult: AuthResult{
+		interactiveResult: AuthResult{
 			AccessToken: "tok",
 			ExpiresOn:   time.Now().Add(time.Hour),
 			Account:     Account{UPN: "real@example.invalid", TenantID: "T"},
@@ -289,7 +394,7 @@ func TestExpectedUPNGuardrailRejectsMismatch(t *testing.T) {
 
 func TestExpectedUPNGuardrailAcceptsMatchCaseInsensitive(t *testing.T) {
 	src := &fakeSource{
-		deviceResult: AuthResult{
+		interactiveResult: AuthResult{
 			AccessToken: "tok",
 			ExpiresOn:   time.Now().Add(time.Hour),
 			Account:     Account{UPN: "User@Example.Invalid", TenantID: "T"},

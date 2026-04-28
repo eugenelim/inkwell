@@ -1,4 +1,4 @@
-# Spec 01 — Authentication via Device Code Flow
+# Spec 01 — Authentication (interactive browser by default; device code as fallback)
 
 **Status:** Ready for implementation.
 **Depends on:** PRD §4, ARCH §1, §2, §5.1.
@@ -14,9 +14,15 @@ Implement OAuth 2.0 device code flow against Microsoft Entra ID (Azure AD), back
 - "Get me an access token for Graph, refreshing or re-authenticating as needed."
 - "Sign out and clear local state."
 
-## 2. Why device code flow
+## 2. Why interactive system browser (default) + device code (fallback)
 
-Browser-redirect flows (auth code with PKCE) require either a localhost listener or an embedded webview. Both are awkward in a TUI. Device code flow trades one extra user step (typing a code in a browser tab) for a clean terminal-only experience that also plays well with users on locked-down corporate machines where opening a webview from a CLI tool is suspicious.
+The default is the **interactive system-browser flow** (auth code + PKCE with a localhost listener). On a managed Mac with the Microsoft Enterprise SSO plug-in for Apple Devices installed, this is the only flow that satisfies Conditional Access policies that require a compliant / managed device — the OS-level SSO plug-in injects device-attestation cookies into the browser auth session transparently, and AAD lets the sign-in succeed.
+
+**Device code flow** is retained as an opt-in fallback for headless scenarios (SSH sessions, remote terminals without a display, automated CI). Device code flow CANNOT carry the device-compliance signal — the user types the code in *some* browser, possibly on a different machine entirely, so AAD has no way to prove the originating device is managed. Tenants with a compliant-device CA policy will reject device-code sign-ins regardless of the user's identity.
+
+We don't use an embedded webview: shipping our own webview adds a heavy dependency, doesn't pick up the OS SSO plug-in, and is exactly the kind of thing locked-down corporate security tools flag as suspicious. The system browser is the right primitive — Safari is already trusted by both the user and the tenant.
+
+Earlier drafts of this spec defaulted to device-code flow on the assumption that a TUI couldn't comfortably trigger a browser. In practice MSAL Go's `AcquireTokenInteractive` handles the localhost listener internally and `open(1)` launches Safari without disrupting the terminal session.
 
 ## 3. Tenant prerequisites
 
@@ -77,7 +83,23 @@ type Config struct {
     TenantID string
     ClientID string
     Scopes   []string // e.g., ["Mail.ReadWrite", "Calendars.Read", ...]
+
+    // Mode selects the sign-in flow when the silent-token path fails.
+    // Default (zero value) is ModeAuto. See §5.0.
+    Mode SignInMode
+
+    // ExpectedUPN, when non-empty, is asserted against the resolved
+    // signed-in account. A mismatch is a hard error.
+    ExpectedUPN string
 }
+
+type SignInMode int
+
+const (
+    ModeAuto        SignInMode = iota // interactive first, fall back to device code if browser launch fails
+    ModeInteractive                   // browser only; never fall back
+    ModeDeviceCode                    // device code only; never use browser
+)
 
 type PromptFn func(ctx context.Context, p DeviceCodePrompt) error
 
@@ -91,9 +113,23 @@ type DeviceCodePrompt struct {
 
 ## 5. Implementation
 
+### 5.0 Sign-in flow selection
+
+**Conditional Access on managed-device tenants (Accenture-class) requires the auth flow to carry the device-compliance signal.** Device code flow CANNOT carry this signal — the user types a code in some browser that has no link to the originating machine, so AAD cannot prove the device is enrolled. Tenants with Conditional Access policies that require a managed device will reject device-code sign-ins with `AADSTS530003` / similar even though the user is who they say they are.
+
+The interactive (browser) flow CAN carry the signal: when MSAL opens the system default browser on macOS, the operating system's enterprise SSO integration (Microsoft Enterprise SSO plug-in for Apple Devices) injects device-attestation cookies into the auth flow transparently. AAD sees the device IS managed and lets the sign-in succeed.
+
+Therefore:
+
+- **Default (`Mode = Auto`)**: try the interactive system-browser flow first. Fall back to device code only when the interactive flow can't launch (no `open` command, no `$DISPLAY`, headless SSH session).
+- **`Mode = Interactive`**: only the browser flow; refuse to fall back. Use this when CA policy is known to require the device-compliance signal.
+- **`Mode = DeviceCode`**: force device-code flow. Useful for headless / SSH usage on tenants without the device-compliance gate.
+
+The user can override the mode at sign-in via `inkwell signin --device-code` or in `~/.config/inkwell/config.toml` via `[account].signin_mode`.
+
 ### 5.1 MSAL Go integration
 
-Use `github.com/AzureAD/microsoft-authentication-library-for-go/apps/public`. The relevant types are `public.Client`, `public.AcquireTokenSilent`, and `public.AcquireTokenByDeviceCode`.
+Use `github.com/AzureAD/microsoft-authentication-library-for-go/apps/public`. The relevant types are `public.Client`, `public.AcquireTokenSilent`, `public.AcquireTokenInteractive` (system-browser flow with PKCE + localhost listener), and `public.AcquireTokenByDeviceCode`.
 
 Construction:
 
@@ -119,9 +155,9 @@ Token acquisition flow:
 
 1. List accounts via `client.Accounts(ctx)`. If exactly one, attempt `AcquireTokenSilent`.
 2. If `AcquireTokenSilent` returns success, return the token.
-3. If it fails (no account, expired refresh token, etc.), fall back to device code:
-   - Call `client.AcquireTokenByDeviceCode(ctx, scopes)`.
-   - This returns a `DeviceCodeResult` with `Result.Message`, `Result.UserCode`, `Result.VerificationURL`, `Result.ExpiresOn`.
+3. If it fails (no account, expired refresh token, etc.), fall back to the configured sign-in mode (§5.0):
+   - **Interactive** (default): call `client.AcquireTokenInteractive(ctx, scopes)`. MSAL spawns a local HTTP listener on a free port, opens the system default browser at the AAD authorize endpoint with `redirect_uri=http://localhost:PORT`, and waits for the auth code to arrive. On a managed Mac the Microsoft Enterprise SSO plug-in for Apple Devices injects the device-attestation cookies, so Conditional Access policies that require a compliant device are satisfied transparently.
+   - **Device code** (fallback): call `client.AcquireTokenByDeviceCode(ctx, scopes)`. This returns a `DeviceCodeResult` with `Result.Message`, `Result.UserCode`, `Result.VerificationURL`, `Result.ExpiresOn`.
    - Invoke `PromptFn` with these values so the caller can display them.
    - Then call `result.AuthenticationResult(ctx)` which blocks polling until the user completes auth (or times out / errors).
 4. Return the resulting access token.
@@ -269,7 +305,9 @@ Do not log the access token. Do not log the refresh token. Do not log the cache 
 | User aborts device code flow                          | Return context.Canceled; UI returns to sign-in screen.        |
 | Tenant admin revokes consent mid-session              | Next Graph call returns 401; auth layer triggers re-auth via device code; UI shows re-auth modal. |
 | Tenant admin disables user-consent for Microsoft-published apps OR blocks the Microsoft Graph CLI Tools app via Conditional Access | MSAL returns AADSTS error (e.g., AADSTS65001 / AADSTS530002 / AADSTS50105). Surface a user-friendly message: "Your tenant blocks the Microsoft Graph Command Line Tools app — ask your IT admin to allow it or grant user-consent for first-party Microsoft apps." Do not retry; do not fall back to a different client_id. |
-| Conditional Access denies token (device non-compliant) | MSAL returns specific AADSTS error; surface a user-friendly message naming the policy class (compliance, MFA, etc.) and link to https://aka.ms/MFASetup as appropriate. |
+| Conditional Access requires a compliant / managed device | Device-code flow CANNOT satisfy this — the typed code has no link to the originating machine, so AAD cannot prove the device is enrolled, and sign-in is rejected (AADSTS530003 / similar). Inkwell defaults to the interactive system-browser flow (§5.0) which **can** satisfy device-compliance via the OS enterprise SSO plug-in (Microsoft Enterprise SSO plug-in for Apple Devices). If the user has explicitly forced `--device-code` on a managed-device tenant, the auth layer surfaces: "This tenant requires a compliant device. Run `inkwell signin` without --device-code so the system browser can carry the device-attestation signal." Do not auto-retry as interactive — if the user picked device code, honour it. |
+| Conditional Access denies token for other reasons (MFA, location, risk) | MSAL returns specific AADSTS error; surface a user-friendly message naming the policy class and link to https://aka.ms/MFASetup as appropriate. |
+| Interactive flow can't launch (no `open` command, headless SSH, no display) | In `Mode = Auto`: log a notice and fall back to device code. In `Mode = Interactive`: surface "Cannot open system browser; rerun in a desktop session or use --device-code on a tenant that allows it." |
 | User signs in with a personal (Microsoft consumer) account | The `/common` authority technically allows this, but Inkwell targets work / school accounts only. Detect via `Account.Realm == "9188040d-6c67-4c5b-b112-36a304b66dad"` (the consumer tenant guid) at sign-in completion and refuse with a clear error message. |
 | Clock skew > 5 minutes                                | Token validation fails; surface as "system clock incorrect"; exit. |
 
@@ -291,6 +329,7 @@ This spec owns the `[account]` section. Full reference in `CONFIG.md`.
 | `account.tenant_id` | `common` | Optional. Defaults to the multi-tenant common authority. Set to a specific tenant GUID only to pin sign-in to a single tenant (rare; useful in CI scripting against a service principal — out of scope for v1). |
 | `account.client_id` | `14d82eec-204b-4c2f-b7e8-296a70dab67e` | Optional. Defaults to the Microsoft Graph Command Line Tools first-party public client. Overriding is possible but unsupported; PRD §4 explains why. |
 | `account.upn` | (optional, populated at sign-in) | Optional. If set, the auth layer asserts the signed-in account matches this UPN and refuses otherwise. Useful as a guardrail when a user has multiple accounts. After successful sign-in, the resolved UPN is also persisted to the local `accounts` row. |
+| `account.signin_mode` | `auto` | Sign-in flow selection (§5.0). `auto` tries the interactive system browser first and falls back to device code only if the browser can't launch. `interactive` forces the browser path (recommended for managed-device tenants). `device_code` forces device code (headless / SSH only). |
 
 **The whole `[account]` section is optional.** A user with no `~/.config/inkwell/config.toml` at all can run `inkwell signin` and Inkwell will use the locked first-party defaults. After sign-in the resolved `tenant_id` and `upn` are persisted in the local SQLite store.
 
