@@ -40,6 +40,16 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - Privacy test was too loose: `bodyPreview` contains the substring `body`. Tightened to comma-split + word equality.
 - Final: `go test -race -timeout 90s ./...` green across the whole tree.
 
+### Iter 5 — 2026-04-28 (FK constraint fix in syncFolders + visibility)
+- Trigger: real-tenant log finally surfaced the actual root cause: `sync folders: constraint failed: FOREIGN KEY constraint failed (787)`. Every cycle since v0.2.0 had been hitting this, retrying every 30s, never succeeding. The Graph response for `/me/mailFolders` returns each top-level folder with `parentFolderId = msgfolderroot` (the well-known mailbox-root ID, not in our response). Inserting that violated `folders.parent_folder_id → folders.id`.
+- Fix (spec §7 / sync/folders.go): build a `known` set of folder IDs from the response BEFORE the upsert loop. For each folder, if `parentFolderID` isn't in `known`, NULL it out. Folders with tracked parents preserve the relationship.
+- Visibility additions in this iter (since the bug was invisible to the user — TUI showed "(select a folder)" while the engine retried every 30s):
+  - New `FoldersEnumeratedEvent` emitted from `runCycle` immediately after the folder enumeration step. The TUI re-loads its sidebar BEFORE per-folder syncs complete (or even if a per-folder sync later errors out).
+  - `engine.Start` wraps the loop goroutine in `defer recover` so panics surface as `SyncFailedEvent` instead of dying silently inside bubbletea's alt-screen.
+  - Status bar now shows engine activity ("syncing folders…" / "syncing…" / "✓ synced HH:MM" / "ERR: …" / "waiting for sync…"). The "waiting for sync…" idle state replaces the previous unconditional "—" so a stuck-and-silent engine is more obvious. Last-error display in red.
+  - cmd/inkwell prints `logs: <path>` to stderr at startup so the user sees the log path before alt-screen takes over.
+- Test: TestSyncFolderEnumerationNullsOutUntrackedParents asserts both behaviours (untracked parent → NULL; tracked parent → preserved).
+
 ### Iter 4 — 2026-04-28 (engine boots immediately; Inbox-first runCycle; visibility breadcrumbs)
 - Trigger: real-tenant smoke after v0.2.1 — TUI launched but folders/messages never appeared. The cmd-layer had two goroutines (SyncAll + QuickStartBackfill) firing alongside `engine.Start()`. Both could fail silently to a `logger.Warn` while the TUI's status bar showed nothing. Meanwhile the engine's internal `loop` was sitting on its first `time.NewTimer(e.interval())` for the full foreground interval (default 30s) before doing any work.
 - Slice:

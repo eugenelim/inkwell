@@ -275,19 +275,45 @@ func NewStatus(upn, tenant string) StatusModel {
 	return StatusModel{upn: upn, tenant: tenant}
 }
 
+// StatusInputs is the per-frame state the status bar consumes. Values
+// are passed by value each render so the StatusModel itself stays a
+// stable identity holder (UPN, tenant) — transient state lives in the
+// root Model.
+type StatusInputs struct {
+	LastSync   time.Time
+	Throttled  time.Duration
+	Activity   string // "syncing folders…" / "syncing…" / "" (idle)
+	LastErr    error  // most recent SyncFailedEvent, if any
+}
+
 // View renders the status line.
-func (m StatusModel) View(t Theme, width int, lastSync time.Time, throttled time.Duration) string {
+func (m StatusModel) View(t Theme, width int, in StatusInputs) string {
 	left := "☰ inkwell"
 	if m.upn != "" {
 		left += " · " + m.upn
 	}
-	right := "—"
-	if !lastSync.IsZero() {
-		right = "✓ synced " + lastSync.Format("15:04")
+
+	// Right side: errors > throttled > activity > last sync > idle.
+	var right string
+	switch {
+	case in.LastErr != nil:
+		errMsg := in.LastErr.Error()
+		// Trim very long errors so they don't blow the line. The full
+		// text is in the log file via the redactor.
+		if len(errMsg) > 60 {
+			errMsg = errMsg[:57] + "…"
+		}
+		right = t.ErrorBar.Render("ERR: " + errMsg)
+	case in.Throttled > 0:
+		right = t.Throttled.Render(fmt.Sprintf("⏳ throttled %ds", int(in.Throttled.Seconds())))
+	case in.Activity != "":
+		right = t.Throttled.Render(in.Activity)
+	case !in.LastSync.IsZero():
+		right = "✓ synced " + in.LastSync.Format("15:04")
+	default:
+		right = t.Dim.Render("waiting for sync…")
 	}
-	if throttled > 0 {
-		right = t.Throttled.Render(fmt.Sprintf("⏳ throttled %ds", int(throttled.Seconds())))
-	}
+
 	pad := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 1 {
 		pad = 1

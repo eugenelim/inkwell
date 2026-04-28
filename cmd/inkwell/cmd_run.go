@@ -129,6 +129,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return fmt.Errorf("start engine: %w", err)
 	}
 
+	// Tell the user where logs go before alt-screen takes over the
+	// terminal. With --verbose, this is even more useful.
+	if home, err := os.UserHomeDir(); err == nil {
+		fmt.Fprintf(os.Stderr, "logs: %s\n",
+			filepath.Join(home, "Library", "Logs", "inkwell", "inkwell.log"))
+	}
+
 	// UI
 	model := ui.New(ui.Deps{
 		Auth:     a,

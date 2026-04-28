@@ -97,6 +97,41 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+func TestSyncFolderEnumerationNullsOutUntrackedParents(t *testing.T) {
+	// Regression: v0.2.0/v0.2.1/v0.2.2 hit
+	// "FOREIGN KEY constraint failed (787)" because Graph's
+	// /me/mailFolders response returned each top-level folder with
+	// `parentFolderId = msgfolderroot`, a folder we don't track.
+	// Inserting that violated folders.parent_folder_id → folders.id.
+	// Fix (spec 03 §iter-4): NULL out parent_folder_id when the
+	// referenced folder isn't in the response set.
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+				{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive", ParentFolderID: "msgfolderroot"},
+				{ID: "f-child", DisplayName: "Child", ParentFolderID: "f-inbox"}, // tracked parent — preserved
+			},
+		})
+	})
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
+
+	got, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, got, 3, "all three folders inserted despite untracked msgfolderroot parent")
+
+	// f-child's parent IS in the response, so it should be preserved.
+	for _, f := range got {
+		if f.ID == "f-child" {
+			require.Equal(t, "f-inbox", f.ParentFolderID, "tracked parent must be preserved")
+		}
+		if f.ID == "f-inbox" {
+			require.Empty(t, f.ParentFolderID, "untracked parent (msgfolderroot) must be NULLed out")
+		}
+	}
+}
+
 func TestSyncFolderEnumerationUpsertsAndDeletes(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
 	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
