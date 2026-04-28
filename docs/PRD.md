@@ -138,7 +138,8 @@ Capabilities are listed in priority order. Each maps to one or more feature spec
 - Permanent delete (`D`, gated behind confirmation)
 - Archive (`a`, well-known folder)
 - Add / remove category (`c <name>` / `C <name>`)
-- Create draft reply / reply-all / forward (opens `$EDITOR`)
+
+(Draft creation — reply / reply-all / forward / new — moves to its own capability §5.13 because the editor and templating surface is substantial.)
 
 ### 5.8 Bulk pattern operations
 
@@ -173,6 +174,19 @@ Capabilities are listed in priority order. Each maps to one or more feature spec
 - JSON output mode for piping to `jq`
 - Dry-run flags on every destructive operation
 
+### 5.13 Compose / Reply (drafts only)
+
+- Reply (`r`), reply-all (`R`), forward (`f`) on the focused message
+- New blank message (`m` from outside the list pane, or `:compose`)
+- Body authored in the user's editor (`$INKWELL_EDITOR` → `$EDITOR` → `nano`) via `tea.ExecProcess`
+- Reply / forward skeletons pre-populated: To/Cc/Subject + standard quote chain (line-prefixed `> `) for replies, "Forwarded message" header block for forwards
+- Confirm pane after the editor exits: `s` save and open in Outlook, `e` re-edit, `d` discard
+- Draft round-trips to the server's Drafts folder via `POST /me/messages/{id}/createReply` (et al.) + `PATCH /me/messages/{id}` for body. Plain-text body in v1; rich HTML deferred (§6).
+- After save, `webLink` is exposed in the status bar; `s` runs `open <webLink>` and the user finalises send in native Outlook. **`Mail.Send` remains denied (PRD §3.2)**.
+- Crash-recovery: tempfile and source-message ref persisted in `compose_sessions`; on next launch the user is offered "resume draft?".
+- Discard: deletes both the local row and the server-side draft.
+- Plain attachments (file picker → Graph attach API) are in scope; inline images, signatures, and rich HTML happen in Outlook on send.
+
 ## 6. Explicitly deferred to post-v1
 
 - Teams chat reading (`Chat.Read` is granted but scope creep for v1)
@@ -181,7 +195,9 @@ Capabilities are listed in priority order. Each maps to one or more feature spec
 - Thread-level (conversation) bulk operations
 - Body regex search (Graph `$search` is token-based, not regex; local regex is feasible only over cached content)
 - Encrypted/signed mail (S/MIME, PGP)
-- Rich HTML composition (drafts created with plain-text only in v1)
+- Rich HTML composition (drafts created with plain-text only in v1; user's Outlook signature is applied when they open the draft to send)
+- CLI-mode compose (`inkwell reply <id> --to=...`); compose is interactive-only in v1
+- Inline image attachments in drafts (plain attachments only in v1)
 - Graph webhook subscriptions (require public HTTPS endpoint — not feasible for desktop TUI)
 
 ## 7. Non-functional requirements
@@ -208,10 +224,11 @@ Capabilities are listed in priority order. Each maps to one or more feature spec
 A v1 ships when a target user can, on their primary work machine:
 
 1. Sign in via device code flow without IT intervention beyond the one-time tenant app registration.
-2. Read and triage their inbox for a full workday without opening Outlook for Mac, except for sending replies.
-3. Run a pattern-based bulk cleanup (e.g., delete all newsletters older than 30 days) in under 30 seconds end-to-end.
-4. Search across both cached and non-cached mail with results visible in under 2 seconds.
-5. View calendar at a glance without leaving the terminal.
+2. Read and triage their inbox for a full workday without opening Outlook for Mac, except for the final send-button click on outgoing replies.
+3. Compose a reply / reply-all / forward in their editor of choice and have it land as a draft in the server's Drafts folder, ready for Outlook to finish.
+4. Run a pattern-based bulk cleanup (e.g., delete all newsletters older than 30 days) in under 30 seconds end-to-end.
+5. Search across both cached and non-cached mail with results visible in under 2 seconds.
+6. View calendar at a glance without leaving the terminal.
 
 ## 10. Feature spec inventory
 
@@ -233,8 +250,19 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 12  | `12-calendar-readonly.md`          | 5.10                         |
 | 13  | `13-mailbox-settings.md`           | 5.11                         |
 | 14  | `14-cli-mode.md`                   | 5.12                         |
+| 15  | `15-compose-reply.md`              | 5.13                         |
 
-Specs 01–04 are foundational and must land before the rest. Specs 08–10 are tightly coupled and best landed together. The remainder are independently parallelizable.
+**Recommended landing order** (CI scope, foundational → leaves):
+
+1. **01 → 02 → 03 → 04** (foundational; auth, store, sync, TUI shell). These are sequential.
+2. **05** (rendering) gates the viewer pane and provides the quote-chain text spec 15 needs.
+3. **07** (triage actions) lands the action queue + executor + replay + undo stack — the contract that everything that mutates server state runs through.
+4. **15** (compose / reply) lands next, in parallel with **06** (search). 15 reuses 07's executor; 06 is independent of 07.
+5. **08 → 09 → 10** (pattern + batch + bulk ops) are tightly coupled and best landed together. They depend on 07's action plumbing.
+6. **11, 12, 13** (saved searches, calendar, mailbox settings) are independently parallelizable.
+7. **14** (CLI mode) lands last; it surfaces every prior capability as a non-interactive subcommand.
+
+Specs 01–04 are blocking for everything else. Once 04, 05, 07 are green, 15 (compose) can ship without waiting for 06/08–10/11–14.
 
 ## 11. Open questions for stakeholders
 

@@ -50,9 +50,10 @@ const (
     TypeArchive          Type = "archive"           // alias for Move to archive folder
     TypeAddCategory      Type = "add_category"
     TypeRemoveCategory   Type = "remove_category"
-    TypeCreateDraftReply Type = "create_draft_reply"
-    TypeCreateDraftReplyAll Type = "create_draft_reply_all"
-    TypeCreateDraftForward Type = "create_draft_forward"
+    // Draft creation types (CreateDraft, CreateDraftReply, CreateDraftReplyAll,
+    // CreateDraftForward, DiscardDraft) are owned by spec 15. They share this
+    // Type enum because they flow through the same executor; their semantics
+    // and Params live there.
 )
 
 type Action struct {
@@ -80,7 +81,7 @@ The `Params` map carries action-specific data:
 | `move`, `archive` | `destination_folder_id` (string) |
 | `add_category`, `remove_category` | `category` (string) |
 | `flag` | `due_date` (RFC3339 string, optional) |
-| `create_draft_reply` etc. | `reply_to_id`, `body` (string), `cc` (list, optional) |
+| draft creation types | see spec 15 (compose / reply) |
 | (others) | — |
 
 ## 4. Executor API
@@ -213,18 +214,9 @@ For each type, three things are defined: (1) local mutation, (2) Graph translati
 - **Graph:** `PATCH /me/messages/{id} {"categories": [...current minus removed...]}`.
 - **Inverse:** `add_category`.
 
-### 6.11 `create_draft_reply` / `create_draft_reply_all` / `create_draft_forward`
+### 6.11 Draft creation (`create_draft`, `create_draft_reply`, `create_draft_reply_all`, `create_draft_forward`)
 
-These differ from the others: they don't mutate an existing message, they create a new one (a draft).
-
-- **Local:** insert a new row in `messages` with a temporary local UUID. Mark `is_draft = 1`. The body comes from `Params["body"]`.
-- **Graph:**
-  - For reply: `POST /me/messages/{id}/createReply` (creates draft pre-populated with subject, recipients, quote chain), then `PATCH /me/messages/{newId} {"body": ...}` to set the user's body.
-  - For replyAll: `POST /me/messages/{id}/createReplyAll`.
-  - For forward: `POST /me/messages/{id}/createForward`.
-- **Inverse:** `permanent_delete` of the draft. (User can also just delete the draft normally; undo is for accidental creation.)
-- **Hand-off to Outlook:** after the draft is created server-side, the action result includes the `webLink` URL. The UI offers "Open in Outlook to send" that runs `open <webLink>`. PRD §3.2: we cannot send programmatically.
-- **Composition flow:** see §9.
+Moved to **spec 15** (compose / reply). They share this executor's optimistic-apply + queue + replay machinery but the editor lifecycle, body templating, header parsing, and Outlook hand-off are substantial enough to live in their own spec. See `docs/specs/15-compose-reply.md`.
 
 ## 7. Optimistic UI rules
 
@@ -345,40 +337,7 @@ The user sees the message reappear with its original state. A status-line warnin
 
 ## 9. Draft composition flow
 
-Triage actions for replies are about creating drafts; sending is out of scope (PRD §3.2).
-
-When the user presses `r` (reply), `R` (reply all), or `f` (forward — viewer pane only):
-
-1. The TUI opens an editor: `$EDITOR` (defaults to `nano` if unset; `vi` configurable). The reply skeleton is pre-populated:
-   ```
-   To: bob.acme@vendor.com
-   Cc: jane.doe@example.invalid
-   Subject: Re: Q4 forecast
-
-   <cursor here>
-
-   On Sun 2026-04-26 14:32, Bob Acme wrote:
-   > Hey, attached the deck for...
-   ```
-2. User edits and saves. Editor exits.
-3. The TUI captures the body (after the headers it owns), runs `Execute(Action{Type: CreateDraftReply, Params: {"body": ..., "reply_to_id": ...}})`.
-4. The executor calls `POST /me/messages/{id}/createReply`, then `PATCH /me/messages/{newId}` with the body.
-5. On success, the UI shows: `Draft saved. Press 's' to open in Outlook to send, 'd' to discard.`
-
-The user opens Outlook, the draft is there, they press send. Two-app flow but unavoidable.
-
-### 9.1 Editor integration
-
-Bubble Tea suspends to allow editor takeover via `tea.ExecProcess`. After the editor exits, Bubble Tea reclaims the terminal. The pattern works reliably with vim, neovim, nano, emacs.
-
-```go
-cmd := exec.Command(editor, draftPath)
-return tea.ExecProcess(cmd, func(err error) tea.Msg {
-    return draftEditedMsg{path: draftPath, err: err}
-})
-```
-
-The temp file lives in `~/Library/Caches/inkwell/drafts/{uuid}.eml` and is deleted after Graph confirms the draft is created server-side.
+Moved to **spec 15** (compose / reply). The editor lifecycle, body templating, header parsing, confirmation pane, and Outlook hand-off all live there. This spec only owns the executor / queue plumbing the draft actions ride on.
 
 ## 10. Replay on startup
 
