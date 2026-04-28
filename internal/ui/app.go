@@ -138,8 +138,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case SyncEventMsg:
-		m = m.handleSyncEvent(msg.Event)
-		return m, m.consumeSyncEventsCmd()
+		var follow tea.Cmd
+		m, follow = m.handleSyncEvent(msg.Event)
+		return m, tea.Batch(follow, m.consumeSyncEventsCmd())
 
 	case authRequiredMsg:
 		m.mode = SignInMode
@@ -463,7 +464,7 @@ func (m Model) consumeSyncEventsCmd() tea.Cmd {
 	}
 }
 
-func (m Model) handleSyncEvent(ev isync.Event) Model {
+func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case isync.SyncCompletedEvent:
 		m.lastSyncAt = e.At
@@ -475,15 +476,17 @@ func (m Model) handleSyncEvent(ev isync.Event) Model {
 		m.mode = SignInMode
 		m.signin = NewSignIn()
 	case isync.FolderSyncedEvent:
-		// Refresh the list pane only if the user is on the synced folder.
+		m.lastSyncAt = e.At
+		// Refresh the folder list (counts may have changed) and, if
+		// the user is on the synced folder, refresh the message list
+		// too. Spec 04 §10: the UI never blocks; both reloads are Cmds.
+		cmds := []tea.Cmd{m.loadFoldersCmd()}
 		if e.FolderID == m.list.FolderID {
-			// Returning isn't possible from a non-Cmd path; the next
-			// Update tick re-issues the load. For simplicity here we
-			// just stash the latest update timestamp.
-			m.lastSyncAt = e.At
+			cmds = append(cmds, m.loadMessagesCmd(e.FolderID))
 		}
+		return m, tea.Batch(cmds...)
 	}
-	return m
+	return m, nil
 }
 
 // relayout recomputes pane widths after a WindowSizeMsg. Defaults

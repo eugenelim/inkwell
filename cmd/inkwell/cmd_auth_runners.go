@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/eugenelim/inkwell/internal/auth"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // promptDeviceCode writes the user-facing instructions to stderr in a
@@ -86,9 +88,48 @@ func runSignin(cmd *cobra.Command, rc *rootContext) error {
 	if _, err := a.Token(cmd.Context()); err != nil {
 		return fmt.Errorf("signin: %w", err)
 	}
-	upn, tenant, _ := a.Account()
+	upn, tenant, signedIn := a.Account()
+	if !signedIn {
+		return errors.New("signin: token acquired but no account resolved")
+	}
+
+	// Persist the resolved account to the local store so the TUI's
+	// data-access path (Deps.Account → ListFolders/ListMessages) has
+	// a row to scope queries against. Spec 01 §13 / spec 02 §5.
+	if err := persistAccountRow(cmd.Context(), authCfg.ClientID, upn, tenant); err != nil {
+		return fmt.Errorf("signin: persist account: %w", err)
+	}
+
 	fmt.Fprintf(cmd.OutOrStdout(), "signed in as %s (tenant %s)\n", upn, tenant)
 	return nil
+}
+
+// persistAccountRow opens the local store and upserts the signed-in
+// account. Idempotent: if the row already exists with the same
+// (tenant_id, upn), only mutable fields (client_id, last_signin) are
+// updated.
+func persistAccountRow(ctx context.Context, clientID, upn, tenantID string) error {
+	if clientID == "" {
+		clientID = auth.PublicClientID
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	dbPath := filepath.Join(home, "Library", "Application Support", "inkwell", "mail.db")
+	s, err := store.Open(dbPath, store.DefaultOptions())
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	_, err = s.PutAccount(ctx, store.Account{
+		TenantID:   tenantID,
+		ClientID:   clientID,
+		UPN:        upn,
+		LastSignin: time.Now(),
+	})
+	return err
 }
 
 func runSignout(cmd *cobra.Command, rc *rootContext) error {

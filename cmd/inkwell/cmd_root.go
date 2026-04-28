@@ -37,6 +37,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSigninCmd(rc))
 	cmd.AddCommand(newSignoutCmd(rc))
 	cmd.AddCommand(newWhoamiCmd(rc))
+	// Default action when no subcommand is given: launch the TUI.
+	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd
 }
 
