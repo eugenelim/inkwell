@@ -23,6 +23,7 @@ will reject device-code sign-ins.`,
 	}
 	cmd.Flags().Bool("device-code", false, "force device code flow (headless / SSH only; cannot satisfy device-compliance CA policies)")
 	cmd.Flags().Bool("interactive", false, "force interactive (system browser) flow; refuse to fall back to device code")
+	cmd.Flags().Bool("no-tui", false, "after successful sign-in, exit instead of launching the TUI (CI / scripting use)")
 	return cmd
 }
 

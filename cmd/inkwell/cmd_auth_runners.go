@@ -46,10 +46,11 @@ func authConfigFromRoot(rc *rootContext) (auth.Config, error) {
 		return auth.Config{}, err
 	}
 	return auth.Config{
-		TenantID:    cfg.Account.TenantID,
-		ClientID:    cfg.Account.ClientID,
-		ExpectedUPN: cfg.Account.UPN,
-		Mode:        mode,
+		TenantID:             cfg.Account.TenantID,
+		ClientID:             cfg.Account.ClientID,
+		ExpectedUPN:          cfg.Account.UPN,
+		Mode:                 mode,
+		RequestOfflineAccess: cfg.Account.RequestOfflineAccess,
 	}, nil
 }
 
@@ -101,7 +102,14 @@ func runSignin(cmd *cobra.Command, rc *rootContext) error {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "signed in as %s (tenant %s)\n", upn, tenant)
-	return nil
+
+	// Spec 04 iter 4: signin flows into the TUI on success unless
+	// the user opted out (--no-tui, useful for CI scripting).
+	noTUI, _ := cmd.Flags().GetBool("no-tui")
+	if noTUI {
+		return nil
+	}
+	return runRoot(cmd, rc)
 }
 
 // persistAccountRow opens the local store and upserts the signed-in
@@ -152,18 +160,15 @@ func runWhoami(cmd *cobra.Command, rc *rootContext) error {
 	if err != nil {
 		return err
 	}
-	// whoami must never prompt for device code. A refusing prompt
-	// short-circuits any silent-then-device-code fallthrough.
-	refuse := auth.PromptFn(func(_ context.Context, _ auth.DeviceCodePrompt) error {
-		return errors.New("not signed in")
-	})
-	a, err := auth.New(c, refuse)
+	a, err := auth.New(c, promptDeviceCode(os.Stderr))
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+	// IsSignedIn is silent-only (spec 01 §iter-7): never falls
+	// through to interactive or device-code. whoami is read-only.
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 	defer cancel()
-	if _, err := a.Token(ctx); err != nil {
+	if !a.IsSignedIn(ctx) {
 		return errors.New("not signed in")
 	}
 	upn, tenant, signedIn := a.Account()

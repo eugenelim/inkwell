@@ -33,10 +33,11 @@ type Config struct {
 
 // AccountConfig owns the [account] section (spec 01).
 type AccountConfig struct {
-	TenantID   string `toml:"tenant_id"`
-	ClientID   string `toml:"client_id"`
-	UPN        string `toml:"upn"`
-	SignInMode string `toml:"signin_mode"` // auto | interactive | device_code
+	TenantID             string `toml:"tenant_id"`
+	ClientID             string `toml:"client_id"`
+	UPN                  string `toml:"upn"`
+	SignInMode           string `toml:"signin_mode"` // auto | interactive | device_code
+	RequestOfflineAccess bool   `toml:"request_offline_access"`
 }
 
 // CacheConfig owns the [cache] section (spec 02).

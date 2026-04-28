@@ -59,6 +59,17 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Layering: this stays in `cmd/inkwell` rather than `internal/auth`; auth must not import store (CLAUDE.md §2). The cmd layer is the natural place for the auth → store handoff.
 - Tests: cmd-layer wiring is hard to unit-test because it builds a real store + real auth; covered by smoke instead.
 
+### Iter 7 — 2026-04-28 (silent-only probe + offline_access opt-in)
+- Trigger: real-tenant smoke after v0.2.0 surfaced two regressions:
+  1. `./inkwell` (no subcommand) opened the browser even though the user had just signed in. Cause: my `runRoot` probe used `Token()` with `Mode=Auto` and a 2-second timeout. When silent didn't return inside 2s the auto-fallback fired interactive flow — which our refusing PromptFn doesn't catch (PromptFn only fires for device-code). Browser opened, SSO redirected to localhost, but the 2s timeout had already torn down the listener; user saw the localhost-redirect URL flash and then "not signed in".
+  2. `./inkwell signin` opened the browser **twice** on managed-device tenants. Cause: the offline_access decline retry path from iter 4 — first attempt with offline_access fails (declined), second without succeeds. Two browsers, two localhost listeners. SSO plug-in makes both transparent (no typing) but it's still ugly UX.
+- Slice for (1): new `Authenticator.IsSignedIn(ctx) bool` method that ONLY does the silent path: list accounts → AcquireTokenSilent → checkAccount. Never invokes interactive or device-code. `runRoot` and `whoami` switched from the broken `Token()`-with-refusing-prompt pattern to `IsSignedIn`. Bumped probe timeout to 5s now that it's truly silent (worst case is one network round-trip to AAD's token endpoint to refresh).
+- Slice for (2): drop `offline_access` from `DefaultScopes()`. New `ScopesWithOfflineAccess(bool)` constructor and `Config.RequestOfflineAccess` field. Default off → single browser open per signin, hourly re-auth (same end-user behaviour as before on managed-device tenants where it was declined anyway). `[account].request_offline_access` config opts back in for tenants that grant it. The retry-on-decline safety net stays in place.
+- Slice for UX: `inkwell signin` flows into `runRoot` on success unless `--no-tui` is passed. CI / scripting path remains via `--no-tui`.
+- Tests added: TestDefaultScopesOmitsOfflineAccessByDefault, TestScopesWithOfflineAccessIncludesItWhenAsked, TestConfigResolvedHonoursRequestOfflineAccess, TestIsSignedInReturnsTrueOnSilentHit, TestIsSignedInReturnsTrueFromInMemoryCache, TestIsSignedInReturnsFalseWhenNoAccounts, TestIsSignedInReturnsFalseWhenSilentFails, TestIsSignedInRefusesConsumerAccount. Critical: each IsSignedIn test asserts `interactiveCalls == 0` and `deviceCalls == 0` so a future regression that adds a fallback to IsSignedIn fails loudly.
+- Spec 01 §6 fully rewritten with new §6.1 explaining the offline_access opt-in trade-off. §13 documents `request_offline_access`.
+- Race + e2e green.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

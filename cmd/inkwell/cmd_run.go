@@ -47,10 +47,11 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return err
 	}
 	authCfg := auth.Config{
-		TenantID:    cfg.Account.TenantID,
-		ClientID:    cfg.Account.ClientID,
-		ExpectedUPN: cfg.Account.UPN,
-		Mode:        mode,
+		TenantID:             cfg.Account.TenantID,
+		ClientID:             cfg.Account.ClientID,
+		ExpectedUPN:          cfg.Account.UPN,
+		Mode:                 mode,
+		RequestOfflineAccess: cfg.Account.RequestOfflineAccess,
 	}
 	a, err := auth.New(authCfg, promptDeviceCode(os.Stderr))
 	if err != nil {
@@ -59,21 +60,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// Verify the user is signed in BEFORE we open the TUI; otherwise
 	// the TUI flashes empty and exits when the engine fails on its
-	// first Graph call. A signed-in user has a valid silent path.
-	silentRefuse := auth.PromptFn(func(_ context.Context, _ auth.DeviceCodePrompt) error {
-		return errors.New("not signed in")
-	})
-	probeAuth, err := auth.New(auth.Config{
-		TenantID:    authCfg.TenantID,
-		ClientID:    authCfg.ClientID,
-		ExpectedUPN: authCfg.ExpectedUPN,
-		Mode:        mode,
-	}, silentRefuse)
-	if err != nil {
-		return err
-	}
-	probeCtx, probeCancel := context.WithTimeout(ctx, 2*time.Second)
-	if _, err := probeAuth.Token(probeCtx); err != nil {
+	// first Graph call. IsSignedIn is silent-only — never opens a
+	// browser, never hits device-code (that's the bug v0.2.0
+	// shipped: the previous probe used Token() with Mode=Auto, which
+	// would silently fall through to interactive on the second run
+	// and open the browser AGAIN even though the user just signed in).
+	probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
+	if !a.IsSignedIn(probeCtx) {
 		probeCancel()
 		return errors.New("not signed in — run `inkwell signin` first")
 	}
