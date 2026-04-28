@@ -11,9 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/eu-gene-lim/inkwell/internal/render"
-	"github.com/eu-gene-lim/inkwell/internal/store"
-	isync "github.com/eu-gene-lim/inkwell/internal/sync"
+	"github.com/eugenelim/inkwell/internal/render"
+	"github.com/eugenelim/inkwell/internal/store"
+	isync "github.com/eugenelim/inkwell/internal/sync"
 )
 
 // Authenticator is the auth surface the UI consumes. Defined here so

@@ -3,8 +3,8 @@ package ui
 import (
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/store"
-	isync "github.com/eu-gene-lim/inkwell/internal/sync"
+	"github.com/eugenelim/inkwell/internal/store"
+	isync "github.com/eugenelim/inkwell/internal/sync"
 )
 
 // Pane identifies one of the three panes plus the command line.

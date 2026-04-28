@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eu-gene-lim/inkwell/internal/graph"
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/graph"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // Event is the marker interface for engine notifications. Concrete

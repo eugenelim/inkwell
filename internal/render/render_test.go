@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 func openRenderTestStore(t *testing.T) (store.Store, int64, string) {

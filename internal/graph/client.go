@@ -17,7 +17,7 @@ import (
 // DefaultBaseURL is Microsoft Graph v1.0. Spec ARCH §0 locks v1.0.
 const DefaultBaseURL = "https://graph.microsoft.com/v1.0"
 
-// Authenticator is the subset of [github.com/eu-gene-lim/inkwell/internal/auth.Authenticator]
+// Authenticator is the subset of [github.com/eugenelim/inkwell/internal/auth.Authenticator]
 // the graph package depends on. Declared here at the consumer site so
 // graph does not import auth's full surface.
 type Authenticator interface {

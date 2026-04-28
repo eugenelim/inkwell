@@ -15,9 +15,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/eu-gene-lim/inkwell/internal/graph"
-	ilog "github.com/eu-gene-lim/inkwell/internal/log"
-	"github.com/eu-gene-lim/inkwell/internal/store"
+	"github.com/eugenelim/inkwell/internal/graph"
+	ilog "github.com/eugenelim/inkwell/internal/log"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // openSyncTestStore opens a fresh store for sync tests. Replicated
