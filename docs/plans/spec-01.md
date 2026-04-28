@@ -70,6 +70,9 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Spec 01 §6 fully rewritten with new §6.1 explaining the offline_access opt-in trade-off. §13 documents `request_offline_access`.
 - Race + e2e green.
 
+### Iter 8 — 2026-04-28 (--verbose actually wired)
+- `--verbose` was a parsed flag with no effect — log level was hardcoded to Info. Now wires through to the redacting slog handler. Useful for the diagnostic phase that landed alongside this iter (see spec-03 iter 4 below).
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

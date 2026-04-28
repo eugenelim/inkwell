@@ -40,6 +40,15 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - Privacy test was too loose: `bodyPreview` contains the substring `body`. Tightened to comma-split + word equality.
 - Final: `go test -race -timeout 90s ./...` green across the whole tree.
 
+### Iter 4 — 2026-04-28 (engine boots immediately; Inbox-first runCycle; visibility breadcrumbs)
+- Trigger: real-tenant smoke after v0.2.1 — TUI launched but folders/messages never appeared. The cmd-layer had two goroutines (SyncAll + QuickStartBackfill) firing alongside `engine.Start()`. Both could fail silently to a `logger.Warn` while the TUI's status bar showed nothing. Meanwhile the engine's internal `loop` was sitting on its first `time.NewTimer(e.interval())` for the full foreground interval (default 30s) before doing any work.
+- Slice:
+  - `engine.loop` runs the FIRST cycle immediately, then enters the timer reset loop. Spec §5 already said "On Start():" — this aligns the code with the spec.
+  - `runCycle` iterates folders via `orderForQuickStart(filterSubscribed(...))` so Inbox is always first regardless of which path triggered the cycle.
+  - cmd-layer's duplicate `SyncAll` + `QuickStartBackfill` goroutines deleted. The engine handles its own first-launch.
+  - Breadcrumb logs added: `engine: starting`, `sync: cycle starting`, `sync: enumerated folders (total=N, subscribed=M)`, per-folder `sync: folder begin`, `sync: cycle complete (folders=M, duration=…)`, plus `engine: first cycle failed (err=…)` at Error level. v0.2.0's Warn-only swallowing is replaced with Error so silent failures stop being silent.
+- Tests: existing TestQuickStartBackfillInboxFirst, TestSyncFolderResumesPersistedNextLink, TestSyncFolderQuickStartYieldsAfterOnePage still pass — the engine semantics didn't change, only the activation timing and ordering.
+
 ## Notes for follow-up specs
 - Spec 04 (TUI shell) consumes `sync.Engine` via the `Notifications()` channel. The status-line model dispatches typed events (`SyncCompletedEvent`, `ThrottledEvent`, `AuthRequiredEvent`).
 - Spec 09 (batch executor) implements the `ActionDrainer` interface that this spec stubs with a noop. The engine constructor accepts any `ActionDrainer` so spec 09 can drop in cleanly.
