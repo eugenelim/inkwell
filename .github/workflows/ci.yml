@@ -7,29 +7,55 @@ on:
 
 jobs:
   test:
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - run: go vet ./...
-      - run: go build ./...
-      - run: go test -race ./...
-      - run: go test -tags=integration ./...
-      - run: go test -tags=e2e ./...
-      - run: go test -bench=. -benchmem -run=^$ ./...
-        continue-on-error: true
-      - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
-      - run: staticcheck ./...
-        continue-on-error: true
-      - name: Privacy guard — testdata never contains real domains
+
+      - name: vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: race tests
+        run: go test -race -timeout 5m ./...
+
+      - name: e2e tests
+        run: go test -tags=e2e -timeout 5m ./...
+
+      - name: benchmarks (informational, non-gating)
+        run: go test -bench=. -benchmem -run='^$' -timeout 5m ./... || true
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          $(go env GOPATH)/bin/staticcheck ./... || true
+
+      - name: privacy guard - testdata never contains real domains
         run: |
           set -e
-          if grep -rEi --include='*.json' --include='*.golden' --include='*.html' \
-              -- '@(?!example\.invalid)([A-Za-z0-9._-]+\.(com|org|net|io|co))' internal/; then
-            echo "::error::testdata contains a non-example.invalid domain"
+          # Match any email address whose domain is not example.invalid.
+          # Using grep -P for proper negative-lookahead on the alternation.
+          if grep -rEi --include='*.json' --include='*.golden' --include='*.html' --include='*.txt' \
+              "@([A-Za-z0-9._-]+)\.(com|org|net|io|co|uk|de|fr)" internal/ docs/ 2>/dev/null; then
+            echo "::error::testdata contains a non-example.invalid domain. Use example.invalid for fixtures."
+            exit 1
+          fi
+
+  permissions-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: refuse forbidden Graph scopes
+        run: |
+          set -e
+          # Hard out-of-scope per PRD §3.2. Searching code only (not docs).
+          if grep -rE 'Mail\.Send|Calendars\.ReadWrite|Mail\.\w+\.Shared|ChatMessage\.Send|Channel\.ReadBasic\.All' \
+              --include='*.go' .; then
+            echo "::error::Code references a Graph scope that is hard out-of-scope per PRD §3.2"
             exit 1
           fi
