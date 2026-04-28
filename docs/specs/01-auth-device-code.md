@@ -1,0 +1,274 @@
+# Spec 01 — Authentication via Device Code Flow
+
+**Status:** Ready for implementation.
+**Depends on:** PRD §4, ARCH §1, §2, §5.1.
+**Blocks:** All other feature specs.
+**Estimated effort:** 1–2 days.
+
+---
+
+## 1. Goal
+
+Implement OAuth 2.0 device code flow against Microsoft Entra ID (Azure AD), backed by MSAL Go, with token persistence in the macOS Keychain. Provide a clean Go API to the rest of the codebase that hides MSAL details and exposes only:
+
+- "Get me an access token for Graph, refreshing or re-authenticating as needed."
+- "Sign out and clear local state."
+
+## 2. Why device code flow
+
+Browser-redirect flows (auth code with PKCE) require either a localhost listener or an embedded webview. Both are awkward in a TUI. Device code flow trades one extra user step (typing a code in a browser tab) for a clean terminal-only experience that also plays well with users on locked-down corporate machines where opening a webview from a CLI tool is suspicious.
+
+## 3. Tenant prerequisites (out of code scope, document for ops)
+
+The README and onboarding doc must specify that the following has been done in the tenant by an admin:
+
+- An Entra ID app registration of type "Public client / native".
+- "Allow public client flows" enabled (this is what unlocks device code flow).
+- Delegated Microsoft Graph permissions granted: see PRD §3.1.
+- Admin consent granted for the tenant.
+- Redirect URI: `https://login.microsoftonline.com/common/oauth2/nativeclient` (added automatically when public client is enabled).
+- The resulting `client_id` and `tenant_id` are written into the user's `~/.config/inkwell/config.toml`.
+
+## 4. Public Go API
+
+Define in `internal/auth/auth.go`:
+
+```go
+package auth
+
+type Authenticator interface {
+    // Token returns a valid Graph access token, refreshing or prompting for
+    // device-code re-auth as needed. Safe to call concurrently; serializes
+    // refresh internally.
+    Token(ctx context.Context) (string, error)
+
+    // SignOut clears the cached account and tokens from Keychain.
+    SignOut(ctx context.Context) error
+
+    // Account returns the signed-in user's UPN and tenant ID, or zero values
+    // if not signed in.
+    Account() (upn string, tenantID string, signedIn bool)
+}
+
+// New constructs an Authenticator. PromptFn is called when interactive
+// device-code auth is needed; the caller is responsible for displaying the
+// code and verification URL to the user (this lets the TUI render it nicely
+// vs the CLI mode printing it to stderr).
+func New(cfg Config, prompt PromptFn) (Authenticator, error)
+
+type Config struct {
+    TenantID string
+    ClientID string
+    Scopes   []string // e.g., ["Mail.ReadWrite", "Calendars.Read", ...]
+}
+
+type PromptFn func(ctx context.Context, p DeviceCodePrompt) error
+
+type DeviceCodePrompt struct {
+    UserCode        string    // e.g., "ABC123XYZ"
+    VerificationURL string    // e.g., "https://microsoft.com/devicelogin"
+    ExpiresAt       time.Time // when the user_code expires
+    Message         string    // human-readable instruction from MSAL
+}
+```
+
+## 5. Implementation
+
+### 5.1 MSAL Go integration
+
+Use `github.com/AzureAD/microsoft-authentication-library-for-go/apps/public`. The relevant types are `public.Client`, `public.AcquireTokenSilent`, and `public.AcquireTokenByDeviceCode`.
+
+Construction:
+
+```go
+client, err := public.New(
+    cfg.ClientID,
+    public.WithAuthority("https://login.microsoftonline.com/" + cfg.TenantID),
+    public.WithCache(keychainCache),  // see §5.2
+)
+```
+
+Token acquisition flow:
+
+1. List accounts via `client.Accounts(ctx)`. If exactly one, attempt `AcquireTokenSilent`.
+2. If `AcquireTokenSilent` returns success, return the token.
+3. If it fails (no account, expired refresh token, etc.), fall back to device code:
+   - Call `client.AcquireTokenByDeviceCode(ctx, scopes)`.
+   - This returns a `DeviceCodeResult` with `Result.Message`, `Result.UserCode`, `Result.VerificationURL`, `Result.ExpiresOn`.
+   - Invoke `PromptFn` with these values so the caller can display them.
+   - Then call `result.AuthenticationResult(ctx)` which blocks polling until the user completes auth (or times out / errors).
+4. Return the resulting access token.
+
+### 5.2 Keychain cache adapter
+
+MSAL Go's cache interface is `cache.ExportReplace`. Implement an adapter that round-trips MSAL's serialized cache blob to the macOS Keychain.
+
+```go
+type keychainCache struct {
+    service string  // "inkwell"
+    account string  // tenant_id + ":" + client_id (composite key)
+}
+
+func (k *keychainCache) Replace(ctx context.Context, c cache.Unmarshaler, hints cache.ReplaceHints) error {
+    blob, err := keyring.Get(k.service, k.account)
+    if errors.Is(err, keyring.ErrNotFound) {
+        return nil // first run, empty cache
+    }
+    if err != nil {
+        return err
+    }
+    return c.Unmarshal([]byte(blob))
+}
+
+func (k *keychainCache) Export(ctx context.Context, c cache.Marshaler, hints cache.ExportHints) error {
+    blob, err := c.Marshal()
+    if err != nil {
+        return err
+    }
+    return keyring.Set(k.service, k.account, string(blob))
+}
+```
+
+Use `github.com/zalando/go-keyring`. On macOS this maps to `security` framework calls, storing the blob as a Generic Password keychain item. Access is gated by macOS Keychain ACLs — first-run prompt is normal.
+
+### 5.3 Concurrency
+
+`Authenticator.Token` may be called from many goroutines (every Graph request). Behavior:
+
+- A `sync.Mutex` serializes refresh attempts. Multiple concurrent `Token()` calls during a refresh queue and all receive the new token.
+- After successful refresh, results are cached in-memory in addition to Keychain to avoid hammering the Keychain on every Graph call.
+- The in-memory cache holds: token, expires-at. Refresh triggered when `time.Until(expiresAt) < 5 * time.Minute` (proactive refresh).
+
+### 5.4 Re-auth handling
+
+When the refresh token is expired or revoked:
+
+- `AcquireTokenSilent` returns an error.
+- `Token()` falls through to device code.
+- Device code flow blocks until user completes the browser step OR the user aborts via `ctx` cancellation.
+- The TUI's `PromptFn` should display a modal-style overlay with the code and URL, plus a "press Esc to cancel" affordance.
+- The CLI's `PromptFn` should print to stderr in a format script-friendly enough to grep (`stderr` not `stdout`, in case stdout is being piped).
+
+### 5.5 Sign out
+
+```go
+func (a *authenticator) SignOut(ctx context.Context) error {
+    accounts, _ := a.client.Accounts(ctx)
+    for _, acc := range accounts {
+        if err := a.client.RemoveAccount(ctx, acc); err != nil {
+            return err
+        }
+    }
+    return keyring.Delete(a.service, a.account)
+}
+```
+
+The `inkwell signout` CLI command and `:signout` TUI command both call this. After sign-out, the local SQLite cache is **not** automatically deleted — the user can choose to retain it (offline read access to historical mail) or run `inkwell purge` to clear it.
+
+## 6. Required scopes string
+
+Pass the following exactly to MSAL:
+
+```go
+[]string{
+    "https://graph.microsoft.com/Mail.Read",
+    "https://graph.microsoft.com/Mail.ReadBasic",
+    "https://graph.microsoft.com/Mail.ReadWrite",
+    "https://graph.microsoft.com/MailboxSettings.Read",
+    "https://graph.microsoft.com/MailboxSettings.ReadWrite",
+    "https://graph.microsoft.com/Calendars.Read",
+    "https://graph.microsoft.com/User.Read",
+    "https://graph.microsoft.com/Presence.Read.All",
+    "offline_access", // critical: enables refresh tokens
+}
+```
+
+Note: `offline_access` is mandatory or refresh tokens will not be issued and the user will device-code-auth on every launch.
+
+The `Chat.Read`, `User.ReadBasic.All` scopes are deferred (not in v1 surface area).
+
+## 7. Logging
+
+- INFO on first sign-in, sign-out.
+- INFO on silent refresh success (no token logged).
+- WARN on silent refresh failure with reason.
+- INFO when device code prompt is shown (no code logged).
+- ERROR on any unexpected MSAL error with full error text (MSAL errors do not contain tokens).
+
+Do not log the access token. Do not log the refresh token. Do not log the cache blob. The redaction layer (ARCH §12) is a backstop, but auth code should never produce these strings in the first place.
+
+## 8. CLI commands
+
+| Command           | Behavior                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| `inkwell signin`  | Forces device code flow even if cached token exists. Useful for first-time setup or switching accounts. |
+| `inkwell signout` | Calls `SignOut`. Prompts before clearing cache.                 |
+| `inkwell whoami`  | Prints UPN and tenant ID if signed in; exits non-zero if not.   |
+
+## 9. TUI integration
+
+- On TUI startup: try `Token()` once with a 1-second context. If it returns immediately (cached token valid), proceed to main UI.
+- If `Token()` would block on device code: switch UI to a "Sign in" screen with the code and URL displayed prominently. Poll completion. On completion, transition to main UI.
+- If `Token()` fails non-recoverably (e.g., network down on first run): show the error and exit cleanly. The user can retry once network is up.
+
+## 10. Test plan
+
+### Unit tests
+
+- `keychainCache.Replace` / `Export` round-trips a known blob through a mocked keyring.
+- `Token()` serializes concurrent calls (use a fake MSAL client to count refresh invocations).
+- `Token()` returns cached token when not near expiry.
+- `Token()` triggers refresh when within the 5-minute window.
+
+### Integration tests
+
+- Cannot run device code flow in CI. Test instead: provide a fake MSAL `public.Client` that returns canned `AuthenticationResult` values and asserts the call sequences.
+
+### Manual smoke test (documented in qa-checklist.md)
+
+1. Fresh install on a clean macOS user account.
+2. `inkwell signin` shows code + URL.
+3. Complete browser auth.
+4. `inkwell whoami` returns correct UPN.
+5. `inkwell signout` clears Keychain (verify with `security find-generic-password -s inkwell` returning not-found).
+6. Re-sign in. Confirm second sign-in does not require re-typing code (cache hit).
+
+## 11. Failure modes to handle explicitly
+
+| Scenario                                              | Behavior                                                       |
+| ----------------------------------------------------- | -------------------------------------------------------------- |
+| Network down on first launch                          | Clear error; exit cleanly; no partial state.                  |
+| Keychain access denied by user                        | Fall through to in-memory-only token; warn in status line; tokens lost on exit. |
+| User aborts device code flow                          | Return context.Canceled; UI returns to sign-in screen.        |
+| Tenant admin revokes consent mid-session              | Next Graph call returns 401; auth layer triggers re-auth via device code; UI shows re-auth modal. |
+| Conditional Access denies token (device non-compliant) | MSAL returns specific AADSTS error; surface a user-friendly message naming the policy class (compliance, MFA, etc.) and link to https://aka.ms/MFASetup as appropriate. |
+| Clock skew > 5 minutes                                | Token validation fails; surface as "system clock incorrect"; exit. |
+
+## 12. Definition of done
+
+- [ ] `internal/auth/` package compiles and passes unit tests.
+- [ ] `inkwell signin`, `inkwell signout`, `inkwell whoami` work end-to-end against a real tenant.
+- [ ] Tokens persist across app restarts (verified manually).
+- [ ] Token refresh happens silently (verified by leaving the app open past token expiry; check logs for refresh, no UI prompt).
+- [ ] Device code re-auth triggers when refresh token is invalidated (verified by manually deleting the Keychain item mid-session).
+- [ ] No tokens or cache blobs appear in logs (verified by grepping `~/Library/Logs/inkwell/` after a full sign-in/use/sign-out cycle).
+
+## 13. Configuration
+
+This spec owns the `[account]` section. Full reference in `CONFIG.md`.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `account.tenant_id` | (required, no default) | Provided by enterprise IT. |
+| `account.client_id` | (required, no default) | Provided by enterprise IT. |
+| `account.upn` | (required, no default) | User's UPN. |
+
+The auth module reads these values from `*config.Config` at construction time. It does not read environment variables or flags directly; the loader at `cmd/inkwell/main.go` is responsible for assembling the final `Config` and passing it down.
+
+The scopes list in §6 is **not** configurable. Adding or removing scopes changes the contract with the tenant admin and must be done via a code change, not user config.
+
+## 14. Out of scope for this spec
+
+- Multi-account support (the `Account()` method returns one account; multi-account is a v2 redesign).
+- Certificate-based or managed-identity auth (not applicable to a desktop client).
+- Custom CA / proxy trust configuration. If the corporate environment requires it, document it as a `GRAPH_CA_BUNDLE` env var the user sets; do not bake CA logic into auth.
