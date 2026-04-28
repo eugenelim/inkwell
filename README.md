@@ -68,17 +68,28 @@ multi-tenant `/common` authority. **No tenant admin onboarding is
 required.** Just sign in:
 
 ```sh
-inkwell signin       # device code flow — open the URL, paste the code
+inkwell signin       # opens your system browser
 inkwell whoami       # confirm UPN + resolved home tenant
 inkwell              # launch the TUI
 ```
 
-A config file is **optional**. If you want a multi-account guardrail you
-can pin the expected UPN in `~/.config/inkwell/config.toml`:
+The default sign-in opens your system default browser. On a managed Mac
+the Microsoft Enterprise SSO plug-in for Apple Devices transparently
+satisfies Conditional Access policies that require a compliant device —
+this is the only flow that works on ExampleCorp-class tenants.
+
+For headless / SSH sessions where no browser can be launched, use
+device code flow: `inkwell signin --device-code`. **Tenants that
+require a managed device will reject device-code sign-ins**, so this is
+only useful on tenants without that policy.
+
+A config file is **optional**. If you want a multi-account guardrail or
+want to pin the sign-in mode, drop it in `~/.config/inkwell/config.toml`:
 
 ```toml
 [account]
-upn = "you@example.com"
+upn         = "you@example.com"        # optional guardrail
+signin_mode = "interactive"            # auto | interactive | device_code
 ```
 
 If your tenant blocks the Microsoft Graph CLI Tools app under

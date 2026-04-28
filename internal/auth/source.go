@@ -17,11 +17,18 @@ type TokenSource interface {
 	Accounts(ctx context.Context) ([]Account, error)
 	// AcquireTokenSilent returns a token using the cached refresh token.
 	// Returns an error when no refresh path is available; callers fall
-	// back to AcquireTokenByDeviceCode.
+	// back to AcquireTokenInteractive or AcquireTokenByDeviceCode.
 	AcquireTokenSilent(ctx context.Context, scopes []string, acct Account) (AuthResult, error)
-	// AcquireTokenByDeviceCode runs the interactive device-code flow.
-	// The implementation must invoke prompt with the user-visible code
-	// before blocking on completion.
+	// AcquireTokenInteractive runs the system-browser auth-code-with-PKCE
+	// flow on a localhost listener. This is the path that carries
+	// device-compliance attestation via the OS enterprise SSO plug-in
+	// (spec 01 §5.0).
+	AcquireTokenInteractive(ctx context.Context, scopes []string) (AuthResult, error)
+	// AcquireTokenByDeviceCode runs the device-code flow. The
+	// implementation must invoke prompt with the user-visible code
+	// before blocking on completion. Cannot carry device-compliance
+	// attestation; tenants with a compliant-device CA policy will
+	// reject this flow.
 	AcquireTokenByDeviceCode(ctx context.Context, scopes []string, prompt PromptFn) (AuthResult, error)
 	// RemoveAccount evicts acct from the MSAL cache.
 	RemoveAccount(ctx context.Context, acct Account) error
@@ -78,6 +85,14 @@ func (m *msalSource) AcquireTokenSilent(ctx context.Context, scopes []string, ac
 		}
 	}
 	res, err := m.client.AcquireTokenSilent(ctx, scopes, public.WithSilentAccount(match))
+	if err != nil {
+		return AuthResult{}, err
+	}
+	return toAuthResult(res), nil
+}
+
+func (m *msalSource) AcquireTokenInteractive(ctx context.Context, scopes []string) (AuthResult, error) {
+	res, err := m.client.AcquireTokenInteractive(ctx, scopes)
 	if err != nil {
 		return AuthResult{}, err
 	}

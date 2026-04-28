@@ -53,7 +53,7 @@ func TestDeviceCodePromptCalledWithEmptyAccessToken(t *testing.T) {
 	src := &fakeSource{
 		deviceResult: AuthResult{AccessToken: "secret-tok", ExpiresOn: time.Now().Add(time.Hour)},
 	}
-	a := newTestAuth(t, src, prompt)
+	a := NewWithSource(Config{Mode: ModeDeviceCode}, prompt, src)
 	_, err := a.Token(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int32(1), called.Load())
@@ -64,7 +64,7 @@ func TestDeviceCodePromptCalledWithEmptyAccessToken(t *testing.T) {
 func TestDeviceCodeCancellationPropagates(t *testing.T) {
 	src := &fakeSource{}
 	want := errors.New("user canceled")
-	a := newTestAuth(t, src, func(_ context.Context, _ DeviceCodePrompt) error { return want })
+	a := NewWithSource(Config{Mode: ModeDeviceCode}, func(_ context.Context, _ DeviceCodePrompt) error { return want }, src)
 	_, err := a.Token(context.Background())
 	require.ErrorIs(t, err, want)
 }

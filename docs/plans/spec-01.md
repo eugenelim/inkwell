@@ -31,6 +31,15 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 - Race + e2e + budget gates all green.
 - Critique outstanding: none. Manual-tenant smoke now genuinely first-run: `inkwell signin` with no config file.
 
+### Iter 3 — 2026-04-28 (interactive flow as default; device-code is opt-in fallback)
+- Trigger: real-tenant smoke caught Conditional Access rejecting device-code on a managed Mac with the AADSTS error "your admin requires the device requesting access to be managed by ExampleCorp". Device-code flow cannot carry the device-compliance signal — the user types a code in *some* browser that has no link to the originating device. The only viable interactive path on managed-device tenants is the system browser with the OS enterprise SSO plug-in.
+- Slice: add `SignInMode` enum (Auto / Interactive / DeviceCode) + `Config.Mode`. Extend `TokenSource` with `AcquireTokenInteractive`. New `acquireFallback()` routes by mode. `ModeAuto` tries interactive first and falls back to device code only on browser-launch errors (never on AAD errors — those bubble straight up). `ParseSignInMode` accepts auto/interactive/browser/device_code/device-code/devicecode.
+- CLI: `inkwell signin` gains `--device-code` and `--interactive` flags (mutually exclusive). Default is auto (interactive-first).
+- Config: `[account].signin_mode` (auto|interactive|device_code), default `auto`. Validated.
+- Doc updates: spec 01 retitled and reframed; new §5.0 explains mode selection; §2 rewritten ("Why interactive system browser (default) + device code (fallback)"); §11 adds rows for the device-compliance CA policy and for browser-launch failures; §13 documents `signin_mode`. PRD §4 updated to declare interactive-first with device-code as the headless fallback.
+- Tests added: ModeAutoUsesInteractiveWhenNoAccount, ModeAutoFallsBackToDeviceCodeOnLaunchError, ModeAutoDoesNotFallBackOnAADError, ModeInteractiveDoesNotFallBack, ModeDeviceCodeSkipsInteractive, TokenFallsBackInteractiveWhenSilentFails, ParseSignInMode, IsBrowserLaunchErrorClassification. Existing tests that drove `deviceResult` switched to `interactiveResult` since the default mode changed.
+- Race + e2e + budget gates all green.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

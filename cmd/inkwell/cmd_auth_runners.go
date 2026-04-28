@@ -39,10 +39,15 @@ func authConfigFromRoot(rc *rootContext) (auth.Config, error) {
 	if err != nil {
 		return auth.Config{}, err
 	}
+	mode, err := auth.ParseSignInMode(cfg.Account.SignInMode)
+	if err != nil {
+		return auth.Config{}, err
+	}
 	return auth.Config{
 		TenantID:    cfg.Account.TenantID,
 		ClientID:    cfg.Account.ClientID,
 		ExpectedUPN: cfg.Account.UPN,
+		Mode:        mode,
 	}, nil
 }
 
@@ -55,7 +60,25 @@ func newAuthenticator(rc *rootContext) (auth.Authenticator, error) {
 }
 
 func runSignin(cmd *cobra.Command, rc *rootContext) error {
-	a, err := newAuthenticator(rc)
+	authCfg, err := authConfigFromRoot(rc)
+	if err != nil {
+		return err
+	}
+	// CLI flags override config. --device-code and --interactive are
+	// mutually exclusive; detect that.
+	useDeviceCode, _ := cmd.Flags().GetBool("device-code")
+	useInteractive, _ := cmd.Flags().GetBool("interactive")
+	if useDeviceCode && useInteractive {
+		return errors.New("signin: --device-code and --interactive are mutually exclusive")
+	}
+	switch {
+	case useDeviceCode:
+		authCfg.Mode = auth.ModeDeviceCode
+	case useInteractive:
+		authCfg.Mode = auth.ModeInteractive
+	}
+
+	a, err := auth.New(authCfg, promptDeviceCode(os.Stderr))
 	if err != nil {
 		return err
 	}
