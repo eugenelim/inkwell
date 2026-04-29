@@ -104,6 +104,13 @@ type Model struct {
 	lastSyncAt     time.Time
 	lastError      error
 	engineActivity string // "syncing folders…" / "syncing…" / ""
+
+	// Search-mode buffer + last-committed query. The list pane renders
+	// search results in place of folder messages when searchActive.
+	searchBuf      string
+	searchActive   bool
+	searchQuery    string // committed query (the one that produced m.list contents)
+	priorFolderID  string // folder to restore when search is cleared
 }
 
 // New constructs the root model. After construction, callers run
@@ -282,6 +289,11 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(keyMsg, m.keymap.Search):
 		m.mode = SearchMode
+		m.searchBuf = ""
+		// Remember the folder we came from so Esc / clear restores it.
+		if !m.searchActive {
+			m.priorFolderID = m.list.FolderID
+		}
 		return m, nil
 	case key.Matches(keyMsg, m.keymap.FocusFolders):
 		m.focused = FoldersPane
@@ -337,11 +349,74 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if keyMsg.Type == tea.KeyEsc || keyMsg.Type == tea.KeyEnter {
+	switch keyMsg.Type {
+	case tea.KeyEsc:
 		m.mode = NormalMode
+		m.searchBuf = ""
+		// If a search was active, clear it and restore the prior folder.
+		if m.searchActive {
+			m.searchActive = false
+			m.searchQuery = ""
+			m.list.FolderID = m.priorFolderID
+			if m.priorFolderID != "" {
+				return m, m.loadMessagesCmd(m.priorFolderID)
+			}
+		}
+		return m, nil
+	case tea.KeyEnter:
+		q := strings.TrimSpace(m.searchBuf)
+		m.mode = NormalMode
+		if q == "" {
+			return m, nil
+		}
+		m.searchActive = true
+		m.searchQuery = q
+		m.list.FolderID = searchFolderID(q)
+		m.focused = ListPane
+		return m, m.runSearchCmd(q)
+	case tea.KeyBackspace:
+		if len(m.searchBuf) > 0 {
+			m.searchBuf = m.searchBuf[:len(m.searchBuf)-1]
+		}
 		return m, nil
 	}
+	// Append printable runes.
+	if keyMsg.Type == tea.KeyRunes || keyMsg.Type == tea.KeySpace {
+		m.searchBuf += keyMsg.String()
+	}
 	return m, nil
+}
+
+// searchFolderID is the sentinel folder-id used while search results
+// are displayed. It's never persisted to the store; the list pane
+// just keys off it to know "we're showing search results, don't try
+// to load from a real folder".
+func searchFolderID(q string) string { return "search:" + q }
+
+// runSearchCmd runs the FTS5 search and returns a MessagesLoadedMsg
+// keyed to the sentinel search-folder ID.
+func (m Model) runSearchCmd(q string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var accountID int64
+		if m.deps.Account != nil {
+			accountID = m.deps.Account.ID
+		}
+		hits, err := m.deps.Store.Search(ctx, store.SearchQuery{
+			Query:     q,
+			AccountID: accountID,
+			Limit:     200,
+		})
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+		msgs := make([]store.Message, 0, len(hits))
+		for _, h := range hits {
+			msgs = append(msgs, h.Message)
+		}
+		return MessagesLoadedMsg{FolderID: searchFolderID(q), Messages: msgs}
+	}
 }
 
 func (m Model) updateSignIn(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -414,6 +489,7 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		f, ok := m.folders.Selected()
 		if ok {
 			m.list.FolderID = f.ID
+			m.list.ResetLimit() // new folder → fresh first page
 			m.focused = ListPane
 			return m, m.loadMessagesCmd(f.ID)
 		}
@@ -427,6 +503,15 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list.Up()
 	case key.Matches(msg, m.keymap.Down):
 		m.list.Down()
+		// Smart pre-fetch: when the cursor approaches the end of the
+		// currently-loaded slice, load the next page from the local
+		// store. The engine's progressive backfill keeps the local
+		// store filling from Graph; we just paginate through what's
+		// cached. Searches don't paginate (the FTS limit is fixed).
+		if !m.searchActive && m.list.ShouldLoadMore() {
+			m.list.MarkLoading()
+			return m, m.loadMessagesCmd(m.list.FolderID)
+		}
 	case key.Matches(msg, m.keymap.Open):
 		sel, ok := m.list.Selected()
 		if ok {
@@ -597,6 +682,7 @@ func (m Model) loadFoldersCmd() tea.Cmd {
 }
 
 func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
+	limit := m.list.LoadLimit()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -607,7 +693,7 @@ func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
 		msgs, err := m.deps.Store.ListMessages(ctx, store.MessageQuery{
 			AccountID: accountID,
 			FolderID:  folderID,
-			Limit:     200,
+			Limit:     limit,
 		})
 		if err != nil {
 			return ErrorMsg{Err: err}
@@ -720,6 +806,11 @@ func (m Model) View() string {
 		LastErr:   m.lastError,
 	})
 	cmdBar := m.cmd.View(m.theme, m.width, m.mode == CommandMode)
+	if m.mode == SearchMode {
+		cmdBar = m.theme.CommandBar.Render("/" + m.searchBuf)
+	} else if m.searchActive {
+		cmdBar = m.theme.Dim.Render("search: " + m.searchQuery + "  (esc to clear)")
+	}
 	helpBar := renderHelpBar(m.theme, m.width, m.focused)
 
 	// 3 chrome lines: status (top) + command (just above help) + help (bottom).
@@ -762,7 +853,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case FoldersPane:
 		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"r/R", "read"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	case ViewerPane:
 		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:
