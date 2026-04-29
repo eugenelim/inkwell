@@ -100,10 +100,21 @@ class. Recovery is your IT admin's call; see
 
 ## Documentation
 
+**For users of the binary:**
+
+- [`docs/user/guide.md`](docs/user/guide.md) — narrative walk-through:
+  install, sign-in, navigation, search, filtering, bulk actions, triage.
+- [`docs/user/cheatsheet.md`](docs/user/cheatsheet.md) — every keybinding,
+  every command, every pattern operator. Quick lookup.
+
+**For contributors:**
+
 - `docs/PRD.md` — product scope, granted vs denied Graph permissions.
 - `docs/ARCH.md` — system architecture, layering, data flow.
 - `docs/CONFIG.md` — every config key.
+- `docs/TESTING.md` — test conventions and standards.
 - `docs/specs/` — feature specs in implementation order.
+- `docs/plans/` — per-spec ralph-loop tracking notes.
 - `docs/ROADMAP.md` — post-v1 backlog, ranked by impact.
 - `CLAUDE.md` — contributor guide, test architecture, performance &
   privacy rules.
