@@ -1,0 +1,45 @@
+# Dependabot configuration. Spec 17 §3.8.
+#
+# Weekly updates: keeps the dependency graph fresh enough that
+# govulncheck rarely has to fail builds for a long-known CVE, and
+# rare enough that PR review noise stays manageable. Patch versions
+# auto-merge in the future once branch protection is configured;
+# for now every PR goes through manual review.
+#
+# Dev-only deps (test fixtures, regenerable code) ship grouped per
+# minor version so a Tuesday morning isn't 12 separate PRs.
+
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group the bubbletea / lipgloss / bubbles family — they
+      # release together and a single PR is easier to review than
+      # three.
+      charm:
+        patterns:
+          - "github.com/charmbracelet/*"
+      # Group the Go-toolchain ecosystem (golang.org/x/* etc.).
+      gostdlibx:
+        patterns:
+          - "golang.org/x/*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(actions)"

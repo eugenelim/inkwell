@@ -1,7 +1,9 @@
 # Spec 17 — Security testing and CASA evidence
 
-**Status:** Partial — CI tooling shipped in v0.12.0; security tests
-and documents are next.
+**Status:** Partial — CI tooling shipped in v0.12.0; first cut of
+security tests + `docs/THREAT_MODEL.md` + `docs/PRIVACY.md` +
+gitleaks + dependency-review + Dependabot + SBOM shipping in
+v0.13.0. Remaining work tracked in `docs/plans/spec-17.md`.
 **Depends on:** All v1 specs (this one hardens what they produce).
 **Blocks:** Any future Gmail support spec (CASA Tier 2 self-scan
 needs this evidence). Recommended before public v1 distribution.
@@ -548,19 +550,30 @@ In addition, run the security suite quarterly with intent:
       GitHub private advisories (v0.12.0).
 - [x] CI Go floor bumped to 1.25.3 + workflows pin `1.25.x` with
       `check-latest: true` (v0.12.x post-mortem).
-- [ ] gitleaks workflow + pre-commit hook.
-- [ ] dependency-review-action on PRs.
-- [ ] `.github/dependabot.yml` weekly schedule.
-- [ ] `.gosec.json` baseline file with documented justifications
-      (replacing inline `#nosec` once we hit double digits).
-- [ ] SBOM (SPDX-JSON) generated on release builds and attached to
-      GitHub releases.
-- [ ] All §4 security tests implemented and passing.
+- [x] gitleaks workflow (full-history scan via `fetch-depth: 0`)
+      (v0.13.0). Pre-commit hook still pending.
+- [x] dependency-review-action on PRs (v0.13.0).
+- [x] `.github/dependabot.yml` weekly schedule (v0.13.0).
+- [x] SBOM (SPDX-JSON) generated on release builds and attached to
+      GitHub releases via `gh release upload --clobber` (v0.13.0).
+- [x] First cut of §4 security tests (file modes for db + draft
+      tempfile, SQL-injection survival via `SearchByPredicate`,
+      editor argv form, action ID entropy). Remaining §4 bullets
+      tracked in plan file with explicit deferral rationale.
+- [x] `docs/THREAT_MODEL.md` published (v0.13.0).
+- [x] `docs/PRIVACY.md` published (v0.13.0).
+- [ ] `.gosec.json` baseline file with documented justifications.
+      Deferred — current state is 0 findings + 9 inline `#nosec`
+      annotations; switch to a baseline file once the inline list
+      crosses double digits.
 - [ ] `SECURITY.md` filled in with real mailbox + PGP key (deferred
       to v1.0).
-- [ ] `docs/THREAT_MODEL.md` published.
-- [ ] `docs/PRIVACY.md` published.
 - [ ] `docs/SECURITY_TESTS.md` generator + checked-in output.
+      `// SECURITY-MAP:` annotations are added in v0.13.0; the
+      AST-walker generator lands as a follow-up so we don't ship
+      an unmaintained tool.
+- [ ] Pre-commit hook for gitleaks. CI gate covers the same
+      ground; lands when contributors hit it as friction.
 - [ ] At least one full quarterly review cycle completed with
       documented findings.
 

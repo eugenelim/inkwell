@@ -97,3 +97,33 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: run govulncheck
         run: $(go env GOPATH)/bin/govulncheck ./...
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks scans every commit, not just HEAD.
+          # Without fetch-depth=0, the action only sees a shallow
+          # clone and accidentally-committed credentials in older
+          # commits stay hidden.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No GITLEAKS_LICENSE — the action falls back to the
+          # OSS-licensed core ruleset, which is the right default
+          # for an OSS project.
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    # Only meaningful on PRs (compares HEAD vs base). Skip on push.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          # We don't pin a license allowlist yet — Go ecosystem is
+          # mostly MIT/BSD/Apache; revisit if we add a copyleft dep
+          # that would conflict with our distribution model.
