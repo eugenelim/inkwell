@@ -26,6 +26,7 @@ const (
 	SearchMode
 	SignInMode
 	ConfirmMode
+	CalendarMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update

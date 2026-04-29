@@ -310,7 +310,7 @@ func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
 		setupKeys []string
 		wantHint  string
 	}{
-		{"list-focused", nil, "/ search"},
+		{"list-focused", nil, "d delete"},
 		{"folders-focused", []string{"1"}, "2 list"},
 		{"viewer-focused-after-open", []string{"\n"}, "h back"},
 	}
@@ -741,6 +741,193 @@ func TestSavedSearchSectionHeaderIsNotSelectable(t *testing.T) {
 	// At any point, the cursor must not land on isSavedHeader.
 	require.False(t, m.folders.items[m.folders.cursor].isSavedHeader,
 		"cursor must skip the saved-searches header")
+}
+
+// TestListLoadMoreRevealsMessagesPastInitialPage is the regression for
+// the v0.7.x bug where scrolling past row 200 didn't reveal more
+// messages even though the local store had them.
+func TestListLoadMoreRevealsMessagesPastInitialPage(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Seed 500 messages into the inbox (the harness already created
+	// f-inbox + 3 messages; we add ~500 more with descending dates so
+	// they sort after the seeds).
+	st := m.deps.Store
+	accID := m.deps.Account.ID
+	now := time.Now()
+	for i := 0; i < 500; i++ {
+		require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+			ID:          "bulk-" + strconvI(i),
+			AccountID:   accID,
+			FolderID:    "f-inbox",
+			Subject:     "bulk-" + strconvI(i),
+			FromAddress: "x@example.invalid",
+			ReceivedAt:  now.Add(-time.Duration(i+10) * time.Minute),
+		}))
+	}
+	// Force a fresh load via folder Enter so the list pane reflects
+	// the seeded messages (initial limit 200).
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	loaded := cmd()
+	m2, _ = m.Update(loaded)
+	m = m2.(Model)
+	require.Equal(t, 200, len(m.list.messages), "initial load is exactly the page size")
+	require.Equal(t, initialListLimit, m.list.LoadLimit())
+
+	// Move cursor to row 180 — the threshold.
+	m.list.cursor = 180
+	require.True(t, m.list.ShouldLoadMore())
+
+	// Press j → should fire load-more, bump limit, return Cmd.
+	m2, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "j at threshold returns load-more Cmd")
+	require.True(t, m.list.loading, "loading flag set")
+	require.Equal(t, initialListLimit+pageIncrement, m.list.LoadLimit(),
+		"limit bumped to 400")
+
+	// Run the Cmd and feed back. We expect the result to carry the
+	// full 400 messages keyed to the inbox folder ID.
+	loaded = cmd()
+	mm, ok := loaded.(MessagesLoadedMsg)
+	require.True(t, ok, "load-more must return MessagesLoadedMsg, got %T", loaded)
+	require.Equal(t, "f-inbox", mm.FolderID, "FolderID matches list FolderID")
+	require.Equal(t, 400, len(mm.Messages), "store returns 400 (limit honored)")
+
+	// Apply the result.
+	m2, _ = m.Update(loaded)
+	m = m2.(Model)
+	require.Equal(t, 400, len(m.list.messages),
+		"REGRESSION: list pane must reflect the 400-message page")
+	require.False(t, m.list.loading, "loading flag cleared after SetMessages")
+}
+
+// TestListLoadMoreStopsWhenCacheExhausted is the regression for the
+// real-world flapping bug: if the local store has fewer messages than
+// loadLimit (e.g. only 50 cached because sync hasn't pulled more yet),
+// every j press at the threshold should NOT keep firing load-more
+// against an exhausted cache.
+func TestListLoadMoreStopsWhenCacheExhausted(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// The harness seeds 3 messages; load them.
+	require.LessOrEqual(t, len(m.list.messages), 50)
+	require.True(t, len(m.list.messages) < m.list.LoadLimit(),
+		"precondition: cache shorter than loadLimit")
+
+	// Move cursor to the threshold row (or as close as we can get).
+	if len(m.list.messages) > 0 {
+		m.list.cursor = len(m.list.messages) - 1
+	}
+	// First j was suppressed because SetMessages already marked
+	// cacheExhausted=true (3 messages < 200 loadLimit).
+	require.True(t, m.list.cacheExhausted,
+		"SetMessages must mark exhausted when result < limit")
+	require.False(t, m.list.ShouldLoadMore(),
+		"exhausted cache must not trigger load-more")
+
+	// Press j repeatedly — none should return a load-more Cmd.
+	for i := 0; i < 5; i++ {
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		require.Nil(t, cmd, "iteration %d: load-more must stay quiet on exhausted cache", i)
+	}
+}
+
+// TestIsLikelyMeetingDetectsInviteSubjects covers the heuristic for
+// the calendar-invite indicator in the message list.
+func TestIsLikelyMeetingDetectsInviteSubjects(t *testing.T) {
+	yes := []string{
+		"Accepted: Q4 review",
+		"Declined: Standup",
+		"Tentative: All-hands",
+		"Tentatively accepted: All-hands",
+		"Canceled: Project sync",
+		"Cancelled: Project sync",
+		"Updated: Roadmap chat",
+		"Meeting: vendor discussion",
+		"Invitation: kickoff",
+		"  Accepted:  with leading whitespace",
+		"ACCEPTED: case-insensitive",
+	}
+	no := []string{
+		"Q4 review",
+		"Re: standup notes",
+		"Fwd: roadmap",
+		"",
+		"acceptance criteria for Q4",
+	}
+	for _, s := range yes {
+		require.True(t, isLikelyMeeting(s), "%q should match", s)
+	}
+	for _, s := range no {
+		require.False(t, isLikelyMeeting(s), "%q should NOT match", s)
+	}
+}
+
+// TestCalCommandOpensCalendarModal drives `:cal` and asserts the
+// model transitions to CalendarMode and returns a Cmd that fetches
+// today's events. Calling that Cmd surfaces a calendarFetchedMsg.
+func TestCalCommandOpensCalendarModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now().UTC()
+	m.deps.Calendar = stubCalendar{events: []CalendarEvent{
+		{Subject: "Standup", Start: now.Add(time.Hour), End: now.Add(time.Hour + 30*time.Minute)},
+		{Subject: "Q4 review", Start: now.Add(3 * time.Hour), End: now.Add(4 * time.Hour)},
+	}}
+
+	// :cal Enter
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "cal" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, CalendarMode, m.mode)
+	require.True(t, m.calendar.loading)
+	require.NotNil(t, cmd, ":cal must return fetchCalendarCmd")
+
+	// Run the Cmd; feed the result back.
+	res := cmd()
+	mm, ok := res.(calendarFetchedMsg)
+	require.True(t, ok)
+	require.NoError(t, mm.Err)
+	require.Len(t, mm.Events, 2)
+	m2, _ = m.Update(mm)
+	m = m2.(Model)
+	require.False(t, m.calendar.loading)
+	require.Len(t, m.calendar.events, 2)
+
+	// Esc closes.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Nil(t, m.calendar.events, "Reset clears events on close")
+}
+
+// TestCalCommandWithoutFetcherFailsGracefully confirms that running
+// `:cal` without a Calendar wired sets lastError and stays in
+// NormalMode (the modal does NOT open into a broken state).
+func TestCalCommandWithoutFetcherFailsGracefully(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.Nil(t, m.deps.Calendar)
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	require.Nil(t, cmd)
+	require.Error(t, m.lastError)
+	require.NotEqual(t, CalendarMode, m.mode)
+}
+
+type stubCalendar struct {
+	events []CalendarEvent
+	err    error
+}
+
+func (s stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
+	return s.events, s.err
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug

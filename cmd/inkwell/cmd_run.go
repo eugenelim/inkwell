@@ -156,6 +156,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Account:       acc,
 		Triage:        exec,
 		Bulk:          bulkAdapter{exec: exec},
+		Calendar:      calendarAdapter{gc: gc},
 		ThemeName:     cfg.UI.Theme,
 		SavedSearches: saved,
 	})
@@ -212,6 +213,31 @@ func (b bulkAdapter) BulkArchive(ctx context.Context, accountID int64, ids []str
 func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
 	got, err := b.exec.BulkMarkRead(ctx, accountID, ids)
 	return convertBatchResults(got), err
+}
+
+// calendarAdapter bridges graph.Client.ListEventsToday → ui.CalendarEvent.
+// Same shape, decoupled types so ui doesn't import internal/graph.
+type calendarAdapter struct{ gc *graph.Client }
+
+func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEvent, error) {
+	es, err := c.gc.ListEventsToday(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ui.CalendarEvent, len(es))
+	for i, e := range es {
+		out[i] = ui.CalendarEvent{
+			Subject:          e.Subject,
+			OrganizerName:    e.OrganizerName,
+			OrganizerAddress: e.OrganizerAddress,
+			Start:            e.Start,
+			End:              e.End,
+			IsAllDay:         e.IsAllDay,
+			Location:         e.Location,
+			OnlineMeetingURL: e.OnlineMeetingURL,
+		}
+	}
+	return out, nil
 }
 
 func convertBatchResults(in []action.BatchResult) []ui.BulkResult {

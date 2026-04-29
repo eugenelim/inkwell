@@ -100,12 +100,16 @@ class. Recovery is your IT admin's call; see
 
 ## Documentation
 
-**For users of the binary:**
+**For users of the binary** (Diátaxis four-quadrant structure):
 
-- [`docs/user/guide.md`](docs/user/guide.md) — narrative walk-through:
-  install, sign-in, navigation, search, filtering, bulk actions, triage.
-- [`docs/user/cheatsheet.md`](docs/user/cheatsheet.md) — every keybinding,
-  every command, every pattern operator. Quick lookup.
+- [`docs/user/tutorial.md`](docs/user/tutorial.md) — first-launch
+  walkthrough; sequential.
+- [`docs/user/how-to.md`](docs/user/how-to.md) — task recipes (delete
+  newsletters, set up saved searches, etc.).
+- [`docs/user/reference.md`](docs/user/reference.md) — every keybinding,
+  command, pattern operator, mode, glyph. Quick lookup.
+- [`docs/user/explanation.md`](docs/user/explanation.md) — design
+  decisions: why no `Mail.Send`, why local-first, why optimistic UI.
 
 **For contributors:**
 

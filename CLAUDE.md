@@ -414,14 +414,17 @@ For the spec under work, run these phases in order. Do not skip.
    `docs/plans/spec-NN.md`, see §13). Mark bullets ticked or note remaining
    work. Update perf-budget table with measured numbers.
 
-   **At the same time, update the user docs.** If this iteration added or
-   changed any user-visible surface — a keybinding, a `:command`, a mode, a
-   pane glyph, a config key the user types — `docs/user/cheatsheet.md`
-   gets the new row, and `docs/user/guide.md` gets a sentence (or
-   section) describing the flow. Internal-only refactors (test infra,
-   private helpers, bench tweaks) are exempt. The check: would a user
-   reading the cheat sheet be surprised that this thing exists? If yes,
-   the docs change is mandatory.
+   **At the same time, update the user docs.** `docs/user/` follows
+   the [Diátaxis](https://diataxis.fr) four-quadrant structure
+   (tutorial / how-to / reference / explanation). If this iteration
+   added or changed a user-visible surface, `docs/user/reference.md`
+   gets the new row (mandatory) and `docs/user/how-to.md` gets a
+   recipe if the spec introduces a meaningful new task flow.
+   `tutorial.md` and `explanation.md` change rarely — only when the
+   first-launch path or a design invariant moves. Internal-only
+   refactors (test infra, private helpers, bench tweaks) are exempt.
+   The check: would a user reading the reference be surprised that
+   this thing exists? If yes, the docs change is mandatory.
 
 7. **Decide.** Are all DoD bullets ticked, all five mandatory commands (§5.6)
    green, all perf budgets measured and met, all redaction tests passing?
@@ -444,10 +447,16 @@ The loop exits **only when all** are true:
       passes within budget on the dev machine.
 - [ ] Redaction tests cover every new log site that could see secrets.
 - [ ] `docs/CONFIG.md` updated for every new key.
-- [ ] **`docs/user/cheatsheet.md` updated** for every new keybinding,
+- [ ] **`docs/user/reference.md` updated** for every new keybinding,
       command, mode, or pane glyph the user touches.
-- [ ] **`docs/user/guide.md` updated** when the spec adds or changes a
-      user-visible flow (a new section, or a tweak to an existing one).
+- [ ] **`docs/user/how-to.md` updated** when the spec adds a new task
+      flow worth a recipe (e.g. "delete all newsletters older than N
+      days"). Skip if the spec is purely a primitive used by other
+      flows already documented.
+- [ ] **`docs/user/tutorial.md` updated** if the spec changes the
+      first-30-minutes path (rare). Otherwise skip.
+- [ ] **`docs/user/explanation.md` updated** if the spec changes a
+      design invariant the explanation file currently asserts (rarer).
 - [ ] No CHANGELOG-style or planning markdown added unless the user asked.
 - [ ] PR checklist (§11) fully ticked.
 
