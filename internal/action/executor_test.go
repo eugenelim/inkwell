@@ -51,7 +51,9 @@ func newTestExec(t *testing.T) (*Executor, store.Store, int64, *httptest.Server)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
-	gc, err := graph.NewClient(fakeAuth{}, graph.Options{BaseURL: srv.URL, Logger: logger})
+	// MaxRetries=1 keeps the throttle/backoff loop short in tests;
+	// production wires the configured value via cmd_run.go.
+	gc, err := graph.NewClient(fakeAuth{}, graph.Options{BaseURL: srv.URL, Logger: logger, MaxRetries: 1})
 	require.NoError(t, err)
 	exec := New(st, gc, nil)
 	t.Cleanup(func() {})
