@@ -677,6 +677,72 @@ func (s stubBulkExecutor) BulkMarkRead(_ context.Context, _ int64, ids []string)
 	return out, nil
 }
 
+// TestSavedSearchesAppearInSidebar seeds two [[saved_searches]] config
+// entries and confirms FoldersModel.items renders the section header
+// + each saved search row with the ☆ glyph and the configured name.
+func TestSavedSearchesAppearInSidebar(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.folders.SetSavedSearches([]SavedSearch{
+		{Name: "Newsletters", Pattern: "~f newsletter@*"},
+		{Name: "Needs Reply", Pattern: "~r me@example.invalid & ~U"},
+	})
+	// Render to a string and check for the section header + names.
+	out := m.folders.View(m.theme, 30, 30, true)
+	require.Contains(t, out, "Saved Searches")
+	require.Contains(t, out, "☆ Newsletters")
+	require.Contains(t, out, "☆ Needs Reply")
+}
+
+// TestSavedSearchEnterRunsFilter drives j/Enter onto a saved search
+// row and asserts (a) the filter Cmd is returned, (b) focus moves to
+// the list pane.
+func TestSavedSearchEnterRunsFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.folders.SetSavedSearches([]SavedSearch{
+		{Name: "Newsletters", Pattern: "~f newsletter@*"},
+	})
+	// Focus folders.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	// Walk the cursor to the saved-search row. The newDispatchTestModel
+	// seeds 2 folders (Inbox + Archive); after them, items has the
+	// section header (skipped on Down) and the saved search.
+	for i := 0; i < 5; i++ {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = m2.(Model)
+	}
+	ss, ok := m.folders.SelectedSavedSearch()
+	require.True(t, ok, "cursor must land on saved-search row")
+	require.Equal(t, "Newsletters", ss.Name)
+
+	// Enter on the saved search.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ListPane, m.focused, "saved-search Enter auto-focuses list")
+	require.NotNil(t, cmd, "Enter must return runFilterCmd")
+}
+
+// TestSavedSearchSectionHeaderIsNotSelectable confirms cursor j/k
+// skips the synthetic "Saved Searches" header row.
+func TestSavedSearchSectionHeaderIsNotSelectable(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.folders.SetSavedSearches([]SavedSearch{
+		{Name: "X", Pattern: "~A"},
+	})
+	// Focus folders, walk to the bottom.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	for i := 0; i < 10; i++ {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = m2.(Model)
+	}
+	// At any point, the cursor must not land on isSavedHeader.
+	require.False(t, m.folders.items[m.folders.cursor].isSavedHeader,
+		"cursor must skip the saved-searches header")
+}
+
 // TestFolderSwitchClearsActiveSearch is the regression for the bug
 // caught in the v0.5.0 internal code review: pressing '/foo<Enter>'
 // then switching folders via '1' + 'Enter' left searchActive=true,

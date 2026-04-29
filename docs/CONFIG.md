@@ -255,16 +255,34 @@ Controls the pattern language compiler and executor.
 
 ---
 
-## `[saved_search]`
+## `[[saved_searches]]`
 
-Controls saved searches (virtual folders).
+A repeatable TOML table for named patterns that surface as virtual
+folders in the sidebar (spec 11). v0.7.0 implements the config-driven
+form; the DB-backed CRUD path (`Manager` API + TOML mirror + cache TTL
++ background refresh) is post-v0.7.
 
-| Key | Type | Default | Range | Description |
-| --- | --- | --- | --- | --- |
-| `cache_ttl` | duration | `"60s"` | 0–10m | How long evaluation results are cached in memory. `0` disables caching. |
-| `background_refresh_interval` | duration | `"2m"` | 30s–1h | How often pinned-search counts in the sidebar refresh. |
-| `seed_defaults` | bool | `true` | — | On first launch, seed example saved searches (Unread, Flagged, From me). |
-| `toml_mirror_path` | string | `"~/.config/inkwell/saved_searches.toml"` | path | Where the TOML mirror of saved searches is written. |
+```toml
+[[saved_searches]]
+name = "Newsletters"
+pattern = "~f newsletter@* | ~f noreply@*"
+
+[[saved_searches]]
+name = "Needs Reply"
+pattern = "~r me@example.invalid & ~U & ~d <14d"
+
+[[saved_searches]]
+name = "Old Heavy Mail"
+pattern = "~A & ~d >180d"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | string | (required) | Display name in the sidebar; must be unique. |
+| `pattern` | string | (required) | Spec 08 pattern source. Plain text without `~` desugars to `~B <text>`. |
+
+Future keys (deferred): `cache_ttl`, `background_refresh_interval`,
+`pinned`, `sort_order`, `toml_mirror_path`.
 
 **Owner spec:** 11.
 

@@ -22,13 +22,21 @@ import (
 
 // Config is the fully-populated runtime configuration.
 type Config struct {
-	Account   AccountConfig   `toml:"account"`
-	Cache     CacheConfig     `toml:"cache"`
-	Sync      SyncConfig      `toml:"sync"`
-	UI        UIConfig        `toml:"ui"`
-	Bindings  BindingsConfig  `toml:"bindings"`
-	Rendering RenderingConfig `toml:"rendering"`
-	Logging   LoggingConfig   `toml:"logging"`
+	Account       AccountConfig       `toml:"account"`
+	Cache         CacheConfig         `toml:"cache"`
+	Sync          SyncConfig          `toml:"sync"`
+	UI            UIConfig            `toml:"ui"`
+	Bindings      BindingsConfig      `toml:"bindings"`
+	Rendering     RenderingConfig     `toml:"rendering"`
+	Logging       LoggingConfig       `toml:"logging"`
+	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+}
+
+// SavedSearchConfig is one [[saved_searches]] table entry. The pattern
+// is the spec 08 source; it's parsed at UI init.
+type SavedSearchConfig struct {
+	Name    string `toml:"name"`
+	Pattern string `toml:"pattern"`
 }
 
 // AccountConfig owns the [account] section (spec 01).

@@ -16,11 +16,23 @@ import (
 // folder plus the depth at which it appears (0 for top-level, 1 for
 // its children, etc.) and a flag for whether it has any children
 // (used to render the disclosure glyph).
+//
+// Saved searches piggy-back on this type with isSaved=true; the
+// displayed name comes from savedName/savedPattern, and the row
+// renders with a leading ☆ glyph.
 type displayedFolder struct {
 	f        store.Folder
 	depth    int
 	hasKids  bool
 	expanded bool
+	// Saved-search fields (used when isSaved). The dispatcher reads
+	// savedPattern when Enter fires.
+	isSaved      bool
+	savedName    string
+	savedPattern string
+	// isSavedHeader marks the synthetic "Saved Searches" section
+	// divider — non-selectable, not a saved search itself.
+	isSavedHeader bool
 }
 
 // FoldersModel is the sidebar pane. It stores the raw folders + per-id
@@ -28,6 +40,7 @@ type displayedFolder struct {
 // cursor is an index into the currently-visible items.
 type FoldersModel struct {
 	raw      []store.Folder
+	saved    []SavedSearch
 	expanded map[string]bool // folder ID → is-expanded
 	items    []displayedFolder
 	cursor   int
@@ -66,9 +79,27 @@ func (m *FoldersModel) SetFolders(fs []store.Folder) {
 	}
 }
 
-// rebuild recomputes m.items from m.raw + m.expanded.
+// SetSavedSearches replaces the saved-search list and rebuilds the
+// displayed tree. Called once at Init from the [[saved_searches]]
+// config block; the runtime list isn't mutable in v0.7.0.
+func (m *FoldersModel) SetSavedSearches(s []SavedSearch) {
+	m.saved = s
+	m.rebuild()
+}
+
+// rebuild recomputes m.items from m.raw + m.expanded + m.saved.
 func (m *FoldersModel) rebuild() {
 	m.items = flattenFolderTree(m.raw, m.expanded)
+	if len(m.saved) > 0 {
+		m.items = append(m.items, displayedFolder{isSavedHeader: true})
+		for _, s := range m.saved {
+			m.items = append(m.items, displayedFolder{
+				isSaved:      true,
+				savedName:    s.Name,
+				savedPattern: s.Pattern,
+			})
+		}
+	}
 }
 
 // ToggleExpand flips the expansion state of the folder under the
@@ -183,26 +214,52 @@ func folderRank(f store.Folder) int {
 	}
 }
 
-// Up moves the cursor toward the top.
+// Up moves the cursor toward the top, skipping non-selectable
+// section-header rows.
 func (m *FoldersModel) Up() {
-	if m.cursor > 0 {
-		m.cursor--
+	for i := m.cursor - 1; i >= 0; i-- {
+		if !m.items[i].isSavedHeader {
+			m.cursor = i
+			return
+		}
 	}
 }
 
-// Down moves the cursor toward the bottom.
+// Down moves the cursor toward the bottom, skipping headers.
 func (m *FoldersModel) Down() {
-	if m.cursor+1 < len(m.items) {
-		m.cursor++
+	for i := m.cursor + 1; i < len(m.items); i++ {
+		if !m.items[i].isSavedHeader {
+			m.cursor = i
+			return
+		}
 	}
 }
 
-// Selected returns the highlighted folder, if any.
+// Selected returns the highlighted folder, if any. Returns ok=false
+// when the cursor is on a saved-search row (callers should test
+// SelectedSavedSearch first) or a section header.
 func (m FoldersModel) Selected() (store.Folder, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return store.Folder{}, false
 	}
-	return m.items[m.cursor].f, true
+	it := m.items[m.cursor]
+	if it.isSaved || it.isSavedHeader {
+		return store.Folder{}, false
+	}
+	return it.f, true
+}
+
+// SelectedSavedSearch returns the highlighted saved search, if the
+// cursor is on one.
+func (m FoldersModel) SelectedSavedSearch() (SavedSearch, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return SavedSearch{}, false
+	}
+	it := m.items[m.cursor]
+	if !it.isSaved {
+		return SavedSearch{}, false
+	}
+	return SavedSearch{Name: it.savedName, Pattern: it.savedPattern}, true
 }
 
 // SelectByID moves the cursor onto the folder with the given id.
@@ -224,6 +281,27 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	}
 	rows := make([]string, 0, len(m.items))
 	for i, it := range m.items {
+		// Saved-searches section header — non-selectable divider.
+		if it.isSavedHeader {
+			rows = append(rows, t.Dim.Render("  Saved Searches"))
+			continue
+		}
+		var line string
+		if it.isSaved {
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			line = marker + "☆ " + it.savedName
+			styled := truncate(line, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
+			continue
+		}
 		f := it.f
 		indent := strings.Repeat("  ", it.depth)
 		// Disclosure glyph for folders with children: ▾ open, ▸ closed.
@@ -236,7 +314,7 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 				disclosure = "▸ "
 			}
 		}
-		line := indent + disclosure + f.DisplayName
+		line = indent + disclosure + f.DisplayName
 		if f.UnreadCount > 0 {
 			line = fmt.Sprintf("%s  %d", line, f.UnreadCount)
 		}
