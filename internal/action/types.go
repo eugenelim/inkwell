@@ -3,7 +3,6 @@ package action
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -122,6 +121,3 @@ func paramString(m map[string]any, key string) string {
 var _ interface {
 	Drain(ctx context.Context) error
 } = (*Executor)(nil)
-
-// touch keeps time imported even if we drop the explicit usage.
-var _ = time.Now

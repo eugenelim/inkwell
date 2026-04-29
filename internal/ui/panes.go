@@ -569,10 +569,10 @@ func NewStatus(upn, tenant string) StatusModel {
 // stable identity holder (UPN, tenant) — transient state lives in the
 // root Model.
 type StatusInputs struct {
-	LastSync   time.Time
-	Throttled  time.Duration
-	Activity   string // "syncing folders…" / "syncing…" / "" (idle)
-	LastErr    error  // most recent SyncFailedEvent, if any
+	LastSync  time.Time
+	Throttled time.Duration
+	Activity  string // "syncing folders…" / "syncing…" / "" (idle)
+	LastErr   error  // most recent SyncFailedEvent, if any
 }
 
 // View renders the status line.

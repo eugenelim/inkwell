@@ -361,13 +361,13 @@ func TestFlattenFolderTreeOrdersAndIndentsCorrectly(t *testing.T) {
 		depth int
 	}{
 		{"inbox", 0},
-		{"team-a", 1},      // child of inbox, alpha first
-		{"team-x", 1},      // child of inbox
-		{"team-x-sub", 2},  // grandchild
-		{"sent", 0},        // sent items rank=1
-		{"user2", 0},       // "Archive Old" — user folder, alpha
-		{"user1", 0},       // "Newsletters" — user folder, alpha
-		{"junk", 0},        // junk at the bottom
+		{"team-a", 1},     // child of inbox, alpha first
+		{"team-x", 1},     // child of inbox
+		{"team-x-sub", 2}, // grandchild
+		{"sent", 0},       // sent items rank=1
+		{"user2", 0},      // "Archive Old" — user folder, alpha
+		{"user1", 0},      // "Newsletters" — user folder, alpha
+		{"junk", 0},       // junk at the bottom
 	}
 	for i, want := range expected {
 		require.Equal(t, want.id, got[i].f.ID, "row %d id", i)
@@ -509,16 +509,19 @@ func TestDispatchViewerFlagRunsTriageAndStays(t *testing.T) {
 // stubTriageDelete satisfies ui.TriageExecutor for the delete path.
 type stubTriageDelete struct{ onCall func() }
 
-func (s stubTriageDelete) MarkRead(context.Context, int64, string) error          { return nil }
-func (s stubTriageDelete) MarkUnread(context.Context, int64, string) error        { return nil }
-func (s stubTriageDelete) ToggleFlag(context.Context, int64, string, bool) error  { return nil }
-func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error  { s.onCall(); return nil }
-func (s stubTriageDelete) Archive(context.Context, int64, string) error           { return nil }
+func (s stubTriageDelete) MarkRead(context.Context, int64, string) error         { return nil }
+func (s stubTriageDelete) MarkUnread(context.Context, int64, string) error       { return nil }
+func (s stubTriageDelete) ToggleFlag(context.Context, int64, string, bool) error { return nil }
+func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error {
+	s.onCall()
+	return nil
+}
+func (s stubTriageDelete) Archive(context.Context, int64, string) error { return nil }
 
 type stubTriageFlag struct{ onCall func() }
 
-func (s stubTriageFlag) MarkRead(context.Context, int64, string) error            { return nil }
-func (s stubTriageFlag) MarkUnread(context.Context, int64, string) error          { return nil }
+func (s stubTriageFlag) MarkRead(context.Context, int64, string) error   { return nil }
+func (s stubTriageFlag) MarkUnread(context.Context, int64, string) error { return nil }
 func (s stubTriageFlag) ToggleFlag(_ context.Context, _ int64, _ string, _ bool) error {
 	s.onCall()
 	return nil
@@ -532,6 +535,98 @@ type atomicBool struct{ v bool }
 
 func (a *atomicBool) set()      { a.v = true }
 func (a *atomicBool) get() bool { return a.v }
+
+// TestFolderSwitchClearsActiveSearch is the regression for the bug
+// caught in the v0.5.0 internal code review: pressing '/foo<Enter>'
+// then switching folders via '1' + 'Enter' left searchActive=true,
+// so the cmd-bar reminder "search: foo (esc to clear)" lingered over
+// messages that weren't search results.
+func TestFolderSwitchClearsActiveSearch(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Run a search.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	for _, r := range "forecast" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.True(t, m.searchActive)
+
+	// Now navigate to a folder via '1' + j + Enter.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.False(t, m.searchActive, "switching folders must clear search state")
+	require.Empty(t, m.searchQuery)
+}
+
+// TestColonEntersCommandMode confirms ':' transitions to CommandMode
+// and the command bar buffer is empty on entry.
+func TestColonEntersCommandMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	require.Equal(t, CommandMode, m.mode)
+	require.Empty(t, m.cmd.Buffer())
+}
+
+// TestPrevPaneCyclesBackwards confirms shift+tab cycles in reverse:
+// list → folders → viewer → list.
+func TestPrevPaneCyclesBackwards(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.Equal(t, ListPane, m.focused)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = m2.(Model)
+	require.Equal(t, ListPane, m.focused)
+}
+
+// TestViewerLeftReturnsToList confirms 'h' in the viewer pane moves
+// focus back to the list, mirroring vim navigation idioms.
+func TestViewerLeftReturnsToList(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Open a message → focus moves to viewer.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	m = m2.(Model)
+	require.Equal(t, ListPane, m.focused)
+}
+
+// TestFolderRightOpensFolder confirms 'l' (Right) in the folders pane
+// behaves like Enter: switches the message list to that folder and
+// auto-focuses ListPane.
+func TestFolderRightOpensFolder(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Focus folders, move cursor down to Archive.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+
+	beforeID := m.list.FolderID
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = m2.(Model)
+	require.NotEqual(t, beforeID, m.list.FolderID, "Right on folder must switch the list")
+	require.Equal(t, ListPane, m.focused, "Right also auto-focuses the list (Enter parity)")
+	require.NotNil(t, cmd, "Right returns loadMessagesCmd")
+}
 
 // TestSearchModeCapturesAndRunsQuery activates search via '/', types
 // a query, presses Enter, and asserts (a) the model entered SearchMode

@@ -180,7 +180,42 @@ go build ./...                              # everything compiles
 
 A spec is not done until **all five** pass on a clean checkout.
 
-### 5.7 Linting
+### 5.7 The full regression suite (`make regress`)
+
+`scripts/regress.sh` (also wired as `make regress`) runs every gate
+from §5.6 in one command:
+
+1. `gofmt -s` — fails if any file is unformatted.
+2. `go vet ./...`
+3. `go build ./...`
+4. `go test -race ./...` (unit + dispatch).
+5. `go test -tags=e2e ./...` (TUI visible-delta).
+6. `go test -tags=integration ./...` (only if any test file declares the tag).
+7. `go test -bench=. -benchmem -run=^$ ./...` (perf budgets).
+
+**Mandatory**:
+
+- After every substantial change (anything beyond a single-file edit
+  whose blast radius is obvious from the diff).
+- **Always** before tagging a release. No exceptions. If `make regress`
+  is red, the tag does not happen.
+
+The suite is the institutional memory for the bugs that have already
+shipped and were caught after the fact. v0.2.6 → v0.2.7 happened
+because dispatch tests passed but the e2e visual feedback was broken.
+v0.2.8 → v0.2.9 happened because a height off-by-one trimmed the help
+bar. v0.3.0 → v0.3.1 happened because the soft_delete FK was caught
+by a regression test we hadn't written until the user hit it. Each of
+those is now in the suite. Adding to the suite is how we keep them
+from coming back.
+
+When you fix a bug a user reported, write the regression test BEFORE
+the fix lands in the same commit, and add it to the relevant package's
+test file. The next user who hits a similar issue gets a green test
+that proves the surface is intact, or a red one that points at the new
+regression.
+
+### 5.8 Linting
 
 - `gofmt -s` (simplify).
 - `go vet`.

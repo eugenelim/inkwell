@@ -43,18 +43,18 @@ func inferWellKnownName(displayName string) string {
 //
 // Two transformations on the Graph response:
 //
-// 1. parent_folder_id NULL-out: Graph returns top-level folders with
-//    parentFolderId pointing to the mailbox root (msgfolderroot), a
-//    folder we don't track. The folders.parent_folder_id → folders.id
-//    FK would reject this. We collect the response's ID set and NULL
-//    any parent that isn't in it.
+//  1. parent_folder_id NULL-out: Graph returns top-level folders with
+//     parentFolderId pointing to the mailbox root (msgfolderroot), a
+//     folder we don't track. The folders.parent_folder_id → folders.id
+//     FK would reject this. We collect the response's ID set and NULL
+//     any parent that isn't in it.
 //
-// 2. wellKnownName inference: Graph 400's some tenants when we $select
-//    wellKnownName on the LIST endpoint, so we don't request it. We
-//    infer it from the DisplayName via [inferWellKnownName] which has
-//    the canonical English mapping. Non-English tenants get empty
-//    well-known names — they sort alphabetically and the Inbox-default
-//    picker falls back to display-name match (case-insensitive).
+//  2. wellKnownName inference: Graph 400's some tenants when we $select
+//     wellKnownName on the LIST endpoint, so we don't request it. We
+//     infer it from the DisplayName via [inferWellKnownName] which has
+//     the canonical English mapping. Non-English tenants get empty
+//     well-known names — they sort alphabetically and the Inbox-default
+//     picker falls back to display-name match (case-insensitive).
 func (e *engine) syncFolders(ctx context.Context) error {
 	remote, err := e.gc.ListFolders(ctx)
 	if err != nil {

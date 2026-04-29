@@ -41,11 +41,11 @@ type fakeEngine struct {
 	events    chan isync.Event
 }
 
-func newFakeEngine() *fakeEngine { return &fakeEngine{events: make(chan isync.Event, 8)} }
-func (f *fakeEngine) Start(_ context.Context) error                 { return nil }
-func (f *fakeEngine) SetActive(_ bool)                              {}
-func (f *fakeEngine) SyncAll(_ context.Context) error               { f.syncCalls++; return nil }
-func (f *fakeEngine) Notifications() <-chan isync.Event             { return f.events }
+func newFakeEngine() *fakeEngine                        { return &fakeEngine{events: make(chan isync.Event, 8)} }
+func (f *fakeEngine) Start(_ context.Context) error     { return nil }
+func (f *fakeEngine) SetActive(_ bool)                  {}
+func (f *fakeEngine) SyncAll(_ context.Context) error   { f.syncCalls++; return nil }
+func (f *fakeEngine) Notifications() <-chan isync.Event { return f.events }
 
 func openE2EStore(t *testing.T) (store.Store, *store.Account) {
 	t.Helper()
@@ -303,7 +303,7 @@ func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
 	st, acc := openE2EStore(t)
 	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
 		ID: "m-long", AccountID: acc.ID, FolderID: "f-inbox",
-		Subject: "Asian and Pacific Islander Heritage Month kickoff",
+		Subject:     "Asian and Pacific Islander Heritage Month kickoff",
 		FromAddress: "erg@example.invalid", FromName: "ERG",
 		ReceivedAt: time.Now().Add(-3 * time.Hour),
 	}))

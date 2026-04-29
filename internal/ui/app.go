@@ -107,10 +107,10 @@ type Model struct {
 
 	// Search-mode buffer + last-committed query. The list pane renders
 	// search results in place of folder messages when searchActive.
-	searchBuf      string
-	searchActive   bool
-	searchQuery    string // committed query (the one that produced m.list contents)
-	priorFolderID  string // folder to restore when search is cleared
+	searchBuf     string
+	searchActive  bool
+	searchQuery   string // committed query (the one that produced m.list contents)
+	priorFolderID string // folder to restore when search is cleared
 }
 
 // New constructs the root model. After construction, callers run
@@ -491,6 +491,11 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.list.FolderID = f.ID
 			m.list.ResetLimit() // new folder → fresh first page
 			m.focused = ListPane
+			// Switching folders implicitly cancels any active search;
+			// otherwise the "search: foo (esc to clear)" reminder
+			// persists over messages that aren't search results.
+			m.searchActive = false
+			m.searchQuery = ""
 			return m, m.loadMessagesCmd(f.ID)
 		}
 	}

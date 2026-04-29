@@ -22,13 +22,13 @@ import (
 
 // Config is the fully-populated runtime configuration.
 type Config struct {
-	Account    AccountConfig    `toml:"account"`
-	Cache      CacheConfig      `toml:"cache"`
-	Sync       SyncConfig       `toml:"sync"`
-	UI         UIConfig         `toml:"ui"`
-	Bindings   BindingsConfig   `toml:"bindings"`
-	Rendering  RenderingConfig  `toml:"rendering"`
-	Logging    LoggingConfig    `toml:"logging"`
+	Account   AccountConfig   `toml:"account"`
+	Cache     CacheConfig     `toml:"cache"`
+	Sync      SyncConfig      `toml:"sync"`
+	UI        UIConfig        `toml:"ui"`
+	Bindings  BindingsConfig  `toml:"bindings"`
+	Rendering RenderingConfig `toml:"rendering"`
+	Logging   LoggingConfig   `toml:"logging"`
 }
 
 // AccountConfig owns the [account] section (spec 01).
