@@ -108,6 +108,30 @@ func TestUpsertAndQueryMessages(t *testing.T) {
 	}
 }
 
+// TestMeetingMessageTypeRoundTrip is the regression for the v0.11-era
+// real-tenant bug where the calendar indicator (📅) silently dropped
+// off invites whose subject didn't begin with one of the heuristic
+// prefixes (Accepted: / Meeting: / etc.). Spec 02 v2 added a
+// meeting_message_type column populated from Graph's $select. This
+// test asserts the column round-trips through upsert→scan.
+func TestMeetingMessageTypeRoundTrip(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+	f := SeedFolder(t, s, acc)
+	m := Message{
+		ID:                 "m-invite-1",
+		AccountID:          acc,
+		FolderID:           f.ID,
+		Subject:            "Q4 sync", // no meeting prefix
+		MeetingMessageType: "meetingRequest",
+		ReceivedAt:         time.Now(),
+	}
+	require.NoError(t, s.UpsertMessage(context.Background(), m))
+	got, err := s.GetMessage(context.Background(), "m-invite-1")
+	require.NoError(t, err)
+	require.Equal(t, "meetingRequest", got.MeetingMessageType)
+}
+
 func TestUpdateMessageFieldsPartial(t *testing.T) {
 	s := OpenTestStore(t)
 	acc := SeedAccount(t, s)

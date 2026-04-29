@@ -20,6 +20,7 @@ func (s *store) Search(ctx context.Context, q SearchQuery) ([]MessageMatch, erro
 		limit = 50
 	}
 	args := []any{q.Query}
+	// #nosec G202 — concatenation joins package-private string constants only; user input (q.Query, q.AccountID, q.FolderID, q.Limit) is bound via `?` placeholders below.
 	stmt := `
 		SELECT ` + messageColumnsPrefixed("m") + `, bm25(messages_fts) AS rank
 		FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid

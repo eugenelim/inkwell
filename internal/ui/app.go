@@ -101,6 +101,9 @@ type Deps struct {
 	// Drafts handles compose / reply (spec 15). Optional — when nil,
 	// the `r` keybinding in the viewer pane shows a friendly error.
 	Drafts DraftCreator
+	// Unsubscribe wires the U key (spec 16). Optional — when nil, U
+	// shows a friendly "unsubscribe not wired" message.
+	Unsubscribe UnsubscribeService
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -139,6 +142,42 @@ type MailboxClient interface {
 // internal/action's full type set.
 type DraftCreator interface {
 	CreateDraftReply(ctx context.Context, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+}
+
+// UnsubscribeKind enumerates the action the UI should drive after
+// resolving a message's List-Unsubscribe header (spec 16).
+type UnsubscribeKind int
+
+const (
+	UnsubscribeNone         UnsubscribeKind = iota // no actionable header
+	UnsubscribeOneClickPOST                        // RFC 8058 one-click HTTPS POST
+	UnsubscribeBrowserGET                          // HTTPS only — open in browser
+	UnsubscribeMailto                              // mailto: URI — compose flow (degraded for v1)
+)
+
+// UnsubscribeAction is what UnsubscribeService.Resolve returns. The
+// UI uses Kind to route the confirm modal + execution; URL/Mailto
+// fields populate the modal preview so the user spots a phishing
+// attempt before pressing y.
+type UnsubscribeAction struct {
+	Kind   UnsubscribeKind
+	URL    string // populated for OneClickPOST + BrowserGET
+	Mailto string // populated for Mailto (the bare address, no scheme)
+}
+
+// UnsubscribeService is the surface the UI consumes for spec 16. The
+// wiring layer (cmd/inkwell) composes this from the store + graph
+// client + unsub.Executor; the UI never imports graph directly
+// (CLAUDE.md §2).
+type UnsubscribeService interface {
+	// Resolve returns the cached or freshly-fetched unsubscribe action
+	// for a message. The first call may make a Graph round-trip; the
+	// result is persisted on the row so subsequent calls are local.
+	Resolve(ctx context.Context, messageID string) (UnsubscribeAction, error)
+	// OneClickPOST issues the RFC 8058 POST. Nil on success; typed
+	// error otherwise. The UI surfaces the error verbatim so the
+	// status code falls back to the browser path.
+	OneClickPOST(ctx context.Context, url string) error
 }
 
 // DraftRef mirrors action.DraftResult. WebLink is the Outlook URL
@@ -233,6 +272,13 @@ type Model struct {
 	lastDraftWebLink string
 	composeTempfile  string // path of the in-flight tempfile, if any
 	composeSourceID  string // source message id for the in-flight reply
+
+	// Unsubscribe (spec 16). pendingUnsub holds the resolved action
+	// while the confirm modal is open; the y/n result fires the
+	// matching execution branch. Cleared after the action completes
+	// or the user cancels.
+	pendingUnsub          *UnsubscribeAction
+	pendingUnsubMessageID string
 }
 
 // New constructs the root model. After construction, callers run
@@ -392,16 +438,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, runEditorCmd(msg.tempfile, msg.sourceID, msg.editor)
 
 	case composeEditedMsg:
-		// Editor exited. Either the user wrote something (parse + save)
-		// or they aborted (the parser surfaces ErrEmpty / ErrNoRecipients).
+		// Editor exited. Don't save yet — pop a confirm pane so the
+		// user can choose Save / Re-edit / Discard. Solves two
+		// real-tenant complaints: (a) no visible "Save Draft" hint
+		// during the flow; (b) editor's :q!-style exits saved the
+		// draft anyway, contrary to user expectation.
 		if msg.err != nil {
 			// exec error before the editor even started.
 			m.lastError = fmt.Errorf("compose: %w", msg.err)
 			m.engineActivity = ""
 			return m, nil
 		}
-		m.engineActivity = "saving draft…"
-		return m, m.saveDraftCmd(msg.tempfile, msg.sourceID)
+		m.composeTempfile = msg.tempfile
+		m.composeSourceID = msg.sourceID
+		m.engineActivity = ""
+		m.mode = ComposeConfirmMode
+		return m, nil
 
 	case draftSavedMsg:
 		m.composeTempfile = ""
@@ -444,6 +496,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.runBulkCmd(action)
 			}
 		}
+		// Unsubscribe confirmation (spec 16): pendingUnsub carries the
+		// resolved action; y fires execution, n drops it.
+		if m.pendingUnsub != nil && msg.Topic == "unsubscribe" {
+			action := *m.pendingUnsub
+			if msg.Confirm {
+				m.engineActivity = fmt.Sprintf("unsubscribing (%s)…", unsubKindLabel(action.Kind))
+				return m, m.executeUnsubCmd(action)
+			}
+			m.pendingUnsub = nil
+			m.pendingUnsubMessageID = ""
+			m.engineActivity = "unsubscribe cancelled"
+			return m, nil
+		}
 		return m, nil
 
 	case filterAppliedMsg:
@@ -485,6 +550,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case unsubResolvedMsg:
+		m.engineActivity = ""
+		if msg.err != nil {
+			// ErrNoHeader / ErrUnactionable arrive here; surface verbatim.
+			m.lastError = fmt.Errorf("unsubscribe: %w", msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		// Park the resolved action and ask the user to confirm. Confirm
+		// modal copy varies by Kind so the user sees the URL/addr.
+		m.pendingUnsub = &msg.action
+		m.pendingUnsubMessageID = msg.messageID
+		var prompt string
+		switch msg.action.Kind {
+		case UnsubscribeOneClickPOST:
+			prompt = fmt.Sprintf("One-click unsubscribe by POSTing to %s? [y/N]", msg.action.URL)
+		case UnsubscribeBrowserGET:
+			prompt = fmt.Sprintf("Open unsubscribe URL in browser?\n  %s\n[y/N]", msg.action.URL)
+		case UnsubscribeMailto:
+			prompt = fmt.Sprintf("Send unsubscribe mail to %s via your default mail handler? [y/N]", msg.action.Mailto)
+		default:
+			m.lastError = fmt.Errorf("unsubscribe: unknown action")
+			m.pendingUnsub = nil
+			return m, nil
+		}
+		m.confirm = m.confirm.Ask(prompt, "unsubscribe")
+		m.mode = ConfirmMode
+		return m, nil
+
+	case unsubDoneMsg:
+		m.engineActivity = ""
+		m.pendingUnsub = nil
+		m.pendingUnsubMessageID = ""
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("unsubscribe failed: %w", msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		switch msg.kind {
+		case UnsubscribeOneClickPOST:
+			m.engineActivity = "✓ unsubscribed (one-click)"
+		case UnsubscribeBrowserGET:
+			m.engineActivity = "opened unsubscribe URL in browser"
+		case UnsubscribeMailto:
+			m.engineActivity = "opened unsubscribe mail in default handler"
+		}
+		return m, nil
+
 	case triageDoneMsg:
 		if msg.err != nil {
 			m.lastError = fmt.Errorf("%s: %w", msg.name, msg.err)
@@ -523,9 +636,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCalendar(msg)
 	case OOFMode:
 		return m.updateOOF(msg)
+	case ComposeConfirmMode:
+		return m.updateComposeConfirm(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateComposeConfirm handles the post-edit confirm pane. After the
+// user's editor exits, the reply flow lands here so they can pick:
+//
+//	s — save the draft (parse → POST createReply → PATCH body)
+//	e — re-open the editor (back to ExecProcess on the same tempfile)
+//	d — discard (delete the tempfile, no Graph round-trip)
+//
+// This fixes the v0.11.0 confusion where editor `:q!` saved the draft
+// regardless and there was no visible hint about which key did what.
+func (m Model) updateComposeConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch string(keyMsg.Runes) {
+	case "s":
+		// User chose to save. Run the existing pipeline.
+		path := m.composeTempfile
+		src := m.composeSourceID
+		m.mode = NormalMode
+		m.engineActivity = "saving draft…"
+		return m, m.saveDraftCmd(path, src)
+	case "e":
+		// Re-open the editor on the same tempfile. The user's
+		// previous edits are still on disk.
+		path := m.composeTempfile
+		src := m.composeSourceID
+		ec, err := compose.EditorCmd(path)
+		if err != nil {
+			m.mode = NormalMode
+			m.lastError = err
+			return m, nil
+		}
+		m.mode = NormalMode
+		m.engineActivity = "editing draft…"
+		return m, runEditorCmd(path, src, ec)
+	case "d":
+		// Discard: delete the tempfile, no Graph round-trip.
+		path := m.composeTempfile
+		m.composeTempfile = ""
+		m.composeSourceID = ""
+		m.mode = NormalMode
+		m.engineActivity = "draft discarded"
+		go func() { compose.CleanupTempfile(path) }()
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyEsc {
+		// Treat Esc as "back to confirm" — i.e., stay here. This
+		// prevents an accidental Esc from silently discarding work.
+		return m, nil
+	}
+	return m, nil
 }
 
 // updateOOF handles input while the out-of-office modal is open.
@@ -774,7 +943,12 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		patternSrc := strings.TrimSpace(strings.TrimPrefix(line, "filter"))
 		return m, m.runFilterCmd(patternSrc)
 	case "unfilter":
-		return m.clearFilter(), nil
+		prior := m.priorFolderID
+		m = m.clearFilter()
+		if prior != "" {
+			return m, m.loadMessagesCmd(prior)
+		}
+		return m, nil
 	case "cal", "calendar":
 		if m.deps.Calendar == nil {
 			m.lastError = fmt.Errorf("calendar: not wired (CLI mode or unsigned)")
@@ -783,6 +957,21 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		m.mode = CalendarMode
 		m.calendar.SetLoading()
 		return m, m.fetchCalendarCmd()
+	case "unsub", "unsubscribe":
+		// Resolves the focused message (viewer or list) through the
+		// same flow as the U keybinding. Mirrors aerc's `:unsubscribe`
+		// convention (spec 16 §2).
+		var msgID string
+		if cur := m.viewer.current; cur != nil {
+			msgID = cur.ID
+		} else if sel, ok := m.list.Selected(); ok {
+			msgID = sel.ID
+		}
+		if msgID == "" {
+			m.lastError = fmt.Errorf("unsubscribe: no message focused")
+			return m, nil
+		}
+		return m.startUnsubscribe(msgID)
 	case "ooo", "outofoffice", "oof":
 		if m.deps.Mailbox == nil {
 			m.lastError = fmt.Errorf("ooo: not wired (CLI mode or unsigned)")
@@ -798,12 +987,15 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 
 // runFilterCmd compiles the supplied pattern and runs it against the
 // local store. The matched messages replace the list pane contents.
-// Plain text (no `~` operator) is treated as `~B <text>` (subject or
-// body contains).
+// Plain text (no `~` operator) is treated as a CONTAINS search across
+// subject and body — `:filter foo` becomes `~B *foo*`. Wrapping with
+// `*…*` is what every search box does (Gmail, Outlook, Spotlight); a
+// bare `~B foo` would compile to MatchExact and surprise the user
+// when their substring doesn't equal the entire subject.
 func (m Model) runFilterCmd(src string) tea.Cmd {
 	src = strings.TrimSpace(src)
 	if !strings.Contains(src, "~") {
-		src = "~B " + src
+		src = "~B *" + src + "*"
 	}
 	return func() tea.Msg {
 		root, err := pattern.Parse(src)
@@ -1113,8 +1305,31 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runTriage("archive", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
 			return m.deps.Triage.Archive(ctx, accID, src.ID)
 		})
+	case key.Matches(msg, m.keymap.Unsubscribe):
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startUnsubscribe(sel.ID)
 	}
 	return m, nil
+}
+
+// startUnsubscribe begins the spec 16 U flow for a message id. If
+// Unsubscribe wiring is missing (CLI path / unsigned), surfaces a
+// friendly error. Otherwise kicks off resolveUnsubCmd which lands
+// as unsubResolvedMsg → confirm modal.
+func (m Model) startUnsubscribe(messageID string) (tea.Model, tea.Cmd) {
+	if m.deps.Unsubscribe == nil {
+		m.lastError = fmt.Errorf("unsubscribe: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	if messageID == "" {
+		m.lastError = fmt.Errorf("unsubscribe: no message focused")
+		return m, nil
+	}
+	m.engineActivity = "checking unsubscribe header…"
+	return m, m.resolveUnsubCmd(messageID)
 }
 
 // runTriage is the shared dispatch boilerplate. The caller supplies
@@ -1147,6 +1362,73 @@ type triageDoneMsg struct {
 	postFocus Pane
 	msgID     string
 	err       error
+}
+
+// unsubResolvedMsg is the result of UnsubscribeService.Resolve. The
+// dispatcher routes it into the confirm modal (one-click / browser /
+// mailto) or surfaces a friendly error (no header, malformed).
+type unsubResolvedMsg struct {
+	messageID string
+	action    UnsubscribeAction
+	err       error
+}
+
+// unsubDoneMsg is the result of the action execution (POST or
+// browser-open). For browser/mailto the Cmd returns immediately and
+// this carries the friendly status message; for one-click POST it
+// carries the success/failure of the network call.
+type unsubDoneMsg struct {
+	kind UnsubscribeKind
+	url  string
+	err  error
+}
+
+// unsubKindLabel renders an UnsubscribeKind for the status bar.
+func unsubKindLabel(k UnsubscribeKind) string {
+	switch k {
+	case UnsubscribeOneClickPOST:
+		return "one-click"
+	case UnsubscribeBrowserGET:
+		return "browser"
+	case UnsubscribeMailto:
+		return "mailto"
+	}
+	return "unknown"
+}
+
+// resolveUnsubCmd kicks off the Resolve flow. Returns unsubResolvedMsg.
+func (m Model) resolveUnsubCmd(messageID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		action, err := m.deps.Unsubscribe.Resolve(ctx, messageID)
+		return unsubResolvedMsg{messageID: messageID, action: action, err: err}
+	}
+}
+
+// executeUnsubCmd runs the chosen action (after y in the confirm
+// modal). One-click is the only path that hits the network; the
+// other two are local fire-and-forget.
+func (m Model) executeUnsubCmd(action UnsubscribeAction) tea.Cmd {
+	return func() tea.Msg {
+		switch action.Kind {
+		case UnsubscribeOneClickPOST:
+			ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+			defer cancel()
+			err := m.deps.Unsubscribe.OneClickPOST(ctx, action.URL)
+			return unsubDoneMsg{kind: action.Kind, url: action.URL, err: err}
+		case UnsubscribeBrowserGET:
+			openInBrowser(action.URL)
+			return unsubDoneMsg{kind: action.Kind, url: action.URL}
+		case UnsubscribeMailto:
+			// v1: hand off to the OS mail handler via mailto: URL. Spec
+			// 15 integration (drop a draft on Outlook server) is a
+			// follow-up — the OS hand-off is enough to unblock the user.
+			openInBrowser("mailto:" + action.Mailto)
+			return unsubDoneMsg{kind: action.Kind, url: action.Mailto}
+		}
+		return unsubDoneMsg{kind: action.Kind, err: fmt.Errorf("unsubscribe: unknown action kind")}
+	}
 }
 
 // openMessageCmd renders headers immediately, then either reads the
@@ -1229,6 +1511,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// next compose action or Esc clears it.
 		if m.lastDraftWebLink != "" {
 			go openInBrowser(m.lastDraftWebLink)
+		}
+	case key.Matches(msg, m.keymap.Unsubscribe):
+		if cur := m.viewer.current; cur != nil {
+			return m.startUnsubscribe(cur.ID)
 		}
 	}
 	return m, nil
@@ -1374,6 +1660,9 @@ func (m Model) View() string {
 	}
 	if m.mode == OOFMode {
 		return m.oof.View(m.theme, m.width, m.height)
+	}
+	if m.mode == ComposeConfirmMode {
+		return m.renderComposeConfirm()
 	}
 
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{

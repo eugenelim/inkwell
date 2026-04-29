@@ -91,12 +91,12 @@ func (s *store) EvictBodies(ctx context.Context, maxCount int, maxBytes int64) (
 	for rows.Next() {
 		var v victim
 		if err := rows.Scan(&v.id, &v.size); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		victims = append(victims, v)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	evicted := 0
 	for _, v := range victims {

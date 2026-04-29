@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -571,19 +572,79 @@ func TestFilterCommandActivatesFilter(t *testing.T) {
 }
 
 // TestFilterPlainTextWrapsInBOperator confirms `:filter foo` (no `~`
-// operator) is rewritten to `~B foo`.
+// operator) is rewritten as a CONTAINS search (`~B *foo*`) — not an
+// exact-match on the subject. Real-tenant regression: `:filter [External]`
+// returned zero rows because the auto-wrap was `~B [External]` which
+// compiled to `subject = '[External]'`. Every search box on Earth
+// expects substring match; we now match that mental model.
 func TestFilterPlainTextWrapsInBOperator(t *testing.T) {
 	m := newDispatchTestModel(t)
-	// Seed a message with subject containing "forecast".
 	require.GreaterOrEqual(t, len(m.list.messages), 1)
 
 	cmd := m.runFilterCmd("forecast")
 	require.NotNil(t, cmd)
 	msg := cmd()
-	// On a successful pattern compile we get filterAppliedMsg.
-	if applied, ok := msg.(filterAppliedMsg); ok {
-		require.Contains(t, applied.src, "~B forecast")
+	applied, ok := msg.(filterAppliedMsg)
+	require.True(t, ok, "plain-text filter must return filterAppliedMsg, got %T", msg)
+	require.Contains(t, applied.src, "~B *forecast*", "plain text must wrap as contains")
+	// "Q4 forecast" is in the seeded set; CONTAINS must find it.
+	require.GreaterOrEqual(t, len(applied.messages), 1, "contains-wrapped filter must match seeded subject")
+}
+
+// TestFilterBracketTextMatchesSubjectContains is the real-tenant
+// regression: `:filter [External]` against a corpus where messages
+// have subjects like "[External] Q4 deck" used to return zero. Now
+// it must hit the message whose subject contains the bracketed tag.
+func TestFilterBracketTextMatchesSubjectContains(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Seed an additional message whose subject carries the [External]
+	// tag that Exchange transport rules typically prepend.
+	require.NoError(t, m.deps.Store.UpsertMessage(context.Background(), store.Message{
+		ID:          "m-ext",
+		AccountID:   m.deps.Account.ID,
+		FolderID:    "f-inbox",
+		Subject:     "[External] vendor pricing",
+		FromAddress: "vendor@example.invalid",
+		ReceivedAt:  time.Now(),
+	}))
+
+	cmd := m.runFilterCmd("[External]")
+	require.NotNil(t, cmd)
+	msg := cmd()
+	applied, ok := msg.(filterAppliedMsg)
+	require.True(t, ok, "got %T", msg)
+	require.GreaterOrEqual(t, len(applied.messages), 1, ":filter [External] must hit messages tagged by transport rule")
+}
+
+// TestUnfilterReloadsPriorFolder is the real-tenant regression for
+// the v0.11-era bug where `:unfilter` reset the model's filterActive
+// flag but the list pane kept showing the stale filter results
+// because no loadMessagesCmd was issued. The fix returns the load
+// Cmd; this test asserts it's non-nil.
+func TestUnfilterReloadsPriorFolder(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Apply a filter so priorFolderID is captured and filterActive flips.
+	cmd := m.runFilterCmd("forecast")
+	require.NotNil(t, cmd)
+	applied, ok := cmd().(filterAppliedMsg)
+	require.True(t, ok)
+	m2, _ := m.Update(applied)
+	m = m2.(Model)
+	require.True(t, m.filterActive)
+	require.NotEmpty(t, m.priorFolderID)
+
+	// Now drive `:unfilter` through the command bar and assert a Cmd
+	// is returned (the load-prior-folder Cmd).
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "unfilter" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
 	}
+	m2, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.False(t, m.filterActive)
+	require.NotNil(t, cmd, ":unfilter must return loadMessagesCmd to refresh the pane")
 }
 
 // TestSemicolonChordRequiresFilter confirms `;` outside a filter is
@@ -679,6 +740,153 @@ func (s stubBulkExecutor) BulkMarkRead(_ context.Context, _ int64, ids []string)
 		out[i] = BulkResult{MessageID: id}
 	}
 	return out, nil
+}
+
+// stubUnsubService satisfies ui.UnsubscribeService for dispatch tests.
+// Each method records the calls so tests can assert the right path.
+type stubUnsubService struct {
+	resolveAction UnsubscribeAction
+	resolveErr    error
+	resolveCalls  int
+	postCalls     int
+	postURL       string
+	postErr       error
+}
+
+func (s *stubUnsubService) Resolve(_ context.Context, _ string) (UnsubscribeAction, error) {
+	s.resolveCalls++
+	return s.resolveAction, s.resolveErr
+}
+
+func (s *stubUnsubService) OneClickPOST(_ context.Context, url string) error {
+	s.postCalls++
+	s.postURL = url
+	return s.postErr
+}
+
+// TestUnsubscribeKeyResolvesAndOpensConfirmModal drives the spec 16
+// happy path: U on a list-pane row → resolveUnsubCmd → confirm modal
+// shows the URL. Visible-delta requirement: ConfirmMode is the
+// post-state, and the prompt text contains the URL the user is
+// about to act on (so they can spot a phishing attempt before y).
+func TestUnsubscribeKeyResolvesAndOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubUnsubService{
+		resolveAction: UnsubscribeAction{Kind: UnsubscribeOneClickPOST, URL: "https://example.invalid/u/abc"},
+	}
+	m.deps.Unsubscribe = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "U must return resolveUnsubCmd")
+	// Drive the resolve Cmd inline so the resolved action lands.
+	resolved := cmd()
+	m2, _ = m.Update(resolved)
+	m = m2.(Model)
+	require.Equal(t, 1, stub.resolveCalls)
+	require.Equal(t, ConfirmMode, m.mode, "U must transition to ConfirmMode after resolve")
+	require.Contains(t, m.confirm.Message, "example.invalid/u/abc", "confirm must show the URL the user is about to POST")
+	require.Equal(t, "unsubscribe", m.confirm.Topic)
+}
+
+// TestUnsubscribeConfirmYesFiresPOST drives U → y → asserts the
+// OneClickPOST call landed with the right URL.
+func TestUnsubscribeConfirmYesFiresPOST(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubUnsubService{
+		resolveAction: UnsubscribeAction{Kind: UnsubscribeOneClickPOST, URL: "https://example.invalid/u/abc"},
+	}
+	m.deps.Unsubscribe = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+
+	// Press y → Update returns a Cmd that emits ConfirmResultMsg{Confirm:true}.
+	m2, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	// The Cmd produces a ConfirmResultMsg; route it through Update.
+	m2, cmd = m.Update(cmd())
+	m = m2.(Model)
+	require.NotNil(t, cmd, "y must dispatch executeUnsubCmd")
+	// Drive the execute Cmd inline.
+	done := cmd()
+	m2, _ = m.Update(done)
+	m = m2.(Model)
+	require.Equal(t, 1, stub.postCalls)
+	require.Equal(t, "https://example.invalid/u/abc", stub.postURL)
+	require.Contains(t, m.engineActivity, "unsubscribed")
+	require.Nil(t, m.lastError)
+}
+
+// TestUnsubscribeConfirmNoSkipsPOST is the cancel path. n must drop
+// the pending action without calling OneClickPOST.
+func TestUnsubscribeConfirmNoSkipsPOST(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubUnsubService{
+		resolveAction: UnsubscribeAction{Kind: UnsubscribeOneClickPOST, URL: "https://example.invalid/u/abc"},
+	}
+	m.deps.Unsubscribe = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+
+	m2, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd()) // ConfirmResultMsg{Confirm:false}
+	m = m2.(Model)
+	require.Equal(t, 0, stub.postCalls, "n must NOT fire OneClickPOST")
+	require.Nil(t, m.pendingUnsub)
+}
+
+// TestUnsubscribeNoHeaderSurfacesFriendlyError covers spec 16 §9 row 1:
+// resolve returns ErrNoHeader → status bar message, NOT a confirm modal.
+func TestUnsubscribeNoHeaderSurfacesFriendlyError(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubUnsubService{
+		resolveErr: errors.New("unsub: no List-Unsubscribe header"),
+	}
+	m.deps.Unsubscribe = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Error(t, m.lastError)
+	require.NotEqual(t, ConfirmMode, m.mode, "no header must NOT open the confirm modal")
+}
+
+// TestUnsubCommandMatchesUKey is the parity test: `:unsub` (and
+// `:unsubscribe`) drive the same flow as the U keybinding. Convention
+// shared with aerc (spec 16 §2).
+func TestUnsubCommandMatchesUKey(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubUnsubService{
+		resolveAction: UnsubscribeAction{Kind: UnsubscribeBrowserGET, URL: "https://example.invalid/u"},
+	}
+	m.deps.Unsubscribe = stub
+
+	// Type :unsub <Enter>.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "unsub" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, ":unsub must dispatch resolveUnsubCmd")
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Equal(t, 1, stub.resolveCalls)
+	require.Equal(t, ConfirmMode, m.mode)
 }
 
 // TestSavedSearchesAppearInSidebar seeds two [[saved_searches]] config
@@ -867,6 +1075,56 @@ func TestIsLikelyMeetingDetectsInviteSubjects(t *testing.T) {
 	}
 	for _, s := range no {
 		require.False(t, isLikelyMeeting(s), "%q should NOT match", s)
+	}
+}
+
+// TestIsMeetingMessagePrefersCanonicalSignal is the regression for the
+// v0.11 real-tenant bug: invites without a heuristic-matching subject
+// prefix lost the 📅 indicator. With Graph's meetingMessageType piped
+// through the schema, the canonical signal must win — including the
+// case where the subject would NOT match the heuristic.
+func TestIsMeetingMessagePrefersCanonicalSignal(t *testing.T) {
+	cases := []struct {
+		name    string
+		msg     store.Message
+		want    bool
+		comment string
+	}{
+		{
+			name:    "canonical-meetingRequest-with-plain-subject",
+			msg:     store.Message{Subject: "Q4 sync", MeetingMessageType: "meetingRequest"},
+			want:    true,
+			comment: "regression: heuristic missed this; canonical signal saves it",
+		},
+		{
+			name:    "canonical-meetingResponse",
+			msg:     store.Message{Subject: "Re: Q4", MeetingMessageType: "meetingResponse"},
+			want:    true,
+			comment: "responses also get the indicator",
+		},
+		{
+			name:    "canonical-none-overrides-heuristic-false-positive",
+			msg:     store.Message{Subject: "Meeting: not really a meeting", MeetingMessageType: "none"},
+			want:    false,
+			comment: `Graph says "not a meeting"; subject's "Meeting:" prefix would otherwise false-positive`,
+		},
+		{
+			name:    "no-canonical-falls-back-to-heuristic-true",
+			msg:     store.Message{Subject: "Accepted: standup", MeetingMessageType: ""},
+			want:    true,
+			comment: "legacy rows pre-migration: heuristic still works",
+		},
+		{
+			name:    "no-canonical-and-no-heuristic-match",
+			msg:     store.Message{Subject: "Q4 deck review", MeetingMessageType: ""},
+			want:    false,
+			comment: "plain mail",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isMeetingMessage(tc.msg), tc.comment)
+		})
 	}
 }
 
@@ -1115,6 +1373,65 @@ func (s stubDraftCreator) CreateDraftReply(_ context.Context, srcID, body string
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
+}
+
+// TestComposeEditedRoutesIntoConfirmMode pins the v0.11.x fix: the
+// post-edit msg now hands off to a confirm pane instead of saving
+// immediately. Real-tenant feedback: editor `:q!` exits saved the
+// draft anyway, contrary to user expectation.
+func TestComposeEditedRoutesIntoConfirmMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m2, _ := m.Update(composeEditedMsg{tempfile: "/tmp/x.eml", sourceID: "msg-1"})
+	m = m2.(Model)
+	require.Equal(t, ComposeConfirmMode, m.mode, "post-edit lands in confirm pane, not save")
+	require.Equal(t, "/tmp/x.eml", m.composeTempfile)
+	require.Equal(t, "msg-1", m.composeSourceID)
+}
+
+// TestComposeConfirmDDiscards covers the d-key path — discard
+// without a Graph round-trip.
+func TestComposeConfirmDDiscards(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.mode = ComposeConfirmMode
+	m.composeTempfile = "/tmp/inkwell-test-discard.eml"
+	m.composeSourceID = "msg-1"
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Empty(t, m.composeTempfile, "tempfile cleared from model state")
+	require.Contains(t, m.engineActivity, "discarded")
+	require.Nil(t, cmd, "discard does NOT return a save Cmd")
+}
+
+// TestComposeConfirmSReturnsSaveCmd covers the s-key path — save
+// dispatches the existing draft pipeline.
+func TestComposeConfirmSReturnsSaveCmd(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m.mode = ComposeConfirmMode
+	m.composeTempfile = "/tmp/x.eml"
+	m.composeSourceID = "msg-1"
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Contains(t, m.engineActivity, "saving")
+	require.NotNil(t, cmd, "s returns saveDraftCmd")
+}
+
+// TestComposeConfirmEscDoesNotDiscard pins the safety property: an
+// accidental Esc must NOT silently throw away the user's work.
+func TestComposeConfirmEscDoesNotDiscard(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.mode = ComposeConfirmMode
+	m.composeTempfile = "/tmp/x.eml"
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, ComposeConfirmMode, m.mode, "Esc stays on the prompt")
+	require.Equal(t, "/tmp/x.eml", m.composeTempfile, "tempfile preserved")
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug

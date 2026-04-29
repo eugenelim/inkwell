@@ -30,6 +30,11 @@ func normalisePlain(content string, width int) (string, []ExtractedLink) {
 	}
 	body := out.String()
 	links := extractLinks(body)
+	// Wrap inline URLs with OSC 8 hyperlink escapes. Supporting
+	// terminals make them clickable so users don't drag-select
+	// across pane borders. Done BEFORE the link block is appended
+	// so the [N] references in the body itself become clickable.
+	body = linkifyURLsInText(body)
 	if len(links) > 0 {
 		body += renderLinkBlock(links)
 	}

@@ -46,13 +46,16 @@ type KeyMap struct {
 	RemoveCategory  key.Binding
 
 	// Undo
-	Undo      key.Binding
-	UndoStack key.Binding
+	Undo key.Binding
 
 	// Filter / bulk
 	Filter          key.Binding
 	ClearFilter     key.Binding
 	ApplyToFiltered key.Binding
+
+	// Unsubscribe (spec 16). Capital U so it never collides with j/k
+	// movement or single-letter triage keys.
+	Unsubscribe key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -92,11 +95,12 @@ func DefaultKeyMap() KeyMap {
 		AddCategory:     key.NewBinding(key.WithKeys("c")),
 		RemoveCategory:  key.NewBinding(key.WithKeys("C")),
 
-		Undo:      key.NewBinding(key.WithKeys("u")),
-		UndoStack: key.NewBinding(key.WithKeys("U")),
+		Undo: key.NewBinding(key.WithKeys("u")),
 
 		Filter:          key.NewBinding(key.WithKeys("F")),
 		ClearFilter:     key.NewBinding(key.WithKeys("esc")),
 		ApplyToFiltered: key.NewBinding(key.WithKeys(";")),
+
+		Unsubscribe: key.NewBinding(key.WithKeys("U")),
 	}
 }

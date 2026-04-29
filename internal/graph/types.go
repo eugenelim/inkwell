@@ -60,6 +60,7 @@ type Message struct {
 	WebLink                 string      `json:"webLink,omitempty"`
 	ParentFolderID          string      `json:"parentFolderId,omitempty"`
 	LastModifiedDateTime    time.Time   `json:"lastModifiedDateTime,omitempty"`
+	MeetingMessageType      string      `json:"meetingMessageType,omitempty"`
 	Body                    *Body       `json:"body,omitempty"`
 	// Removed is set by the delta endpoint when a message has been
 	// deleted from the folder. Receivers treat as a tombstone.
@@ -89,4 +90,5 @@ const EnvelopeSelectFields = "id,internetMessageId,conversationId,conversationIn
 	"subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients," +
 	"receivedDateTime,sentDateTime," +
 	"isRead,isDraft,flag,importance,inferenceClassification," +
-	"hasAttachments,categories,webLink,parentFolderId,lastModifiedDateTime"
+	"hasAttachments,categories,webLink,parentFolderId,lastModifiedDateTime," +
+	"meetingMessageType"

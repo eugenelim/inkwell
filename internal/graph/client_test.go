@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,60 @@ import (
 
 	ilog "github.com/eugenelim/inkwell/internal/log"
 )
+
+// TestEnvelopeSelectFieldsIncludesMeetingMessageType is the regression
+// for the v0.11 bug where the calendar-invite indicator missed real
+// invites. The list pane now drives off Graph's meetingMessageType
+// (spec 02 v2 schema), so the $select MUST request that field —
+// without it, the column stays NULL and the indicator silently
+// reverts to the subject-prefix heuristic that started this bug.
+func TestEnvelopeSelectFieldsIncludesMeetingMessageType(t *testing.T) {
+	require.Contains(t, EnvelopeSelectFields, "meetingMessageType",
+		"$select must include meetingMessageType — see spec 02 v2 migration")
+}
+
+// TestMessageDeserializesMeetingMessageType ensures the JSON tag is
+// correct and the field actually populates from a Graph response.
+func TestMessageDeserializesMeetingMessageType(t *testing.T) {
+	body := `{"id":"m-1","subject":"Q4 sync","meetingMessageType":"meetingRequest"}`
+	var got Message
+	require.NoError(t, json.Unmarshal([]byte(body), &got))
+	require.Equal(t, "meetingRequest", got.MeetingMessageType)
+}
+
+// TestGetMessageHeadersExtractsListUnsubscribe is the spec 16 plumbing
+// test. The Graph endpoint returns a list under
+// `internetMessageHeaders`; HeaderValue must find List-Unsubscribe
+// case-insensitively and return its raw value for unsub.Parse.
+func TestGetMessageHeadersExtractsListUnsubscribe(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Contains(t, r.URL.RawQuery, "select=internetMessageHeaders")
+		_, _ = io.WriteString(w, `{
+			"internetMessageHeaders": [
+				{"name": "Date", "value": "Mon, 1 Jan 2026 00:00:00 GMT"},
+				{"name": "List-Unsubscribe", "value": "<https://example.invalid/u?id=abc>"},
+				{"name": "List-Unsubscribe-Post", "value": "List-Unsubscribe=One-Click"}
+			]
+		}`)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+
+	headers, err := c.GetMessageHeaders(context.Background(), "AAMk-test-id")
+	require.NoError(t, err)
+	require.Len(t, headers, 3)
+
+	// HeaderValue is case-insensitive and matches the canonical RFC
+	// header name regardless of how the sender capitalises it.
+	require.Equal(t, "<https://example.invalid/u?id=abc>", HeaderValue(headers, "List-Unsubscribe"))
+	require.Equal(t, "<https://example.invalid/u?id=abc>", HeaderValue(headers, "list-unsubscribe"))
+	require.Equal(t, "List-Unsubscribe=One-Click", HeaderValue(headers, "list-unsubscribe-post"))
+	require.Empty(t, HeaderValue(headers, "X-Not-Present"))
+}
 
 // fakeAuth is a counting [Authenticator] for tests.
 type fakeAuth struct {

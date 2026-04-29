@@ -53,6 +53,7 @@ func (s *store) SearchByPredicate(ctx context.Context, accountID int64, where st
 	if limit <= 0 {
 		limit = 200
 	}
+	// #nosec G202 — `where` is composed by internal/pattern's CompileLocal; `args` (the user-controlled values) bind via `?`. The pattern compiler emits column names and operators from a closed whitelist (see eval_local.go fieldForOp).
 	full := "SELECT " + messageColumns + " FROM messages WHERE account_id = ? AND (" + where + ") ORDER BY received_at DESC LIMIT ?"
 	queryArgs := append([]any{accountID}, args...)
 	queryArgs = append(queryArgs, limit)
@@ -133,6 +134,20 @@ func (s *store) DeleteMessages(ctx context.Context, ids []string) error {
 	return tx.Commit()
 }
 
+// SetUnsubscribe persists the parsed List-Unsubscribe action on a
+// single message row (spec 16). Used by the UI when the U flow has
+// fetched headers from Graph and parsed an actionable URI.
+func (s *store) SetUnsubscribe(ctx context.Context, messageID, url string, oneClick bool) error {
+	oc := 0
+	if oneClick {
+		oc = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE messages SET unsubscribe_url = ?, unsubscribe_one_click = ? WHERE id = ?",
+		url, oc, messageID)
+	return err
+}
+
 // UpdateMessageFields applies a partial update. Only non-nil fields are set.
 func (s *store) UpdateMessageFields(ctx context.Context, id string, f MessageFields) error {
 	var sets []string
@@ -166,18 +181,25 @@ func (s *store) UpdateMessageFields(ctx context.Context, id string, f MessageFie
 		return nil
 	}
 	args = append(args, id)
+	// #nosec G202 — `sets` is built from a fixed set of column-name string literals above (is_read, flag_status, folder_id, categories, last_modified_at). User-supplied values bind via `?`.
 	_, err := s.db.ExecContext(ctx, "UPDATE messages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
 	return err
 }
 
+// upsertMessageSQL preserves unsubscribe_url / unsubscribe_one_click
+// across delta upserts: COALESCE(excluded.col, messages.col) so a
+// subsequent envelope sync (which doesn't fetch headers) doesn't
+// blow away the cached unsubscribe action populated lazily by the U
+// key flow. Once a row has the parsed action it stays until the
+// message is deleted.
 const upsertMessageSQL = `
 INSERT INTO messages (
 	id, account_id, folder_id, internet_message_id, conversation_id, conversation_index,
 	subject, body_preview, from_address, from_name, to_addresses, cc_addresses, bcc_addresses,
 	received_at, sent_at, is_read, is_draft, flag_status, flag_due_at, flag_completed_at,
 	importance, inference_class, has_attachments, categories, web_link, last_modified_at,
-	cached_at, envelope_etag
-) VALUES (?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?)
+	cached_at, envelope_etag, meeting_message_type, unsubscribe_url, unsubscribe_one_click
+) VALUES (?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	account_id = excluded.account_id,
 	folder_id = excluded.folder_id,
@@ -204,7 +226,10 @@ ON CONFLICT(id) DO UPDATE SET
 	categories = excluded.categories,
 	web_link = excluded.web_link,
 	last_modified_at = excluded.last_modified_at,
-	envelope_etag = excluded.envelope_etag
+	envelope_etag = excluded.envelope_etag,
+	meeting_message_type = excluded.meeting_message_type,
+	unsubscribe_url = COALESCE(NULLIF(excluded.unsubscribe_url, ''), messages.unsubscribe_url),
+	unsubscribe_one_click = CASE WHEN excluded.unsubscribe_url <> '' THEN excluded.unsubscribe_one_click ELSE messages.unsubscribe_one_click END
 `
 
 func bindUpsert(ctx context.Context, stmt *sql.Stmt, m Message) error {
@@ -213,6 +238,7 @@ func bindUpsert(ctx context.Context, stmt *sql.Stmt, m Message) error {
 	bcc, _ := json.Marshal(m.BccAddresses)
 	cats, _ := json.Marshal(m.Categories)
 	isRead, isDraft, hasAtt := boolToInt(m.IsRead), boolToInt(m.IsDraft), boolToInt(m.HasAttachments)
+	oneClick := boolToInt(m.UnsubscribeOneClick)
 	_, err := stmt.ExecContext(ctx,
 		m.ID, m.AccountID, m.FolderID,
 		nullStr(m.InternetMessageID), nullStr(m.ConversationID), m.ConversationIndex,
@@ -222,7 +248,8 @@ func bindUpsert(ctx context.Context, stmt *sql.Stmt, m Message) error {
 		nullStr(m.FlagStatus), nullTime(m.FlagDueAt), nullTime(m.FlagCompletedAt),
 		nullStr(m.Importance), nullStr(m.InferenceClass), hasAtt,
 		string(cats), nullStr(m.WebLink), nullTime(m.LastModifiedAt),
-		m.CachedAt.Unix(), nullStr(m.EnvelopeETag),
+		m.CachedAt.Unix(), nullStr(m.EnvelopeETag), nullStr(m.MeetingMessageType),
+		m.UnsubscribeURL, oneClick,
 	)
 	return err
 }
@@ -236,7 +263,8 @@ const messageColumns = `
 	COALESCE(flag_status, ''), COALESCE(flag_due_at, 0), COALESCE(flag_completed_at, 0),
 	COALESCE(importance, ''), COALESCE(inference_class, ''), has_attachments,
 	COALESCE(categories, '[]'), COALESCE(web_link, ''), COALESCE(last_modified_at, 0),
-	cached_at, COALESCE(envelope_etag, '')
+	cached_at, COALESCE(envelope_etag, ''), COALESCE(meeting_message_type, ''),
+	COALESCE(unsubscribe_url, ''), unsubscribe_one_click
 `
 
 const selectMessageByID = `SELECT ` + messageColumns + ` FROM messages WHERE id = ?`
@@ -251,7 +279,7 @@ func scanMessage(r rowScanner) (*Message, error) {
 		m                                                          Message
 		toJSON, ccJSON, bccJSON, catsJSON                          string
 		recvAt, sentAt, flagDueAt, flagCompAt, lastModAt, cachedAt int64
-		isRead, isDraft, hasAtt                                    int
+		isRead, isDraft, hasAtt, unsubOneClick                     int
 	)
 	err := r.Scan(
 		&m.ID, &m.AccountID, &m.FolderID,
@@ -262,8 +290,10 @@ func scanMessage(r rowScanner) (*Message, error) {
 		&m.FlagStatus, &flagDueAt, &flagCompAt,
 		&m.Importance, &m.InferenceClass, &hasAtt,
 		&catsJSON, &m.WebLink, &lastModAt,
-		&cachedAt, &m.EnvelopeETag,
+		&cachedAt, &m.EnvelopeETag, &m.MeetingMessageType,
+		&m.UnsubscribeURL, &unsubOneClick,
 	)
+	m.UnsubscribeOneClick = unsubOneClick != 0
 	if err != nil {
 		return nil, err
 	}

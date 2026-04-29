@@ -251,6 +251,16 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 13  | `13-mailbox-settings.md`           | 5.11                         |
 | 14  | `14-cli-mode.md`                   | 5.12                         |
 | 15  | `15-compose-reply.md`              | 5.13                         |
+| 16  | `16-unsubscribe.md`                | post-v1, ROADMAP §0 bucket 1 |
+| 17  | `17-folder-management.md`          | post-v1, ROADMAP §0 bucket 1 |
+| 18  | `18-mute-thread.md`                | post-v1, ROADMAP §0 bucket 1 |
+| 19  | `19-conversation-ops.md`           | post-v1, ROADMAP §0 bucket 1 |
+| 20  | `20-cross-folder-bulk.md`          | post-v1, ROADMAP §0 bucket 1 |
+
+Specs 16–20 cover the "triage primitives" bucket from `docs/ROADMAP.md`
+§0 — atomic verbs that subsequent buckets depend on. They follow the
+v1 capabilities (§5) chronologically; the build order within bucket 1
+is the order listed.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

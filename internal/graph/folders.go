@@ -36,10 +36,10 @@ func (c *Client) ListFolders(ctx context.Context) ([]MailFolder, error) {
 		}
 		var page FolderListResponse
 		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("graph: decode folders: %w", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		out = append(out, page.Value...)
 		url = page.NextLink
 	}

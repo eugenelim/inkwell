@@ -114,6 +114,37 @@ func TestPlainSoftWrapsLongLines(t *testing.T) {
 	}
 }
 
+// TestLinkifyURLsWrapsInOSC8 confirms inline URLs in the rendered
+// body get wrapped in OSC 8 hyperlink escapes. Real-tenant complaint:
+// drag-selecting a multi-line URL captured the adjacent message-list
+// pane (terminal rectangular selection). OSC 8 makes URLs clickable
+// in supporting terminals (iTerm2, kitty, alacritty, foot, wezterm)
+// so the user clicks instead of dragging across pane borders.
+func TestLinkifyURLsWrapsInOSC8(t *testing.T) {
+	in := "see https://example.invalid/a for details."
+	out := linkifyURLsInText(in)
+	// OSC 8 sequence: \x1b]8;;<url>\x1b\\<text>\x1b]8;;\x1b\\
+	require.Contains(t, out, "\x1b]8;;https://example.invalid/a\x1b\\")
+	require.Contains(t, out, "https://example.invalid/a\x1b]8;;\x1b\\")
+	// Trailing punctuation preserved outside the hyperlink wrap.
+	require.Contains(t, out, " for details.")
+}
+
+func TestLinkifyURLsLeavesNonURLsAlone(t *testing.T) {
+	in := "no links here, just prose."
+	out := linkifyURLsInText(in)
+	require.Equal(t, in, out)
+}
+
+func TestRenderLinkBlockEmitsOSC8(t *testing.T) {
+	links := []ExtractedLink{
+		{Index: 1, URL: "https://example.invalid/a", Text: "https://example.invalid/a"},
+	}
+	out := renderLinkBlock(links)
+	require.Contains(t, out, "\x1b]8;;https://example.invalid/a\x1b\\")
+	require.Contains(t, out, "[1]")
+}
+
 func TestExtractLinksAreNumberedAndDeduped(t *testing.T) {
 	body := "see https://example.invalid/a and https://example.invalid/b and again https://example.invalid/a."
 	links := extractLinks(body)

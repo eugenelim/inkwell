@@ -57,6 +57,21 @@ type Message struct {
 	LastModifiedAt    time.Time
 	CachedAt          time.Time
 	EnvelopeETag      string
+	// MeetingMessageType mirrors Graph's enum: empty / "none" for plain
+	// mail, "meetingRequest", "meetingResponse", "meetingCancellation",
+	// "meetingForwardNotification". The list pane uses non-empty
+	// (and != "none") to render the 📅 invite indicator.
+	MeetingMessageType string
+	// UnsubscribeURL caches the parsed List-Unsubscribe action (spec 16):
+	//   - "https://…" for an RFC 8058 one-click POST or browser GET
+	//   - "mailto:<addr>" for a mailto: action
+	//   - "" when the headers haven't been fetched OR carry no actionable URI
+	// Populated lazily on first U-key press; persisted so subsequent
+	// presses are a local lookup.
+	UnsubscribeURL string
+	// UnsubscribeOneClick is true iff Parse classified this as
+	// ActionOneClickPOST (List-Unsubscribe-Post present + HTTPS URI).
+	UnsubscribeOneClick bool
 }
 
 // EmailAddress is one recipient entry.

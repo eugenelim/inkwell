@@ -299,4 +299,9 @@ func TestCompileLocalEscapesWildcardLiterals(t *testing.T) {
 	// the LIKE wildcard `%`.
 	require.True(t, strings.HasSuffix(c.Args[0].(string), "%"))
 	require.Contains(t, c.Args[0].(string), `\%`)
+	// And the SQL must declare the escape character — without
+	// `ESCAPE '\'`, SQLite treats `\` as literal text and the
+	// previous escape pass silently produces a query that matches
+	// no rows. Real-tenant bug class.
+	require.Contains(t, c.Where, `ESCAPE '\'`)
 }

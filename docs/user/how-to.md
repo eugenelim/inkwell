@@ -41,6 +41,30 @@ Then `;d` → confirm with `y`.
 common interpretation of "<30 days". For "older than 30 days" use
 `~d >30d`.
 
+## Get off a mailing list
+
+Open any newsletter, then press `U` (or run `:unsub`). inkwell reads
+the standard `List-Unsubscribe` headers (RFC 2369 + RFC 8058) and
+picks the cheapest legitimate path:
+
+- **One-click HTTPS POST** — when the sender supports the modern
+  one-click contract, inkwell shows the URL it's about to POST to,
+  asks for `y` to confirm, and unsubscribes you in one network call.
+- **`mailto:`** — the unsub address opens in your default mail
+  handler (Outlook / Apple Mail) with the prefilled subject/body.
+- **HTTPS only** — opens the unsubscribe page in your browser; you
+  finish there.
+
+The confirm modal always shows the exact URL/address, so you can
+spot a phishing attempt before pressing `y`. Plain `http://`
+unsubscribe links are intentionally NOT auto-opened — inkwell
+surfaces a friendly "open manually if you trust the sender" status
+message and you decide.
+
+After a successful unsubscribe, follow up with
+`:filter ~f news@example.invalid` then `;a` → `y` to bulk-archive
+past mail from the same sender.
+
 ## Bulk-archive everything from a single sender
 
 ```

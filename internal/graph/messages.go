@@ -100,3 +100,67 @@ func (c *Client) GetMessageBody(ctx context.Context, id string) (*Message, error
 	}
 	return &m, nil
 }
+
+// MessageHeader is one entry in internetMessageHeaders. Graph returns
+// duplicate Name entries for multi-value headers — caller must
+// concatenate or pick the first depending on header semantics.
+type MessageHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// GetMessageHeaders fetches the raw RFC 822 headers for a message id.
+// Spec 16 calls this lazily on the first U-key press; the result is
+// parsed for List-Unsubscribe and persisted on the row so subsequent
+// presses are local lookups.
+func (c *Client) GetMessageHeaders(ctx context.Context, id string) ([]MessageHeader, error) {
+	url := "/me/messages/" + id + "?$select=internetMessageHeaders"
+	resp, err := c.Do(ctx, http.MethodGet, url, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseError(resp)
+	}
+	var payload struct {
+		Headers []MessageHeader `json:"internetMessageHeaders"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("graph: decode headers: %w", err)
+	}
+	return payload.Headers, nil
+}
+
+// HeaderValue returns the first value for the named header
+// (case-insensitive), or "" if not present.
+func HeaderValue(headers []MessageHeader, name string) string {
+	for _, h := range headers {
+		if equalFold(h.Name, name) {
+			return h.Value
+		}
+	}
+	return ""
+}
+
+// equalFold is a one-line ASCII case-insensitive compare; avoids
+// pulling strings.EqualFold into the hot path of header iteration
+// across thousands of messages.
+func equalFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}

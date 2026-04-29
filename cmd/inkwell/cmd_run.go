@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,7 @@ import (
 	"github.com/eugenelim/inkwell/internal/store"
 	isync "github.com/eugenelim/inkwell/internal/sync"
 	"github.com/eugenelim/inkwell/internal/ui"
+	"github.com/eugenelim/inkwell/internal/unsub"
 )
 
 // runRoot is the default action when `inkwell` is invoked without a
@@ -159,6 +161,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Calendar:      calendarAdapter{gc: gc},
 		Mailbox:       mailboxAdapter{gc: gc},
 		Drafts:        draftAdapter{exec: exec},
+		Unsubscribe:   newUnsubAdapter(st, gc, version),
 		ThemeName:     cfg.UI.Theme,
 		SavedSearches: saved,
 	})
@@ -185,6 +188,7 @@ func openLogFile(ownUPN string, level slog.Level) (*slog.Logger, io.Closer, erro
 		return nil, noopCloser{}, fmt.Errorf("mkdir log dir: %w", err)
 	}
 	path := filepath.Join(dir, "inkwell.log")
+	// #nosec G304 — path is ~/Library/Logs/inkwell/inkwell.log composed from os.UserHomeDir(); not user-controlled at runtime.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, noopCloser{}, fmt.Errorf("open log file: %w", err)
@@ -289,4 +293,79 @@ func convertBatchResults(in []action.BatchResult) []ui.BulkResult {
 		out[i] = ui.BulkResult{MessageID: r.MessageID, Err: r.Err}
 	}
 	return out
+}
+
+// unsubAdapter wires the spec 16 U flow. The Resolve method tries the
+// store cache first; on miss it fetches headers via Graph, parses,
+// persists the parsed action, and returns the resolved kind. The
+// OneClickPOST method delegates to the unsub.Executor.
+type unsubAdapter struct {
+	st  store.Store
+	gc  *graph.Client
+	exe *unsub.Executor
+}
+
+func newUnsubAdapter(st store.Store, gc *graph.Client, ver string) *unsubAdapter {
+	return &unsubAdapter{st: st, gc: gc, exe: unsub.NewExecutor(ver)}
+}
+
+func (u *unsubAdapter) Resolve(ctx context.Context, messageID string) (ui.UnsubscribeAction, error) {
+	// Cache hit path: row already has the parsed action persisted.
+	row, err := u.st.GetMessage(ctx, messageID)
+	if err == nil && row != nil && row.UnsubscribeURL != "" {
+		return mapCachedUnsub(row.UnsubscribeURL, row.UnsubscribeOneClick), nil
+	}
+
+	headers, err := u.gc.GetMessageHeaders(ctx, messageID)
+	if err != nil {
+		return ui.UnsubscribeAction{}, fmt.Errorf("fetch headers: %w", err)
+	}
+	listUnsub := graph.HeaderValue(headers, "List-Unsubscribe")
+	listUnsubPost := graph.HeaderValue(headers, "List-Unsubscribe-Post")
+	res, err := unsub.Parse(listUnsub, listUnsubPost)
+	if err != nil {
+		// Persist a sentinel so we don't re-fetch on every U press.
+		// Empty unsubscribe_url + empty header => "we tried, nothing to do".
+		_ = u.st.SetUnsubscribe(ctx, messageID, "", false)
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeNone}, err
+	}
+	cacheURL := unsub.IndicatorURL(res)
+	oneClick := res.Action == unsub.ActionOneClickPOST
+	if err := u.st.SetUnsubscribe(ctx, messageID, cacheURL, oneClick); err != nil {
+		// Persistence failure isn't fatal; surface the action anyway.
+		// Next press will refetch.
+		_ = err
+	}
+	return resultToAction(res), nil
+}
+
+func (u *unsubAdapter) OneClickPOST(ctx context.Context, url string) error {
+	return u.exe.OneClickPOST(ctx, url)
+}
+
+// mapCachedUnsub turns a (url, oneClick) tuple back into a
+// UnsubscribeAction. URL prefixed with "mailto:" is the mailto
+// path; everything else is HTTPS (one-click vs browser keyed by
+// the persisted boolean).
+func mapCachedUnsub(url string, oneClick bool) ui.UnsubscribeAction {
+	if strings.HasPrefix(url, "mailto:") {
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeMailto, Mailto: url[len("mailto:"):]}
+	}
+	if oneClick {
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeOneClickPOST, URL: url}
+	}
+	return ui.UnsubscribeAction{Kind: ui.UnsubscribeBrowserGET, URL: url}
+}
+
+// resultToAction translates the unsub.Result enum to the UI's enum.
+func resultToAction(r *unsub.Result) ui.UnsubscribeAction {
+	switch r.Action {
+	case unsub.ActionOneClickPOST:
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeOneClickPOST, URL: r.URL}
+	case unsub.ActionBrowserGET:
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeBrowserGET, URL: r.URL}
+	case unsub.ActionMailto:
+		return ui.UnsubscribeAction{Kind: ui.UnsubscribeMailto, Mailto: r.MailtoAddr}
+	}
+	return ui.UnsubscribeAction{Kind: ui.UnsubscribeNone}
 }
