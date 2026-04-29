@@ -436,6 +436,18 @@ func (m *ListModel) MarkLoading() {
 	m.loadLimit = m.LoadLimit() + pageIncrement
 }
 
+// OldestReceivedAt returns the received_at of the last (oldest)
+// message in the loaded slice. Used by the cache-wall flow to
+// compute the upper bound for engine.Backfill — Graph returns
+// messages older than this. Returns the zero Time when the list is
+// empty, in which case Backfill falls back to its default window.
+func (m ListModel) OldestReceivedAt() time.Time {
+	if len(m.messages) == 0 {
+		return time.Time{}
+	}
+	return m.messages[len(m.messages)-1].ReceivedAt
+}
+
 // AtCacheWall returns true when the cursor sits at the last row of a
 // list that's exhausted the local store. Caller can use this to kick
 // a sync so the engine pulls more from Graph.

@@ -28,6 +28,17 @@ type Engine interface {
 	Start(ctx context.Context) error
 	SetActive(active bool)
 	SyncAll(ctx context.Context) error
+	// Wake kicks the engine's loop to run a cycle on the next select
+	// iteration. Single-shot, debounced via the engine's buffer-1
+	// wakeup channel. Use this for UI-driven "sync now" signals
+	// instead of SyncAll — Wake doesn't overlap with the loop's
+	// timer-driven cycle.
+	Wake()
+	// Backfill pulls older messages from Graph for the supplied
+	// folder. The engine returns when the backfill has caught up
+	// (or after a sensible cap). Used by the cache-wall flow when
+	// the user has scrolled past everything cached locally.
+	Backfill(ctx context.Context, folderID string, until time.Time) error
 	Notifications() <-chan isync.Event
 }
 
@@ -959,16 +970,21 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.list.MarkLoading()
 			return m, m.loadMessagesCmd(m.list.FolderID)
 		}
-		// Cache wall: kick a sync ONCE per cache-exhausted state via
-		// the debounce flag. Earlier (v0.8.0) this fired on every j
-		// press at the wall — three cycles in 2.5s in real-tenant
-		// logs. The wallSyncRequested flag flips back to false on
-		// the next SetMessages so when fresh messages land the user
-		// can scroll into them and (if still at the wall) kick again.
+		// Cache wall: kick a Backfill ONCE per cache-exhausted state.
+		// Earlier (v0.8.0) we fired SyncAll() on every j press, which
+		// (a) overlapped with the engine's own loop and (b) used
+		// pullSince — a NEWER-than filter that never returns OLDER
+		// messages. Backfill is the right call: it pulls messages
+		// older than the oldest currently-cached message in this
+		// folder. The wallSyncRequested flag debounces: only the
+		// first j at the wall kicks; the rest are silent until
+		// SetMessages clears the flag.
 		if !m.searchActive && m.list.ShouldKickWallSync() && m.deps.Engine != nil {
+			folderID := m.list.FolderID
+			until := m.list.OldestReceivedAt()
 			m.list.MarkWallSyncRequested()
-			m.engineActivity = "syncing more…"
-			go func() { _ = m.deps.Engine.SyncAll(context.Background()) }()
+			m.engineActivity = "loading older messages…"
+			go func() { _ = m.deps.Engine.Backfill(context.Background(), folderID, until) }()
 		}
 	case key.Matches(msg, m.keymap.Open):
 		sel, ok := m.list.Selected()
@@ -1323,13 +1339,16 @@ func (m Model) View() string {
 // regular (Help), separated by a dim middot (HelpSep).
 func renderHelpBar(t Theme, width int, focused Pane) string {
 	var hints [][2]string
+	// Pane-switch hints come first so the user always knows how to
+	// reach the OTHER panes from wherever they are. Then pane-local
+	// actions, then global meta (search, filter), then quit.
 	switch focused {
 	case FoldersPane:
-		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"/", "search"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}

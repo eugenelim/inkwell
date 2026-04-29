@@ -230,6 +230,43 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 
 ---
 
+## CLI subcommands (non-interactive)
+
+inkwell ships a scriptable surface alongside the TUI. Run any of
+these without launching the interface; output is text by default and
+JSON via `--output json`.
+
+| Command                                          | What it does                                              |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `inkwell signin` / `signout` / `whoami`          | Auth — same flow as the TUI's `:signin` / `:signout`.     |
+| `inkwell sync`                                   | Run one sync cycle now and exit.                          |
+| `inkwell folders`                                | List cached folders.                                      |
+| `inkwell messages --folder Inbox --limit 50`     | List envelopes from a folder.                             |
+| `inkwell messages --folder Inbox --unread`       | Only unread.                                              |
+| `inkwell messages --filter '~f bob' --limit 20`  | List by spec-08 pattern.                                  |
+| `inkwell message show <id>`                      | Print headers + body for one message.                     |
+| `inkwell message show <id> --headers`            | Include full To / Cc / Bcc.                               |
+| `inkwell filter '<pattern>'`                     | Print matched envelopes (dry-run).                        |
+| `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
+| `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |
+| `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                      |
+
+`--output json` works on every command above. Pipe into `jq` for
+ad-hoc analysis:
+
+```sh
+inkwell messages --folder Inbox --unread --output json | jq '.[] | .subject'
+inkwell filter '~A & ~d <30d' --output json | jq '.matched'
+```
+
+`--apply` is **mandatory** for destructive bulk operations. Without
+it, `inkwell filter` is dry-run regardless of any config setting.
+`--yes` skips the confirmation prompt for `delete`.
+
+Deferred to v0.10+: `inkwell calendar`, `inkwell ooo`, `inkwell rule`
+(saved-search CRUD), `inkwell message reply` / `forward` (drafts),
+`inkwell message save-attachment`.
+
 ## Configuration
 
 `~/.config/inkwell/config.toml`. Full key reference:

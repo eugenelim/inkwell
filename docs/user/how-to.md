@@ -141,6 +141,38 @@ The engine syncs every 30 seconds in the foreground anyway, but
 `Ctrl+R` is useful when you've just sent something from another
 client and want to see it immediately.
 
+## Script your inbox from the shell
+
+inkwell ships a non-interactive subcommand surface alongside the
+TUI. Useful when you want to chain it through `jq`, `fzf`, or a
+periodic cron job.
+
+```sh
+# One-shot sync, no UI.
+inkwell sync
+
+# List the 20 most recent unread messages in Inbox.
+inkwell messages --folder Inbox --unread --limit 20
+
+# Pattern-based dry-run (no changes).
+inkwell filter '~f newsletter@* & ~d <30d'
+
+# Same pattern, applied destructively (with confirm prompt).
+inkwell filter '~f newsletter@* & ~d <30d' --action delete --apply
+
+# Skip the prompt for cron / scripts.
+inkwell filter '~f newsletter@*' --action archive --apply --yes
+
+# JSON output piped into jq.
+inkwell messages --folder Inbox --output json | jq '.[].subject'
+inkwell filter '~A' --output json | jq '.matched'
+```
+
+The full subcommand reference is in
+[reference.md](reference.md#cli-subcommands-non-interactive).
+Drafts (`reply` / `forward`), calendar, OOO, and saved-search CRUD
+are coming in v0.10+.
+
 ## Wipe the local cache (e.g. troubleshooting)
 
 ```sh

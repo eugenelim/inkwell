@@ -35,9 +35,13 @@ type dispatchTestEngine struct{ events chan isync.Event }
 func newDispatchTestEngine() *dispatchTestEngine {
 	return &dispatchTestEngine{events: make(chan isync.Event, 8)}
 }
-func (e *dispatchTestEngine) Start(_ context.Context) error     { return nil }
-func (e *dispatchTestEngine) SetActive(_ bool)                  {}
-func (e *dispatchTestEngine) SyncAll(_ context.Context) error   { return nil }
+func (e *dispatchTestEngine) Start(_ context.Context) error   { return nil }
+func (e *dispatchTestEngine) SetActive(_ bool)                {}
+func (e *dispatchTestEngine) SyncAll(_ context.Context) error { return nil }
+func (e *dispatchTestEngine) Wake()                           {}
+func (e *dispatchTestEngine) Backfill(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
 func (e *dispatchTestEngine) Notifications() <-chan isync.Event { return e.events }
 
 func newDispatchTestModel(t *testing.T) Model {
@@ -310,8 +314,8 @@ func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
 		setupKeys []string
 		wantHint  string
 	}{
-		{"list-focused", nil, "d delete"},
-		{"folders-focused", []string{"1"}, "2 list"},
+		{"list-focused", nil, "1/2/3 panes"},
+		{"folders-focused", []string{"1"}, "1/2/3 panes"},
 		{"viewer-focused-after-open", []string{"\n"}, "h back"},
 	}
 	for _, tc := range cases {
@@ -960,12 +964,23 @@ func TestWallSyncFiresOncePerCacheState(t *testing.T) {
 		"first j at the wall must arm the debounce flag")
 }
 
-// stubCountingEngine satisfies ui.Engine; counts SyncAll invocations.
+// stubCountingEngine satisfies ui.Engine; counts SyncAll/Backfill calls.
 type stubCountingEngine struct{ onSync func() }
 
 func (s stubCountingEngine) Start(_ context.Context) error { return nil }
 func (s stubCountingEngine) SetActive(_ bool)              {}
 func (s stubCountingEngine) SyncAll(_ context.Context) error {
+	if s.onSync != nil {
+		s.onSync()
+	}
+	return nil
+}
+func (s stubCountingEngine) Wake() {
+	if s.onSync != nil {
+		s.onSync()
+	}
+}
+func (s stubCountingEngine) Backfill(_ context.Context, _ string, _ time.Time) error {
 	if s.onSync != nil {
 		s.onSync()
 	}
