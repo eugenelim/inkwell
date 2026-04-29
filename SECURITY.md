@@ -57,9 +57,32 @@ On every PR and on `main`, the following run automatically (see
 - **govulncheck** — official Go vulnerability scanner against the
   stdlib and module graph; pinned to the latest 1.25.x patch via
   `go-version: 1.25.x` + `check-latest: true` in the workflows.
+- **gitleaks** — secret scanning across the full git history.
+- **dependency-review-action** — flags new vulnerable / restrictively
+  licensed deps on PRs (PR-only).
+
+Plus on every release tag (`.github/workflows/release.yml`):
+
+- **anchore/sbom-action** — produces an SPDX-JSON SBOM and attaches
+  it to the GitHub release alongside the platform tarballs.
+
+Plus weekly via `.github/dependabot.yml` — automated PRs to keep
+deps fresh.
 
 Local equivalents via `make sec` (Makefile target). Reports land
 under `sec-reports/` (gitignored).
+
+## Threat model and privacy policy
+
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — assets, trust
+  boundaries, threats × mitigations, and accepted residual risks.
+- [`docs/PRIVACY.md`](docs/PRIVACY.md) — what data inkwell accesses,
+  what leaves the device (nothing, except API calls to Microsoft
+  Graph), where data is stored, and how users delete it.
+- [`docs/specs/17-security-testing-and-casa-evidence.md`](docs/specs/17-security-testing-and-casa-evidence.md)
+  — the canonical spec covering the security testing scaffold,
+  CASA Tier 2 evidence, and the per-PR security checklist
+  (CLAUDE.md §11).
 
 ## Recognition
 
