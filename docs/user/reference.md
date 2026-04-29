@@ -70,9 +70,15 @@ pull more from Graph.
 | `j` / `↓` | Scroll body down                                              |
 | `k` / `↑` | Scroll body up                                                |
 | `h` / `←` | Back to messages pane                                         |
+| `H`       | Toggle compact / full headers (To/Cc/Bcc expansion)           |
 | `f`       | Toggle flag (focus stays — flag, keep reading)                |
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `a`       | Archive (focus pops back to list)                             |
+
+**Compact headers** (default): only From / Date / Subject + first 3
+recipients with "+ N more". On a 50-attendee thread, the body
+gets the room. Press `H` to expand To / Cc / Bcc on their own
+lines.
 
 `r` / `R` are reserved in the viewer for spec 15 (reply / reply-all)
 and don't currently mark-read. Use the list pane for that.
@@ -88,6 +94,7 @@ and don't currently mark-read. Use the list pane for that.
 | `:filter <pattern>`           | Narrow message list to pattern matches                          |
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
+| `:ooo` / `:outofoffice`       | Open the out-of-office modal (view + toggle on/off)             |
 
 Plain-text patterns without a `~` operator are treated as `~B <text>`
 (subject or body contains).
@@ -110,6 +117,17 @@ Server-side `$search` merge is post-v0.8.
 | `Esc` / `q`    | Close the modal, return to Normal mode                         |
 
 Read-only. To act on an event, finish in Outlook.
+
+## Out-of-office mode (`:ooo`)
+
+| Key            | Action                                                         |
+| -------------- | -------------------------------------------------------------- |
+| `t`            | Toggle automatic-replies enable / disable                      |
+| `Esc` / `q`    | Close the modal, return to Normal mode                         |
+
+The modal shows current state and the existing internal-reply message
+(read-only in v0.9.0). Toggling preserves the message; to edit the
+message body, use Outlook for now.
 
 ---
 
@@ -190,6 +208,7 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | SignIn      | auth flow            | `Esc`                                            |
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
 | Calendar    | `:cal` / `:calendar` | `Esc` or `q`                                     |
+| OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`t` toggles)            |
 
 ## Indicators
 

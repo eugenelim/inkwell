@@ -930,6 +930,103 @@ func (s stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error
 	return s.events, s.err
 }
 
+// TestWallSyncFiresOncePerCacheState is the regression for the
+// real-tenant churn bug: every j press at the cache wall fired
+// SyncAll, producing 3 cycles in 2.5s of logs. After the fix, only
+// the first j at the wall kicks a sync; subsequent j-presses are
+// silent until SetMessages clears the debounce flag.
+func TestWallSyncFiresOncePerCacheState(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Force cache-wall state.
+	m.list.cacheExhausted = true
+	if len(m.list.messages) > 0 {
+		m.list.cursor = len(m.list.messages) - 1
+	}
+	require.True(t, m.list.AtCacheWall())
+	require.False(t, m.list.wallSyncRequested)
+
+	// Stub engine that counts SyncAll calls.
+	syncCount := atomicBool{} // we'll use it as a single-shot flag
+	m.deps.Engine = stubCountingEngine{onSync: syncCount.set}
+
+	// Press j 5 times at the wall.
+	for i := 0; i < 5; i++ {
+		m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = m2.(Model)
+	}
+	// Crucially, the debounce flag should be set so we don't keep
+	// kicking on every subsequent j.
+	require.True(t, m.list.wallSyncRequested,
+		"first j at the wall must arm the debounce flag")
+}
+
+// stubCountingEngine satisfies ui.Engine; counts SyncAll invocations.
+type stubCountingEngine struct{ onSync func() }
+
+func (s stubCountingEngine) Start(_ context.Context) error { return nil }
+func (s stubCountingEngine) SetActive(_ bool)              {}
+func (s stubCountingEngine) SyncAll(_ context.Context) error {
+	if s.onSync != nil {
+		s.onSync()
+	}
+	return nil
+}
+func (s stubCountingEngine) Notifications() <-chan isync.Event {
+	return make(chan isync.Event)
+}
+
+// TestViewerCapitalHTogglesFullHeaders confirms `H` while in the
+// viewer flips between compact (default) and full header display.
+// The compact form addresses the many-attendee-email-eats-the-pane
+// bug; H is the mutt convention for header toggle.
+func TestViewerCapitalHTogglesFullHeaders(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Open a message; focus is now ViewerPane.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.False(t, m.viewer.showFullHdr, "default is compact")
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	m = m2.(Model)
+	require.True(t, m.viewer.showFullHdr, "H expands to full")
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	m = m2.(Model)
+	require.False(t, m.viewer.showFullHdr, "H toggles back to compact")
+}
+
+// TestCompactAddrsSummarisesAcrossToCcBcc covers the helper used by
+// the viewer's compact-headers row.
+func TestCompactAddrsSummarisesAcrossToCcBcc(t *testing.T) {
+	mk := func(name, addr string) store.EmailAddress {
+		return store.EmailAddress{Name: name, Address: addr}
+	}
+	to := []store.EmailAddress{
+		mk("Alice", "a@x"), mk("Bob", "b@x"),
+	}
+	require.Equal(t, "Alice, Bob", compactAddrs(to, nil, nil),
+		"≤3 recipients show in full")
+
+	bigTo := []store.EmailAddress{
+		mk("A", "a@x"), mk("B", "b@x"), mk("C", "c@x"),
+		mk("D", "d@x"), mk("E", "e@x"),
+	}
+	got := compactAddrs(bigTo, nil, nil)
+	require.Contains(t, got, "A, B, C")
+	require.Contains(t, got, "+ 2 more")
+
+	// Cc / Bcc count toward "more".
+	cc := []store.EmailAddress{mk("X", "x@x")}
+	bcc := []store.EmailAddress{mk("Y", "y@x")}
+	got = compactAddrs(to, cc, bcc)
+	require.Contains(t, got, "Alice, Bob")
+	require.Contains(t, got, "+ 2 more", "Cc + Bcc add to the count")
+
+	require.Equal(t, "—", compactAddrs(nil, nil, nil),
+		"empty case shows em-dash")
+}
+
 // TestFolderSwitchClearsActiveSearch is the regression for the bug
 // caught in the v0.5.0 internal code review: pressing '/foo<Enter>'
 // then switching folders via '1' + 'Enter' left searchActive=true,

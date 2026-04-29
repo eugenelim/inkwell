@@ -129,19 +129,16 @@ Bulk `;d` is closer to "rm -rf". A confirmation modal with a
 default-No answer is the right safety net. CLAUDE.md §7 #9 mandates
 this for any bulk or `D`-style permanent operation.
 
-## Why the Diátaxis structure for these docs?
+## Why these docs are split four ways
 
 Different questions deserve different answers. "How do I get
 started?" needs a sequential walkthrough. "How do I delete all
 newsletters?" needs a recipe. "What does `~r` do?" needs a row in
 a table. "Why drafts only?" needs a paragraph.
 
-A single `guide.md` mixed all four. Splitting into tutorial /
-how-to / reference / explanation lets each file optimise for its
-question type. Same convention as Kubernetes, dbt, and LangChain —
-all of which sit in roughly the same scope range as inkwell.
-
-The framework is described at https://diataxis.fr.
+A single guide mixed all four. Splitting into tutorial / how-to /
+reference / explanation lets each file optimise for its question
+type, and lets you ignore the three you don't currently need.
 
 ## Why a status-bar reminder for active filters / searches?
 

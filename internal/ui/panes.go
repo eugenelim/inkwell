@@ -354,6 +354,13 @@ type ListModel struct {
 	// flapping reloads. Cleared on folder switch (ResetLimit) and
 	// rechecked on every SetMessages.
 	cacheExhausted bool
+	// wallSyncRequested is the debounce flag: true after we've
+	// already kicked a sync for the current cache-exhausted state.
+	// Cleared on the next SetMessages so the next time the user
+	// arrives at the wall we kick again. Without this, every j
+	// press at the wall fired SyncAll → real-tenant log showed 3
+	// cycles in 2.5s.
+	wallSyncRequested bool
 }
 
 // initialListLimit is the first-page size for the list pane.
@@ -385,6 +392,7 @@ func (m *ListModel) SetMessages(ms []store.Message) {
 	m.messages = ms
 	m.loading = false
 	m.cacheExhausted = len(ms) < m.LoadLimit()
+	m.wallSyncRequested = false // fresh load → allow another wall-sync
 	if prevID != "" {
 		for i, msg := range ms {
 			if msg.ID == prevID {
@@ -434,6 +442,18 @@ func (m *ListModel) MarkLoading() {
 func (m ListModel) AtCacheWall() bool {
 	return m.cacheExhausted && len(m.messages) > 0 && m.cursor == len(m.messages)-1
 }
+
+// ShouldKickWallSync returns true when the cursor is at the cache
+// wall AND we haven't already requested a sync for this state. The
+// caller flips wallSyncRequested via [MarkWallSyncRequested] after
+// firing the Cmd, so subsequent j-presses don't re-fire until the
+// next SetMessages.
+func (m ListModel) ShouldKickWallSync() bool {
+	return m.AtCacheWall() && !m.wallSyncRequested
+}
+
+// MarkWallSyncRequested arms the wall-sync debounce flag.
+func (m *ListModel) MarkWallSyncRequested() { m.wallSyncRequested = true }
 
 // ResetLimit collapses the load limit back to the initial page and
 // clears the exhausted flag (used when the user switches folders —
@@ -549,6 +569,13 @@ func (m *ViewerModel) ScrollUp() {
 	}
 }
 
+// ToggleHeaders flips between compact (default) and full header
+// display. Compact shows From/Date/Subject + To collapsed; full
+// shows every recipient on every line.
+func (m *ViewerModel) ToggleHeaders() {
+	m.showFullHdr = !m.showFullHdr
+}
+
 // CurrentMessageID returns the id of the currently-displayed message,
 // or empty if none.
 func (m ViewerModel) CurrentMessageID() string {
@@ -569,14 +596,30 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	if from == "" {
 		from = m.current.FromAddress
 	}
+	// Header layout. Compact (default) shows From/Date/Subject + a
+	// collapsed To line ("first 3 + N more"). Full (capital H) shows
+	// every recipient on every line. Many-attendee emails would
+	// otherwise eat the entire viewer pane and starve the body.
 	hdrs := []string{
 		header,
 		"From:    " + from,
-		"To:      " + joinAddrs(m.current.ToAddresses),
 		"Date:    " + m.current.ReceivedAt.Format(time.RFC1123),
 		"Subject: " + m.current.Subject,
-		"",
 	}
+	if m.showFullHdr {
+		hdrs = append(hdrs,
+			"To:      "+joinAddrs(m.current.ToAddresses),
+		)
+		if len(m.current.CcAddresses) > 0 {
+			hdrs = append(hdrs, "Cc:      "+joinAddrs(m.current.CcAddresses))
+		}
+		if len(m.current.BccAddresses) > 0 {
+			hdrs = append(hdrs, "Bcc:     "+joinAddrs(m.current.BccAddresses))
+		}
+	} else {
+		hdrs = append(hdrs, "To:      "+compactAddrs(m.current.ToAddresses, m.current.CcAddresses, m.current.BccAddresses))
+	}
+	hdrs = append(hdrs, "")
 	body := m.body
 	if body == "" {
 		body = t.Dim.Render("(loading…)")
@@ -599,6 +642,40 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	}
 	out := append(hdrs, bodyLines...)
 	return t.Viewer.Width(width).Height(height).Render(strings.Join(out, "\n"))
+}
+
+// compactAddrs renders a one-line summary of all recipients across
+// To/Cc/Bcc: first three To names + " + N more" if there are more
+// than three To addresses or any Cc/Bcc. Designed to fit on a single
+// pane row regardless of attendee count. Press capital H in the
+// viewer to expand to full To/Cc/Bcc lines.
+func compactAddrs(to, cc, bcc []store.EmailAddress) string {
+	total := len(to) + len(cc) + len(bcc)
+	if total == 0 {
+		return "—"
+	}
+	const showTo = 3
+	var parts []string
+	for i, a := range to {
+		if i >= showTo {
+			break
+		}
+		parts = append(parts, addrShort(a))
+	}
+	more := total - len(parts)
+	out := strings.Join(parts, ", ")
+	if more > 0 {
+		out += fmt.Sprintf("  + %d more (press H to expand)", more)
+	}
+	return out
+}
+
+// addrShort prefers the display name; falls back to the address.
+func addrShort(a store.EmailAddress) string {
+	if a.Name != "" {
+		return a.Name
+	}
+	return a.Address
 }
 
 // joinAddrs renders a recipient list as "name <addr>, name2 <addr2>".
