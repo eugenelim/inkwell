@@ -5,13 +5,21 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/store"
 )
+
+// lipglossPlace centres the modal on the screen. Tiny wrapper so the
+// import sits next to the code that uses it.
+func lipglossPlace(s string, w, h int) string {
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, s)
+}
 
 // composeStartedMsg is the result of preparing the tempfile + skeleton.
 // On success, .tempfile + .sourceID are populated and Bubble Tea will
@@ -105,6 +113,31 @@ func (m Model) saveDraftCmd(tempfile, sourceID string) tea.Cmd {
 	}
 }
 
+// renderComposeConfirm draws the post-edit confirm pane. The
+// modal lists the three choices clearly so the user never wonders
+// "did pressing :q! save my draft?" — they pick the action
+// explicitly.
+func (m Model) renderComposeConfirm() string {
+	title := m.theme.Bold.Render("✉️  Draft ready")
+	body := []string{
+		title,
+		"",
+		"Your editor closed. Pick what to do with this draft:",
+		"",
+		"  " + m.theme.HelpKey.Render("s") + "  " + m.theme.Help.Render("save draft (lands in your Outlook Drafts folder)"),
+		"  " + m.theme.HelpKey.Render("e") + "  " + m.theme.Help.Render("re-edit (re-opens the same file in your editor)"),
+		"  " + m.theme.HelpKey.Render("d") + "  " + m.theme.Help.Render("discard (delete the file; nothing sent or saved)"),
+		"",
+		m.theme.Dim.Render("Esc stays on this prompt — destructive choices need an explicit key."),
+	}
+	box := m.theme.Modal.Render(strings.Join(body, "\n"))
+	return placeCenter(box, m.width, m.height)
+}
+
+// placeCenter is a tiny wrapper around lipgloss.Place to keep the
+// import discipline in app.go from sprawling.
+func placeCenter(s string, w, h int) string { return lipglossPlace(s, w, h) }
+
 // openInBrowser opens url via the OS-default handler. macOS uses
 // `open`; Linux/BSD uses `xdg-open`. Best-effort; errors are silently
 // swallowed because the user already has the link in the status bar
@@ -119,5 +152,6 @@ func openInBrowser(url string) {
 	default:
 		return
 	}
+	// #nosec G204 — args[0] is "open" or "xdg-open" (constant per OS); args[1] is a URL drawn from a Graph webLink the server gave us. No shell, no concatenation, no user-controlled binary.
 	_ = exec.Command(args[0], args[1:]...).Run()
 }

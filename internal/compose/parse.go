@@ -30,6 +30,7 @@ var ErrEmpty = errors.New("draft is empty — discarded")
 // headers are silently ignored — a future iter could surface them
 // as a parse warning.
 func Parse(path string) (*ParsedDraft, error) {
+	// #nosec G304 — path is the inkwell-generated draft tempfile (compose.WriteTempfile produces ~/Library/Caches/inkwell/drafts/<uuid>.eml at mode 0600). Caller never accepts paths from external input.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

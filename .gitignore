@@ -7,3 +7,18 @@ cover.out
 *.log
 .idea/
 .vscode/
+
+# Local regression-by-feature reports (scripts/regress-report.sh).
+# Reports are evidence of "ran the suite before tagging" and stay
+# local — they are NOT shipped artefacts.
+reports/
+
+# Local security scan output (gosec / semgrep / govulncheck).
+# Same reasoning as reports/ — kept locally for the operator,
+# never committed.
+sec-reports/
+
+# Claude Code's project-local settings + scheduled-tasks lockfile.
+# Personal to the operator's session; not part of the repo's
+# build inputs.
+.claude/

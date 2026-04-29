@@ -518,13 +518,14 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		// Meeting-invite indicator: a leading 📅 glyph for messages that
-		// are recognisable as calendar invites or invite responses
-		// (Accepted: / Declined: / Updated: / etc.). Heuristic — see
-		// isLikelyMeeting. v0.9 will read Graph's meetingMessageType
-		// via $select for an exact signal.
+		// Meeting-invite indicator: a leading 📅 glyph. Prefer Graph's
+		// meetingMessageType (canonical signal — set after spec 02 v2
+		// migration); fall back to subject-prefix heuristic for rows
+		// synced before the migration. Real-tenant bug: invites whose
+		// subject didn't start with "Accepted:" / "Meeting:" / etc.
+		// silently lost the indicator.
 		invite := "  "
-		if isLikelyMeeting(msg.Subject) {
+		if isMeetingMessage(msg) {
 			invite = "📅 "
 		}
 		line := fmt.Sprintf("%s%s%-10s %-14s %s", marker, invite, when, truncate(from, 14), msg.Subject)
@@ -910,9 +911,10 @@ var meetingPrefixes = []string{
 }
 
 // isLikelyMeeting reports whether subject's prefix matches one of the
-// known invite/response forms. Heuristic — covers the common cases
-// without a schema change. Future iter ($select meetingMessageType)
-// will replace this with the canonical Graph signal.
+// known invite/response forms. Heuristic — used as a fallback for
+// messages that predate the meeting_message_type schema migration
+// (spec 02 v2). New messages get the canonical signal via Graph's
+// $select=meetingMessageType.
 func isLikelyMeeting(subject string) bool {
 	s := strings.ToLower(strings.TrimSpace(subject))
 	for _, p := range meetingPrefixes {
@@ -921,6 +923,25 @@ func isLikelyMeeting(subject string) bool {
 		}
 	}
 	return false
+}
+
+// isMeetingMessage decides whether to render the 📅 indicator.
+// Canonical Graph signal first (any non-empty value other than the
+// "none" sentinel means the message IS a meeting), heuristic fallback
+// for legacy rows whose meeting_message_type column is empty.
+func isMeetingMessage(msg store.Message) bool {
+	switch strings.ToLower(strings.TrimSpace(msg.MeetingMessageType)) {
+	case "":
+		// No canonical signal — fall through to subject heuristic.
+	case "none":
+		// Graph explicitly says "not a meeting"; trust it over the
+		// subject heuristic (which would otherwise false-positive on
+		// any "Meeting: Q4 sync" plain mail).
+		return false
+	default:
+		return true
+	}
+	return isLikelyMeeting(msg.Subject)
 }
 
 // truncate cuts s to width characters.

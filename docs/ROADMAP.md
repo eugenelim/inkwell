@@ -1,22 +1,116 @@
 # Roadmap
 
-**Document status:** Living document. Captures post-v1 ideas, ranked by impact.
-**Last updated:** 2026-04-27
+**Document status:** Living document. Captures post-v1 ideas.
+**Last reorganized:** 2026-04-29
 
-This roadmap tracks features, improvements, and ideas that didn't make v1. Items are organised in a single impact-ranked backlog rather than grouped by origin. Each entry lists concept, TUI translation, and a take with priority.
+This roadmap tracks features, improvements, and ideas that didn't make v1.
 
 ---
 
 ## How to read this document
 
-- **§1** — Backlog. Single impact-ranked list. Items are tagged **P1** (high value, do early post-v1), **P2** (medium), **P3** (interesting but not pressing), or **research** (needs more thought before scoping).
-- **§2** — Custom actions framework. The biggest design idea in this document; given its own section because it touches almost every other feature.
-- **§3** — AI integration. Held separately because the design space is huge and the ground keeps moving.
+- **§0** — **Buckets.** Items in §1 are grouped into themed buckets in
+  natural dependency order. Each bucket lists items in the order they
+  should be specced/built within that theme.
+- **§1** — The full backlog with concept / TUI translation / take per
+  item. Items are still individually labelled P1 / P2 / P3 / research
+  for priority, but the build order is the bucket order in §0.
+- **§2** — Custom actions framework. Big design idea; touches almost
+  every other feature.
+- **§3** — AI integration. Held separately because the design space is
+  huge and the ground keeps moving.
 - **§4** — Platform expansion (Linux, Windows, mobile).
-- **§5** — Things we deliberately won't do, with reasoning.
+- **§5** — Things we deliberately won't do.
 - **§6** — Contributing to this roadmap.
 
-Within §1, items are listed P1 → P2 → P3 → research, then by rough effort within tier.
+---
+
+## §0 Buckets — build in this order
+
+### Bucket 1 — Triage primitives
+
+The atomic verbs every other bucket depends on. These ship first.
+
+| Order | Item                            | Spec | Why this slot                                        |
+| ----- | ------------------------------- | ---- | ---------------------------------------------------- |
+| 1     | First-class unsubscribe (1.4)   | 16   | Highest ROI in the backlog, no dependencies.         |
+| 2     | Folder management (1.1)         | 17   | Table-stakes capability; needed by routing in B2.    |
+| 3     | Mute thread (1.5)               | 18   | Cheap; new `muted_conversations` table reused later. |
+| 4     | Conversation-level ops (1.8)    | 19   | Promotes thread as a first-class unit (B2 needs it). |
+| 5     | Cross-folder bulk (1.3)         | 20   | Small extension to the existing filter path.         |
+
+### Bucket 2 — Inbox philosophy
+
+Workflow patterns built on the primitives. Users feel these.
+
+| Order | Item                                | Notes                                          |
+| ----- | ----------------------------------- | ---------------------------------------------- |
+| 1     | Command palette (1.6)               | Discoverability for everything else.            |
+| 2     | Routing destinations (1.9)          | `sender_routing` table reused by B3.           |
+| 3     | Split inbox tabs (1.7)              | Depends on saved searches + conversation ops. |
+| 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
+| 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
+
+### Bucket 3 — Power-user automation
+
+Ties verbs together once enough verbs exist.
+
+| Order | Item                                | Notes                                          |
+| ----- | ----------------------------------- | ---------------------------------------------- |
+| 1     | Custom actions framework (§2)       | Needs most primitives in B1+B2.                |
+| 2     | Screener (1.16)                     | Uses `sender_routing` from B2.                 |
+| 3     | Watch mode (1.19)                   | Small CLI addition.                            |
+| 4     | "Done" alias (1.23)                 | Binding/branding only.                         |
+
+### Bucket 4 — Mailbox parity
+
+Capability completeness with native clients.
+
+| Order | Item                                  | Notes                                        |
+| ----- | ------------------------------------- | -------------------------------------------- |
+| 1     | Focused / Other tab (1.15)            | Cheap, exposes existing Graph signal.         |
+| 2     | Server-side rules (1.14)              | New CRUD; independent.                        |
+| 3     | Rich-text / Markdown drafts (1.18)    | Editor-side; minor.                           |
+| 4     | Calendar invite actions in mail (1.17)| Scope-gated on `Calendars.ReadWrite`.         |
+| 5     | Multi-account (1.2)                   | Significant refactor; do when stable.         |
+
+### Bucket 5 — Search & knowledge
+
+| Order | Item                                  | Notes                                        |
+| ----- | ------------------------------------- | -------------------------------------------- |
+| 1     | Body regex / local body indexing (1.13) | Schema change.                              |
+| 2     | Clips (1.12)                          | New `clips` table; FTS-searchable.           |
+| 3     | Alternative query syntax (1.24)       | Parser flag, cheap.                          |
+
+### Bucket 6 — Platform & polish
+
+| Order | Item                                  | Notes                                        |
+| ----- | ------------------------------------- | -------------------------------------------- |
+| 1     | Linux build (§4.1)                    | Most portable; KDE/GNOME keychain.            |
+| 2     | Shell completion (1.20)               | Cobra ships it; just publish.                |
+| 3     | Launchd integration (1.21)            | Background pre-warm.                         |
+| 4     | Snippets (1.22)                       | `[snippets]` config + `:snippet`.            |
+| 5     | Windows build (§4.2)                  | Bigger lift; Credential Manager + console.   |
+| 6     | Mass-archive doc (1.25)               | Already supported; just write the recipe.    |
+| 7     | Encrypted/signed mail (1.26)          | Research; defer until requested.             |
+
+### Bucket 7 — AI (last; per direction)
+
+Tier 1 first (local-only, no data leaves the box). Tier 2 only with
+explicit opt-in. Tier 3 (agentic) we don't do.
+
+| Order | Item                                            | Tier  |
+| ----- | ----------------------------------------------- | ----- |
+| 1     | Local thread summarisation (§3.3 tier 1)        | local |
+| 2     | Local triage classification (§3.3 tier 1)       | local |
+| 3     | Heuristic auto-categorisation (1.27)            | local |
+| 4     | Remote draft generation (§3.3 tier 2)           | opt-in remote |
+| 5     | Search by intent (§3.3 tier 2)                  | opt-in remote |
+| 6     | Agentic suggestions (§3.3 tier 3)               | research / probably never |
+
+Tier 1 features ship behind a config flag, default off, with a clear
+"this never leaves the machine" status indicator. Tier 2 is loud and
+opt-in per spec 19+. Tier 3 stays in the backlog as research only.
 
 ---
 

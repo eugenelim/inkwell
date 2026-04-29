@@ -18,7 +18,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 1
+const SchemaVersion = 3
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -43,6 +43,10 @@ type Store interface {
 	DeleteMessage(ctx context.Context, id string) error
 	DeleteMessages(ctx context.Context, ids []string) error
 	UpdateMessageFields(ctx context.Context, id string, f MessageFields) error
+	// SetUnsubscribe persists the parsed List-Unsubscribe action on the
+	// message row (spec 16). url is "" / "https://…" / "mailto:<addr>";
+	// oneClick is true iff RFC 8058 one-click POST applies. Idempotent.
+	SetUnsubscribe(ctx context.Context, messageID, url string, oneClick bool) error
 	// SearchByPredicate runs a caller-supplied SQL WHERE clause + args
 	// against the messages table (spec 10 — pattern-based filter).
 	// `where` is appended to a fixed `account_id = ?` filter; the
@@ -124,6 +128,7 @@ func Open(path string, opts Options) (Store, error) {
 
 	created := false
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		// #nosec G304 — path is the user's mail.db location (default ~/Library/Application Support/inkwell/mail.db, configurable via [storage] db_path). Single-user desktop tool; the user owns the path.
 		f, ferr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
 		if ferr != nil {
 			return nil, fmt.Errorf("store: create %s: %w", path, ferr)

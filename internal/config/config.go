@@ -137,6 +137,7 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		return cfg, cfg.Validate()
 	}
+	// #nosec G304 — path is the user's TOML config (~/Library/Application Support/inkwell/config.toml or --config flag). Single-user desktop tool; the user owns the path.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

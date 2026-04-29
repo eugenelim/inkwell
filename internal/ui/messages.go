@@ -28,6 +28,7 @@ const (
 	ConfirmMode
 	CalendarMode
 	OOFMode
+	ComposeConfirmMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update

@@ -282,6 +282,33 @@ In viewer focus:
 
 Links are de-duplicated: if `[1]` and `[3]` are the same URL, they share an entry.
 
+### 9.1 OSC 8 hyperlinks (terminal-clickable)
+
+Every URL the renderer emits — both the inline body URLs and the
+`Links:` footer — is wrapped in OSC 8 hyperlink escape sequences:
+
+```
+\x1b]8;;<url>\x1b\\<text>\x1b]8;;\x1b\\
+```
+
+Terminals that support OSC 8 (iTerm2 ≥ 3.1, kitty, alacritty, foot,
+wezterm, recent gnome-terminal / Konsole) render the URLs as
+clickable. Cmd-click (macOS) / Ctrl-click (Linux) opens the link in
+the default browser without the user dragging across pane borders.
+
+Terminals without OSC 8 support (Apple Terminal.app, older xterm)
+silently strip the escapes; URLs render as plain text and the user
+falls back to the numbered `1`–`9` keys above.
+
+Why this matters: drag-selecting a multi-line URL across the
+viewer pane previously captured content from the adjacent
+message-list pane (terminal rectangular selection). OSC 8 sidesteps
+the selection problem entirely — users click, never drag.
+
+Config: `[ui].clickable_links = "auto" | "always" | "never"`
+(default `auto`, treated as `always`; future iteration can detect
+terminal capability via `$TERM_PROGRAM` and downgrade automatically).
+
 ## 10. Web link fallback (`:open`)
 
 When the body is unreadable (rare CSS-heavy marketing email, broken HTML), the user can press `O` (or run `:open`) to open the message in the default browser. This uses the `webLink` field from the message (which Graph populates as a deep link to OWA).

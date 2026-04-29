@@ -1,0 +1,91 @@
+name: security
+
+# SAST + dependency scan. Three independent scanners — gosec
+# (Go-specific), Semgrep (multi-pattern SAST including p/golang and
+# p/secrets), govulncheck (the official Go vulnerability database
+# scanner). Results upload as artefacts so the operator can review
+# without rerunning locally.
+#
+# False-positive policy: code-line annotations only (#nosec for gosec,
+# // nosemgrep for Semgrep). Avoid global suppressions; every
+# suppression carries a one-line WHY in the comment so the next
+# reviewer can re-evaluate. govulncheck doesn't support per-line
+# suppression — if a CVE doesn't apply, document the rationale in the
+# PR description and pin the dependency to a fixed version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly run catches new CVEs against unchanged code.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  gosec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - name: run gosec
+        run: |
+          $(go env GOPATH)/bin/gosec \
+            -fmt=sarif -out=gosec.sarif \
+            -exclude-dir=docs -exclude-generated \
+            ./... || true
+      - name: upload sarif
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosec-sarif
+          path: gosec.sarif
+      - name: gate (text)
+        run: |
+          $(go env GOPATH)/bin/gosec \
+            -fmt=text \
+            -exclude-dir=docs -exclude-generated \
+            ./...
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: run semgrep
+        run: |
+          semgrep \
+            --config=p/golang \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --error \
+            --metrics=off \
+            --exclude=docs \
+            --exclude=internal/graph/testdata \
+            --sarif --output=semgrep.sarif \
+            ./
+      - name: upload sarif
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: run govulncheck
+        run: $(go env GOPATH)/bin/govulncheck ./...

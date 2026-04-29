@@ -52,6 +52,7 @@ pattern via the filter machinery.
 | `;`       | Begin bulk chord (only when a filter is active)               |
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
+| `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `/`       | Enter search mode                                             |
 
 **Smart-scroll**: when you reach the last 20 messages of the loaded
@@ -76,11 +77,26 @@ pull more from Graph.
 | `f`       | Toggle flag (focus stays — flag, keep reading)                |
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `a`       | Archive (focus pops back to list)                             |
+| `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 
 **Compact headers** (default): only From / Date / Subject + first 3
 recipients with "+ N more". On a 50-attendee thread, the body
 gets the room. Press `H` to expand To / Cc / Bcc on their own
 lines.
+
+**Clickable URLs**: every URL in a rendered message body — inline
+and in the trailing `Links:` block — is wrapped in OSC 8 hyperlink
+escapes. Modern terminals (iTerm2, kitty, alacritty, foot, wezterm,
+recent gnome-terminal / Konsole) make these directly clickable
+(Cmd-click on macOS, Ctrl-click on Linux). Older terminals (Apple
+Terminal.app) fall back to plain text — use the numbered `1`–`9`
+keys to open links instead.
+
+If your terminal doesn't support OSC 8 and you need to copy a long
+URL, hold **Option** (macOS) or **Shift** (Linux) while drag-
+selecting to limit the selection to the viewer pane region only.
+Without the modifier, terminal selection is rectangular and spans
+across panes.
 
 **Reply flow** (`r`): inkwell writes a tempfile pre-populated with
 To / Cc / Subject + a quoted-body skeleton, then opens it in your
@@ -107,9 +123,11 @@ and don't currently mark-read. Use the list pane for that.
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
 | `:ooo` / `:outofoffice`       | Open the out-of-office modal (view + toggle on/off)             |
+| `:unsub` / `:unsubscribe`     | Unsubscribe from the focused message (same flow as `U` keybinding) |
 
-Plain-text patterns without a `~` operator are treated as `~B <text>`
-(subject or body contains).
+Plain-text patterns without a `~` operator are treated as a CONTAINS
+search across subject and body (`~B *<text>*`). `:filter [External]`
+matches any message whose subject or body contains `[External]`.
 
 ## Search mode (`/`)
 

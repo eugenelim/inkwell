@@ -144,7 +144,7 @@ func (a *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	a.auth.Invalidate()
 	if err := a.attach(req); err != nil {
 		return nil, err
@@ -210,7 +210,7 @@ func (t *throttleTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			slog.Duration("retry_after", retryAfter),
 			slog.Int("status", resp.StatusCode),
 		)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		select {
 		case <-time.After(retryAfter):
 		case <-req.Context().Done():

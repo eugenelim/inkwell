@@ -550,6 +550,74 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// e2eUnsubStub is the spec 16 stub. Records the calls so the test
+// can assert the right wires fired without needing a real Graph
+// server — the unsub package's own tests cover the network path.
+type e2eUnsubStub struct {
+	resolveAction UnsubscribeAction
+	postCalls     int32
+}
+
+func (s *e2eUnsubStub) Resolve(_ context.Context, _ string) (UnsubscribeAction, error) {
+	return s.resolveAction, nil
+}
+
+func (s *e2eUnsubStub) OneClickPOST(_ context.Context, _ string) error {
+	atomicAdd(&s.postCalls, 1)
+	return nil
+}
+
+// atomicAdd is a tiny helper — using sync/atomic directly inflates
+// the import surface for one call.
+func atomicAdd(p *int32, n int32) { *p += n }
+
+// TestUnsubscribeUKeyOpensConfirmModalAndExecutes is the spec 16 e2e
+// visible-delta test (CLAUDE.md §5.4): U on the focused message must
+// (a) make the confirm modal visible with the URL the user is about
+// to act on, (b) on y the modal disappears and the status bar shows
+// the success message. Without this, dispatch tests can pass while
+// the user sees nothing — exactly the v0.2.6 regression class.
+func TestUnsubscribeUKeyOpensConfirmModalAndExecutes(t *testing.T) {
+	m, _ := newE2EModel(t)
+	stub := &e2eUnsubStub{
+		resolveAction: UnsubscribeAction{Kind: UnsubscribeOneClickPOST, URL: "https://example.invalid/u/abc"},
+	}
+	m.deps.Unsubscribe = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Newsletter weekly")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus the list pane, navigate to the seeded newsletter row (it's
+	// 2nd by received-time), press U.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+
+	// VISIBLE DELTA #1: confirm modal renders with the URL.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "example.invalid/u/abc") && contains(s, "[y]es / [N]o")
+	}, teatest.WithDuration(2*time.Second))
+
+	// y → execute one-click POST.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	// VISIBLE DELTA #2: status bar shows the success message and the
+	// confirm modal is gone.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "unsubscribed") && !contains(s, "[y]es / [N]o")
+	}, teatest.WithDuration(2*time.Second))
+
+	require.Equal(t, int32(1), stub.postCalls, "y must fire OneClickPOST exactly once")
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // folderAppearsAtIndent returns true if `name` appears in `buf`
 // preceded by exactly `indent` spaces (after the cursor-marker col).
 // We split on visual lines and check each line for the pattern

@@ -38,6 +38,7 @@ func EditorCmd(path string) (*exec.Cmd, error) {
 	}
 	args := append([]string{}, bin[1:]...)
 	args = append(args, path)
+	// #nosec G204 — bin[0] is the user's chosen $EDITOR / INKWELL_EDITOR resolved through exec.LookPath; path is an inkwell-generated tempfile in ~/Library/Caches/inkwell/drafts. Spec 15 §6 is the explicit design: we hand control to the user's editor.
 	return exec.Command(bin[0], args...), nil
 }
 

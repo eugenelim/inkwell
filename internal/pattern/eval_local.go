@@ -119,12 +119,15 @@ func emitStringPredicate(f Field, v StringValue) (string, []any, error) {
 }
 
 // likeOne renders a single-column LIKE predicate (or = for exact matches).
+// LIKE clauses include `ESCAPE '\'` so the literal-`%`/`_` escapes
+// produced by likeArgs are honoured. Without it SQLite treats `\` as
+// plain text and `:filter 50%` would silently match nothing.
 func likeOne(col string, v StringValue) (string, []any, error) {
 	op, arg := likeArgs(v)
 	if op == "=" {
 		return col + " = ?", []any{arg}, nil
 	}
-	return col + " LIKE ?", []any{arg}, nil
+	return col + ` LIKE ? ESCAPE '\'`, []any{arg}, nil
 }
 
 // likeAny renders an OR over multiple columns.
@@ -136,7 +139,7 @@ func likeAny(cols []string, v StringValue) (string, []any, error) {
 		if op == "=" {
 			parts = append(parts, c+" = ?")
 		} else {
-			parts = append(parts, c+" LIKE ?")
+			parts = append(parts, c+` LIKE ? ESCAPE '\'`)
 		}
 		args = append(args, arg)
 	}

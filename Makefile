@@ -1,4 +1,4 @@
-.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version regress
+.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version regress regress-report sec sec-gosec sec-semgrep sec-vuln
 
 BIN_NAME := inkwell
 BIN_DIR  := bin
@@ -44,6 +44,28 @@ test-all: test test-e2e ## Race + e2e
 
 regress: ## Full regression suite (CLAUDE.md §5.8). Run before tagging.
 	@./scripts/regress.sh
+
+regress-report: ## Per-feature regression report → reports/ (gitignored)
+	@./scripts/regress-report.sh
+
+sec: sec-gosec sec-semgrep sec-vuln ## Run gosec + semgrep + govulncheck
+
+sec-gosec: ## gosec — Go static security analyser (install: go install github.com/securego/gosec/v2/cmd/gosec@latest)
+	@mkdir -p sec-reports
+	@which gosec >/dev/null 2>&1 || { echo "install gosec: go install github.com/securego/gosec/v2/cmd/gosec@latest"; exit 1; }
+	gosec -fmt=text -out=sec-reports/gosec.txt -stdout -exclude-dir=docs -exclude-generated ./...
+
+sec-semgrep: ## semgrep — multi-language SAST (install: brew install semgrep OR pip install semgrep)
+	@mkdir -p sec-reports
+	@which semgrep >/dev/null 2>&1 || { echo "install semgrep: brew install semgrep OR pip install semgrep"; exit 1; }
+	semgrep --config=p/golang --config=p/security-audit --config=p/secrets \
+		--error --metrics=off --exclude=docs --exclude=internal/graph/testdata \
+		--text-output=sec-reports/semgrep.txt --text ./
+
+sec-vuln: ## govulncheck — Go module vulnerability scan (install: go install golang.org/x/vuln/cmd/govulncheck@latest)
+	@mkdir -p sec-reports
+	@which govulncheck >/dev/null 2>&1 || { echo "install govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest"; exit 1; }
+	govulncheck ./... | tee sec-reports/govulncheck.txt
 
 vet:
 	go vet ./...
