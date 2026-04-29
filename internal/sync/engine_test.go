@@ -433,6 +433,42 @@ func (r recordingDrainer) Drain(_ context.Context) error {
 	return nil
 }
 
+// TestRunCycleSerialisesConcurrentCallers is the regression for the
+// real-tenant log that showed cycle 2 starting at 22:55:19.809 while
+// cycle 1 (started 22:55:19.661) didn't end until 22:55:19.880 — two
+// runCycle invocations overlapping. Without the cycleMu lock added in
+// v0.9.x, parallel SyncAll() goroutines stacked HTTP fan-outs.
+func TestRunCycleSerialisesConcurrentCallers(t *testing.T) {
+	eng, srv, _, _ := newSyncTest(t)
+	var inflight atomic.Int32
+	var maxInflight atomic.Int32
+
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		cur := inflight.Add(1)
+		if cur > maxInflight.Load() {
+			maxInflight.Store(cur)
+		}
+		// Hold the lock briefly so a concurrent caller would race
+		// here if cycleMu weren't enforcing serialisation.
+		time.Sleep(20 * time.Millisecond)
+		inflight.Add(-1)
+		writeJSON(w, graph.FolderListResponse{Value: nil})
+	})
+
+	// Fire 4 SyncAll calls in parallel.
+	var wg stdsync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = eng.SyncAll(context.Background())
+		}()
+	}
+	wg.Wait()
+	require.Equal(t, int32(1), maxInflight.Load(),
+		"runCycle must be serialised — only one in-flight at a time")
+}
+
 func TestPrivacyNoBodyContentReachedDuringDeltaSync(t *testing.T) {
 	eng, srv, _, acc := newSyncTest(t)
 	require.NoError(t, eng.(*engine).st.UpsertFolder(context.Background(), store.Folder{

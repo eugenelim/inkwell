@@ -41,10 +41,14 @@ type fakeEngine struct {
 	events    chan isync.Event
 }
 
-func newFakeEngine() *fakeEngine                        { return &fakeEngine{events: make(chan isync.Event, 8)} }
-func (f *fakeEngine) Start(_ context.Context) error     { return nil }
-func (f *fakeEngine) SetActive(_ bool)                  {}
-func (f *fakeEngine) SyncAll(_ context.Context) error   { f.syncCalls++; return nil }
+func newFakeEngine() *fakeEngine                      { return &fakeEngine{events: make(chan isync.Event, 8)} }
+func (f *fakeEngine) Start(_ context.Context) error   { return nil }
+func (f *fakeEngine) SetActive(_ bool)                {}
+func (f *fakeEngine) SyncAll(_ context.Context) error { f.syncCalls++; return nil }
+func (f *fakeEngine) Wake()                           {}
+func (f *fakeEngine) Backfill(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
 func (f *fakeEngine) Notifications() <-chan isync.Event { return f.events }
 
 func openE2EStore(t *testing.T) (store.Store, *store.Account) {

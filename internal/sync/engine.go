@@ -95,6 +95,12 @@ type Engine interface {
 	Backfill(ctx context.Context, folderID string, until time.Time) error
 	ResetDelta(ctx context.Context, folderID string) error
 	Notifications() <-chan Event
+	// Wake nudges the engine to run a cycle now (the next select
+	// iteration of the loop). Single-shot — duplicate calls within a
+	// running cycle are coalesced by the buffer-1 wakeup channel,
+	// which prevents the cycle storms seen when callers go through
+	// SyncAll concurrently with the loop's own timer.
+	Wake()
 }
 
 // ActionDrainer is the seam between sync and the action executor (spec
@@ -168,6 +174,12 @@ type engine struct {
 	stopOnce sync.Once
 	stopped  chan struct{}
 	wakeup   chan struct{}
+	// cycleMu serialises runCycle. Without it, a UI-fired SyncAll
+	// goroutine can run concurrently with the engine's own loop tick,
+	// producing the back-to-back HTTP storms seen in real-tenant
+	// logs. The lock is held for the entire cycle (sub-second
+	// typically); it does NOT block the wakeup / Stop paths.
+	cycleMu sync.Mutex
 }
 
 // New constructs an Engine. The [graph.Client] handles auth + throttle;
@@ -256,8 +268,20 @@ func (e *engine) Sync(ctx context.Context, folderID string) error {
 
 // SyncAll syncs every subscribed folder in serial. Folder enumeration
 // runs first so renames land before message delta.
+//
+// SyncAll is the synchronous form. UI callers should prefer Wake()
+// (single-shot, debounced, doesn't overlap with the engine's loop).
 func (e *engine) SyncAll(ctx context.Context) error {
 	return e.runCycle(ctx)
+}
+
+// Wake nudges the engine's loop to run a cycle now. Implemented as a
+// non-blocking send to the buffer-1 wakeup channel: duplicate calls
+// while a cycle is already pending coalesce into one. This is the
+// preferred path for UI-driven "sync now please" because it
+// guarantees serialisation with the engine's own timer-driven cycles.
+func (e *engine) Wake() {
+	e.kick()
 }
 
 // Backfill pulls older-than-default messages for folderID up to until.
@@ -345,6 +369,12 @@ func (e *engine) kick() {
 // order (Inbox first, then well-known, then user folders alpha) so the
 // user sees Inbox messages before anything else fills in.
 func (e *engine) runCycle(ctx context.Context) error {
+	// Serialise the cycle. The engine's loop and any external caller
+	// (UI-fired SyncAll, Wake) all funnel through here; without the
+	// lock they can stack and produce overlapping HTTP fan-outs.
+	e.cycleMu.Lock()
+	defer e.cycleMu.Unlock()
+
 	start := time.Now()
 	e.logger.Info("sync: cycle starting")
 	e.emit(SyncStartedEvent{At: start})

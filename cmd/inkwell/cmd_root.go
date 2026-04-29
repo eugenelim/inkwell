@@ -37,6 +37,12 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSigninCmd(rc))
 	cmd.AddCommand(newSignoutCmd(rc))
 	cmd.AddCommand(newWhoamiCmd(rc))
+	// Spec 14 — non-interactive subcommands. Each opens the local DB
+	// + a Graph client (no TUI).
+	cmd.AddCommand(newFoldersCmd(rc))
+	cmd.AddCommand(newMessagesCmd(rc))
+	cmd.AddCommand(newSyncCmd(rc))
+	cmd.AddCommand(newFilterCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd
