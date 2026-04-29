@@ -100,6 +100,26 @@ location/online-meeting link. Esc to close.
 
 `Calendars.Read` only — to accept, decline, or modify, use Outlook.
 
+## Toggle out-of-office (auto-reply)
+
+`:ooo` opens a modal showing your current auto-reply state and the
+configured internal-reply message. Press `t` to flip enabled /
+disabled — the existing message is preserved server-side, so you're
+not editing the body, just turning it on or off. Esc closes.
+
+To edit the actual message body, set a schedule, or differentiate
+internal vs external audiences, use Outlook for now (those edits
+land in a later iteration).
+
+## Read a thread with many attendees
+
+Open a message in the viewer pane. By default the headers row shows
+From / Date / Subject + the first 3 recipients with "+ N more". On a
+20-attendee thread the body gets the screen real estate.
+
+Press `H` (capital) to expand the full To / Cc / Bcc lines. Press
+`H` again to collapse. Mutt convention.
+
 ## Switch themes
 
 ```toml

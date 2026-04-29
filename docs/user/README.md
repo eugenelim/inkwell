@@ -3,16 +3,14 @@
 User-facing docs, separate from the contributor docs in `docs/PRD.md`,
 `docs/ARCH.md`, `docs/specs/`, `docs/plans/`, etc.
 
-The structure follows the [Diátaxis framework](https://diataxis.fr) —
-the four-quadrant convention used by Kubernetes, dbt, and LangChain.
-Each file answers a different kind of question:
+Four sections, each answering a different kind of question:
 
-| File                           | Question it answers          | Read when                                |
-| ------------------------------ | ---------------------------- | ---------------------------------------- |
-| [`tutorial.md`](tutorial.md)   | "How do I get started?"      | First time. Sequential walkthrough.      |
-| [`how-to.md`](how-to.md)       | "How do I do X?"             | You have a specific task in mind.        |
-| [`reference.md`](reference.md) | "What does this key do?"     | Quick lookup. Exhaustive tables.         |
-| [`explanation.md`](explanation.md) | "Why does it work like this?" | Curious about design / privacy / scope.  |
+| File                               | Question it answers           | Read when                                |
+| ---------------------------------- | ----------------------------- | ---------------------------------------- |
+| [`tutorial.md`](tutorial.md)       | "How do I get started?"       | First time. Sequential walkthrough.      |
+| [`how-to.md`](how-to.md)           | "How do I do X?"              | You have a specific task in mind.        |
+| [`reference.md`](reference.md)     | "What does this key do?"      | Quick lookup. Exhaustive tables.         |
+| [`explanation.md`](explanation.md) | "Why does it work like this?" | Curious about design, privacy, scope.    |
 
 If you're contributing to inkwell, read the repo `README.md` and
 `CLAUDE.md` first.

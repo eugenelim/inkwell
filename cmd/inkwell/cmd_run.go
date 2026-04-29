@@ -157,6 +157,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Triage:        exec,
 		Bulk:          bulkAdapter{exec: exec},
 		Calendar:      calendarAdapter{gc: gc},
+		Mailbox:       mailboxAdapter{gc: gc},
 		ThemeName:     cfg.UI.Theme,
 		SavedSearches: saved,
 	})
@@ -213,6 +214,34 @@ func (b bulkAdapter) BulkArchive(ctx context.Context, accountID int64, ids []str
 func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
 	got, err := b.exec.BulkMarkRead(ctx, accountID, ids)
 	return convertBatchResults(got), err
+}
+
+// mailboxAdapter bridges graph mailbox-settings calls → ui.MailboxClient.
+type mailboxAdapter struct{ gc *graph.Client }
+
+func (m mailboxAdapter) Get(ctx context.Context) (*ui.MailboxSettings, error) {
+	s, err := m.gc.GetMailboxSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ui.MailboxSettings{
+		AutoReplyEnabled:     s.AutoReplies.Status != graph.AutoReplyDisabled,
+		InternalReplyMessage: s.AutoReplies.InternalReplyMessage,
+		ExternalReplyMessage: s.AutoReplies.ExternalReplyMessage,
+	}, nil
+}
+
+func (m mailboxAdapter) SetAutoReply(ctx context.Context, enabled bool, internalMsg, externalMsg string) error {
+	status := graph.AutoReplyDisabled
+	if enabled {
+		status = graph.AutoReplyAlwaysEnabled
+	}
+	return m.gc.UpdateAutoReplies(ctx, graph.AutoRepliesSetting{
+		Status:               status,
+		InternalReplyMessage: internalMsg,
+		ExternalReplyMessage: externalMsg,
+		ExternalAudience:     "all",
+	})
 }
 
 // calendarAdapter bridges graph.Client.ListEventsToday → ui.CalendarEvent.

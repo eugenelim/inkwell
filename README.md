@@ -1,141 +1,230 @@
 # inkwell
 
-> Pre-release. Foundational specs 01–05 land; the TUI boots, lists folders
-> and messages from the local cache, and renders bodies. Authentication
-> uses the well-known Microsoft Graph CLI Tools first-party public client
-> against `/common`, so **no Entra ID app registration is required** in
-> your tenant — just `inkwell signin`. Conditional Access still applies.
+**Triage your Microsoft 365 inbox at vim speed.** A terminal-native
+mail client that reads, searches, filters, and bulk-acts on your work
+mail without touching Outlook for the daily flows. Local-first.
+Pure Go. Sign in with one command — no IT ticket, no Entra ID app
+registration in your tenant.
 
-A terminal-native mail and calendar client for Microsoft 365 on macOS.
-Read, search, and triage your inbox at the speed of thought. Vim-style
-keybindings. Pattern-based bulk cleanup. Local-first. Pure Go.
+```
+☰ inkwell · you@example.com                       ✓ synced 14:32
+┌────────────┬──────────────────────────────┬────────────────────────┐
+│ ▌ Folders  │   Messages                   │   Message              │
+│ ▾ Inbox    │ ▶ Tue 14:30  Alice  Quote    │ From:    Bob …         │
+│   Sent     │   Tue 13:55  Bob    Re: deck │ Subject: Re: deck      │
+│   Drafts   │ 📅 Tue 11:02  Bob  Accepted: │                        │
+│   Archive  │   Tue 10:14  News   Weekly   │ Hey team, …            │
+│ ☆ Saved…   │                              │                        │
+│   ☆ News   │                              │                        │
+└────────────┴──────────────────────────────┴────────────────────────┘
+filter: ~f newsletter@* · matched 47 · ;d delete · ;a archive
+j/k nav · ⏎ open · / search · :filter narrow · f flag · d delete · …
+```
 
-## What works in this release (v0.1.0)
+---
 
-- TUI shell with three panes (folders / list / viewer), modal command bar,
-  status line, sign-in modal, confirm modal.
-- OAuth 2.0 device code authentication via MSAL Go; tokens stored in macOS
-  Keychain only, never on disk.
-- Local SQLite cache with WAL mode, FTS5 over subjects + previews,
-  body LRU eviction.
-- Microsoft Graph v1.0 client with auth-refresh-on-401, throttle / Retry-After,
-  semaphore-capped concurrency.
-- Per-folder delta sync with cursor persistence and `syncStateNotFound`
-  recovery.
-- HTML→text body conversion with tracking-pixel removal, numbered link
-  extraction, attachment listing.
+## Why inkwell
 
-See `docs/plans/spec-{01..05}.md` for what's done vs deferred per spec.
+- **At keyboard speed.** Folder switch, message open, search, filter
+  — all under 100ms against the local cache. No spinner, no network
+  round-trip in the hot path.
+- **Bulk cleanup that actually finishes.** Pattern-based filters
+  (`:filter ~f newsletter@* & ~d <30d`) with one-keystroke bulk
+  delete (`;d`). 247 newsletters in three seconds, not three minutes.
+- **No IT ticket.** Signs in via Microsoft's first-party Graph CLI
+  Tools client against `/common` — your tenant doesn't need to
+  register an Entra ID app for you. `inkwell signin` opens the
+  system browser, and you're in.
+- **Local-first.** SQLite cache, FTS5 search, every read offline.
+  Writes queue and replay on reconnect.
+- **Privacy-respecting.** Tokens in Keychain only, never disk.
+  Bodies and PII scrubbed from logs. Zero telemetry.
+- **Drafts, not sends.** inkwell composes; Outlook sends. Hard scope
+  boundary that keeps the auto-Reply-All disasters out of v1.
 
-## What's missing (next iterations)
+For the design decisions behind these, see
+[`docs/user/explanation.md`](docs/user/explanation.md).
 
-- Triage actions wired to keybindings (spec 07).
-- Search UX (spec 06).
-- Pattern language + bulk operations (specs 08–10).
-- macOS code-signing + notarization (PRD §7) — current binaries are unsigned.
-- Roadmap items in `docs/ROADMAP.md`.
+---
+
+## Get started — 3 minutes
+
+```sh
+# Download (replace vX.Y.Z with the latest release).
+gh release download v0.8.0 -p '*macos_arm64*' -D /tmp
+tar -xzf /tmp/inkwell_0.8.0_macos_arm64.tar.gz -C /tmp
+xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
+sudo mv /tmp/inkwell /usr/local/bin/              # optional
+
+# Sign in (opens system browser).
+inkwell signin
+
+# Launch the TUI.
+inkwell run
+```
+
+**On first launch**: type `1` to focus folders, `Enter` to open one,
+`j`/`k` to walk messages, `Enter` to read, `q` to quit. Help bar at
+the bottom of the screen always shows the keys for the focused pane.
+
+Linux builds (amd64 / arm64) are also published on each release.
+
+---
+
+## Documentation
+
+Start here, in this order:
+
+1. **[Tutorial](docs/user/tutorial.md)** — your first 30 minutes.
+   Sequential walkthrough: install → sign in → navigate → search →
+   filter → bulk delete → saved searches → calendar.
+2. **[How-to](docs/user/how-to.md)** — task recipes ("delete all
+   newsletters older than 30 days", "set up saved searches", "force
+   a sync now").
+3. **[Reference](docs/user/reference.md)** — every keybinding, every
+   `:command`, every pattern operator. Bookmark this.
+4. **[Explanation](docs/user/explanation.md)** — design decisions,
+   privacy stance, why-it-works-this-way.
+
+For contributing or hacking on the codebase, jump to
+[Contributor docs](#contributor-docs) at the bottom.
+
+---
+
+## Status
+
+**Pre-1.0.** Tagged releases ship continuously as specs land. The
+current major surfaces:
+
+| Capability                                                         | Status |
+| ------------------------------------------------------------------ | ------ |
+| Sign-in (Microsoft Graph CLI Tools client, multi-tenant)           | ✅ v0.1+ |
+| Local SQLite cache, FTS5, body LRU eviction                        | ✅ v0.2+ |
+| Sync engine (folders + per-folder delta + lazy backfill)           | ✅ v0.2+ |
+| Three-pane TUI with cursor / focus markers, theming                | ✅ v0.2+ |
+| HTML → text rendering, scrollable viewer                           | ✅ v0.2+ |
+| Triage: read/unread, flag, soft-delete, archive                    | ✅ v0.3+ |
+| Local FTS search (`/`)                                             | ✅ v0.4+ |
+| Pattern language (`~f`, `~d <30d`, etc.) + bulk filter (`;d`)      | ✅ v0.6+ |
+| Saved searches as virtual folders                                  | ✅ v0.7+ |
+| Calendar (read-only, `:cal`)                                       | ✅ v0.8+ |
+| Mailbox settings (out-of-office)                                   | 🚧 v0.9 |
+| Compose / reply (drafts only)                                      | 🚧 v1.0 |
+| CLI mode (non-interactive)                                         | 🚧 v1.0 |
+| Code-signing + notarization                                        | 🚧 v1.0 |
+
+Reading the binary's full feature list at any version: see
+[`docs/user/reference.md`](docs/user/reference.md). Roadmap beyond
+v1 is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+## Privacy stance
+
+- **No telemetry.** Zero outbound calls except Microsoft Graph and
+  Entra ID for sign-in.
+- **Tokens stay in Keychain.** Never on disk in plaintext, never in
+  logs, never in env vars.
+- **Mail content never leaves `~/`.** SQLite cache lives at
+  `~/Library/Application Support/inkwell/inkwell.db` (mode 0600).
+- **Logs scrub aggressively.** Bearer tokens, refresh tokens, message
+  bodies, email addresses (yours excepted) — all stripped before
+  the slog handler writes anything.
+- **No `Mail.Send`.** inkwell can never send email. Drafts only;
+  finalise in Outlook. This is a CI-enforced scope boundary.
+
+---
 
 ## Install
 
-### macOS
-
-Pre-built binaries are unsigned in v0.1.x. After download, run:
+### macOS — pre-built binary (recommended)
 
 ```sh
-xattr -d com.apple.quarantine ./inkwell
-chmod +x ./inkwell
-./inkwell --version
+gh release download <vX.Y.Z> -p '*macos_arm64*' -D /tmp   # or *macos_amd64*
+tar -xzf /tmp/inkwell_<vX.Y.Z>_macos_arm64.tar.gz -C /tmp
+xattr -d com.apple.quarantine /tmp/inkwell
+sudo mv /tmp/inkwell /usr/local/bin/
 ```
 
-Alternatively, right-click the binary in Finder → Open → Open Anyway.
+Code-signing + notarization land in v1.0; until then the
+`xattr` step is required on macOS.
+
+### Linux
+
+Same pattern, swap the asset:
+`*linux_amd64*` or `*linux_arm64*`. No quarantine step needed.
 
 ### From source
 
-Requires Go 1.23+:
+Go 1.23+ required.
 
 ```sh
 git clone https://github.com/eugenelim/inkwell.git
 cd inkwell
 make build
-./bin/inkwell --version
+./bin/inkwell run
 ```
 
-## First-time setup
+---
 
-Inkwell uses the well-known Microsoft Graph Command Line Tools first-party
-public client (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) against the
-multi-tenant `/common` authority. **No tenant admin onboarding is
-required.** Just sign in:
+## First-time sign-in
 
 ```sh
-inkwell signin       # opens your system browser
-inkwell whoami       # confirm UPN + resolved home tenant
-inkwell              # launch the TUI
+inkwell signin
 ```
 
-The default sign-in opens your system default browser. On a managed Mac
-the Microsoft Enterprise SSO plug-in for Apple Devices transparently
-satisfies Conditional Access policies that require a compliant device —
-this is the only flow that works on deeply-managed enterprise tenants.
+Opens your system browser. Sign in with your work account; the
+browser closes itself when sign-in succeeds. Token cache lives
+encrypted in macOS Keychain and refreshes silently for ~90 days.
 
-For headless / SSH sessions where no browser can be launched, use
-device code flow: `inkwell signin --device-code`. **Tenants that
-require a managed device will reject device-code sign-ins**, so this is
-only useful on tenants without that policy.
+**Behind the scenes**: inkwell uses the multi-tenant Microsoft
+Graph Command Line Tools first-party public client
+(`14d82eec-204b-4c2f-b7e8-296a70dab67e`) against the `/common`
+authority. Your tenant does not need to register an Entra ID app
+for you. On a managed Mac, the Microsoft Enterprise SSO plug-in
+satisfies Conditional Access policies that require a compliant
+device — this is the only flow that works on deeply-managed
+enterprise tenants.
 
-A config file is **optional**. If you want a multi-account guardrail or
-want to pin the sign-in mode, drop it in `~/.config/inkwell/config.toml`:
+If sign-in fails with `AADSTS50105` or similar, your tenant has
+specifically blocked the public-client flow. See
+[How-to → "When sign-in fails"](docs/user/how-to.md#when-sign-in-fails).
 
-```toml
-[account]
-upn         = "you@example.com"        # optional guardrail
-signin_mode = "interactive"            # auto | interactive | device_code
-```
+For headless / SSH sessions: `inkwell signin --device-code`.
+Tenants that require a managed device will reject device-code,
+so this is only useful where Conditional Access is permissive.
 
-If your tenant blocks the Microsoft Graph CLI Tools app under
-Conditional Access — or disables user-consent for Microsoft-published
-apps — sign-in fails with an `AADSTS` error and the relevant policy
-class. Recovery is your IT admin's call; see
-`docs/specs/01-auth-device-code.md` §11.
+---
 
-## Documentation
+## Contributor docs
 
-**For users of the binary** (Diátaxis four-quadrant structure):
+Jumping into the codebase? Read these in order:
 
-- [`docs/user/tutorial.md`](docs/user/tutorial.md) — first-launch
-  walkthrough; sequential.
-- [`docs/user/how-to.md`](docs/user/how-to.md) — task recipes (delete
-  newsletters, set up saved searches, etc.).
-- [`docs/user/reference.md`](docs/user/reference.md) — every keybinding,
-  command, pattern operator, mode, glyph. Quick lookup.
-- [`docs/user/explanation.md`](docs/user/explanation.md) — design
-  decisions: why no `Mail.Send`, why local-first, why optimistic UI.
+- [`CLAUDE.md`](CLAUDE.md) — non-negotiable conventions, layering
+  rules, the ralph loop discipline, mandatory test commands.
+- [`docs/PRD.md`](docs/PRD.md) — product scope, granted vs denied
+  Graph permissions, success criteria.
+- [`docs/ARCH.md`](docs/ARCH.md) — system architecture, layering,
+  data flow.
+- [`docs/CONFIG.md`](docs/CONFIG.md) — every config key.
+- [`docs/TESTING.md`](docs/TESTING.md) — test conventions, fuzz,
+  goleak, teatest patterns, the regression suite.
+- [`docs/specs/`](docs/specs/) — per-feature specs in implementation
+  order.
+- [`docs/plans/`](docs/plans/) — per-spec tracking notes (DoD
+  checklists, iteration logs).
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — post-v1 backlog, ranked by
+  impact.
 
-**For contributors:**
+`make regress` is the gate before any release tag.
 
-- `docs/PRD.md` — product scope, granted vs denied Graph permissions.
-- `docs/ARCH.md` — system architecture, layering, data flow.
-- `docs/CONFIG.md` — every config key.
-- `docs/TESTING.md` — test conventions and standards.
-- `docs/specs/` — feature specs in implementation order.
-- `docs/plans/` — per-spec ralph-loop tracking notes.
-- `docs/ROADMAP.md` — post-v1 backlog, ranked by impact.
-- `CLAUDE.md` — contributor guide, test architecture, performance &
-  privacy rules.
-
-## Privacy stance
-
-- No telemetry. Zero outbound calls except Microsoft Graph and Entra ID.
-- Tokens live in Keychain only.
-- Mail content never leaves `~/Library/Application Support/inkwell/`.
-- Logs scrub bearer tokens, JWTs, message bodies, and tokenise email
-  addresses (your own UPN excepted) before they touch disk.
+---
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](LICENSE).
 
 ## Project name
 
-`inkwell` is a working name. It is set in `go.mod` and the binary `cmd/inkwell`
-package; rename before any public stable release.
+`inkwell` is a working name. It is set in `go.mod` and the binary
+`cmd/inkwell` package; rename before any public stable release.

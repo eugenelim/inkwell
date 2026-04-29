@@ -311,13 +311,26 @@ func (e *engine) loop(ctx context.Context) {
 	}
 }
 
+// minSyncInterval floors the active interval. Any config value below
+// this is clamped to prevent a misconfigured config.toml (e.g.
+// `foreground_interval = "100ms"`) from putting the engine in a
+// permanent sync storm — Graph rate-limits us before the user sees
+// the issue, and the cycle's HTTP fan-out (~5 folders × ~70ms each)
+// dominates anyway. 5 seconds is well below any sensible foreground
+// cadence; tests inject a faster clock as needed.
+const minSyncInterval = 5 * time.Second
+
 func (e *engine) interval() time.Duration {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	d := e.opts.BackgroundInterval
 	if e.active {
-		return e.opts.ForegroundInterval
+		d = e.opts.ForegroundInterval
 	}
-	return e.opts.BackgroundInterval
+	if d < minSyncInterval {
+		return minSyncInterval
+	}
+	return d
 }
 
 func (e *engine) kick() {

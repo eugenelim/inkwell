@@ -83,6 +83,8 @@ type Deps struct {
 	// Optional — when nil, `:cal` shows a friendly "calendar not wired"
 	// message instead of crashing.
 	Calendar CalendarFetcher
+	// Mailbox is the surface for the :ooo flow (spec 13). Optional.
+	Mailbox MailboxClient
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -97,6 +99,23 @@ type SavedSearch struct {
 // full surface.
 type CalendarFetcher interface {
 	ListEventsToday(ctx context.Context) ([]CalendarEvent, error)
+}
+
+// MailboxSettings is the subset of mailbox settings the UI renders
+// for the :ooo flow (spec 13). Defined at the consumer site so the
+// UI doesn't import internal/graph.
+type MailboxSettings struct {
+	AutoReplyEnabled     bool
+	InternalReplyMessage string
+	ExternalReplyMessage string
+}
+
+// MailboxClient handles GET + PATCH against /me/mailboxSettings for
+// the out-of-office flow. v0.9.0 only toggles enable/disable; richer
+// editing (custom message, schedule, audience) lands later.
+type MailboxClient interface {
+	Get(ctx context.Context) (*MailboxSettings, error)
+	SetAutoReply(ctx context.Context, enabled bool, internalMsg, externalMsg string) error
 }
 
 // CalendarEvent mirrors the fields the calendar modal renders. All
@@ -147,6 +166,7 @@ type Model struct {
 	signin   SignInModel
 	confirm  ConfirmModel
 	calendar CalendarModel
+	oof      OOFModel
 
 	focused Pane
 	mode    Mode
@@ -217,6 +237,7 @@ func New(deps Deps) Model {
 		signin:     NewSignIn(),
 		confirm:    NewConfirm(),
 		calendar:   NewCalendar(),
+		oof:        NewOOF(),
 	}
 }
 
@@ -301,6 +322,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.calendar.SetError(msg.Err)
 		} else {
 			m.calendar.SetEvents(msg.Events)
+		}
+		return m, nil
+
+	case oofLoadedMsg:
+		if msg.Err != nil {
+			m.oof.SetError(msg.Err)
+		} else {
+			m.oof.SetSettings(msg.Settings)
+		}
+		return m, nil
+
+	case oofToggledMsg:
+		if msg.Err != nil {
+			m.oof.SetError(msg.Err)
+		} else {
+			m.oof.SetSettings(msg.Settings)
 		}
 		return m, nil
 
@@ -393,9 +430,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSearch(msg)
 	case CalendarMode:
 		return m.updateCalendar(msg)
+	case OOFMode:
+		return m.updateOOF(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateOOF handles input while the out-of-office modal is open.
+// Esc closes; `t` toggles the auto-reply enable flag and PATCHes
+// /me/mailboxSettings.
+func (m Model) updateOOF(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyEsc || string(keyMsg.Runes) == "q" {
+		m.mode = NormalMode
+		m.oof.Reset()
+		return m, nil
+	}
+	if string(keyMsg.Runes) == "t" {
+		if m.oof.settings == nil || m.oof.loading || m.oof.saving {
+			return m, nil
+		}
+		next := !m.oof.settings.AutoReplyEnabled
+		m.oof.SetSaving()
+		return m, m.toggleOOFCmd(next, *m.oof.settings)
+	}
+	return m, nil
 }
 
 // updateCalendar handles input while the calendar modal is open.
@@ -629,6 +692,14 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		m.mode = CalendarMode
 		m.calendar.SetLoading()
 		return m, m.fetchCalendarCmd()
+	case "ooo", "outofoffice", "oof":
+		if m.deps.Mailbox == nil {
+			m.lastError = fmt.Errorf("ooo: not wired (CLI mode or unsigned)")
+			return m, nil
+		}
+		m.mode = OOFMode
+		m.oof.SetLoading()
+		return m, m.fetchOOFCmd()
 	}
 	m.lastError = fmt.Errorf("unknown command: %s", line)
 	return m, nil
@@ -687,6 +758,47 @@ type bulkDoneMsg struct {
 	succeeded int
 	failed    int
 	firstErr  error
+}
+
+// oofLoadedMsg is the result of the :ooo fetch (spec 13). Either
+// Settings is populated or Err is set.
+type oofLoadedMsg struct {
+	Settings *MailboxSettings
+	Err      error
+}
+
+// oofToggledMsg is the result of the t-key PATCH (spec 13). Settings
+// is the post-PATCH state on success; Err carries the failure.
+type oofToggledMsg struct {
+	Settings *MailboxSettings
+	Err      error
+}
+
+// fetchOOFCmd hits the MailboxClient and returns oofLoadedMsg.
+func (m Model) fetchOOFCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s, err := m.deps.Mailbox.Get(ctx)
+		return oofLoadedMsg{Settings: s, Err: err}
+	}
+}
+
+// toggleOOFCmd PATCHes /me/mailboxSettings to flip the auto-reply
+// status. Preserves the existing internal/external messages.
+func (m Model) toggleOOFCmd(enabled bool, prev MailboxSettings) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := m.deps.Mailbox.SetAutoReply(ctx, enabled, prev.InternalReplyMessage, prev.ExternalReplyMessage)
+		if err != nil {
+			return oofToggledMsg{Err: err}
+		}
+		// Update the locally-held settings; no need to re-fetch.
+		next := prev
+		next.AutoReplyEnabled = enabled
+		return oofToggledMsg{Settings: &next}
+	}
 }
 
 // calendarFetchedMsg is the result of the :cal Cmd. Either Events is
@@ -847,12 +959,16 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.list.MarkLoading()
 			return m, m.loadMessagesCmd(m.list.FolderID)
 		}
-		// Cache wall: cursor is at the bottom of what the local store
-		// has. Kick a sync so the engine pulls more from Graph instead
-		// of waiting up to 30s for the next foreground tick.
-		if !m.searchActive && m.list.AtCacheWall() && m.deps.Engine != nil {
-			go func() { _ = m.deps.Engine.SyncAll(context.Background()) }()
+		// Cache wall: kick a sync ONCE per cache-exhausted state via
+		// the debounce flag. Earlier (v0.8.0) this fired on every j
+		// press at the wall — three cycles in 2.5s in real-tenant
+		// logs. The wallSyncRequested flag flips back to false on
+		// the next SetMessages so when fresh messages land the user
+		// can scroll into them and (if still at the wall) kick again.
+		if !m.searchActive && m.list.ShouldKickWallSync() && m.deps.Engine != nil {
+			m.list.MarkWallSyncRequested()
 			m.engineActivity = "syncing more…"
+			go func() { _ = m.deps.Engine.SyncAll(context.Background()) }()
 		}
 	case key.Matches(msg, m.keymap.Open):
 		sel, ok := m.list.Selected()
@@ -977,6 +1093,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer.ScrollDown()
 	case key.Matches(msg, m.keymap.Up):
 		m.viewer.ScrollUp()
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "H":
+		// Capital H toggles compact ↔ full headers (mutt convention).
+		// Compact is the default; full expands To/Cc/Bcc.
+		m.viewer.ToggleHeaders()
 	case key.Matches(msg, m.keymap.ToggleFlag):
 		if cur := m.viewer.current; cur != nil {
 			return m.runTriage("toggle_flag", *cur, ViewerPane, func(ctx context.Context, accID int64, src store.Message) error {
@@ -1143,6 +1263,9 @@ func (m Model) View() string {
 	if m.mode == CalendarMode {
 		return m.calendar.View(m.theme, m.width, m.height)
 	}
+	if m.mode == OOFMode {
+		return m.oof.View(m.theme, m.width, m.height)
+	}
 
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{
 		LastSync:  m.lastSyncAt,
@@ -1206,7 +1329,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case ListPane:
 		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}
