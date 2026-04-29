@@ -143,16 +143,21 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	}
 
 	// UI
+	saved := make([]ui.SavedSearch, 0, len(cfg.SavedSearches))
+	for _, s := range cfg.SavedSearches {
+		saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern})
+	}
 	model := ui.New(ui.Deps{
-		Auth:      a,
-		Store:     st,
-		Engine:    engine,
-		Renderer:  renderer,
-		Logger:    logger,
-		Account:   acc,
-		Triage:    exec,
-		Bulk:      bulkAdapter{exec: exec},
-		ThemeName: cfg.UI.Theme,
+		Auth:          a,
+		Store:         st,
+		Engine:        engine,
+		Renderer:      renderer,
+		Logger:        logger,
+		Account:       acc,
+		Triage:        exec,
+		Bulk:          bulkAdapter{exec: exec},
+		ThemeName:     cfg.UI.Theme,
+		SavedSearches: saved,
 	})
 	prog := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := prog.Run(); err != nil {

@@ -74,6 +74,18 @@ type Deps struct {
 	// ThemeName is the [ui] theme key from config. Empty falls back to
 	// "default". Unknown values fall back with a logged warning.
 	ThemeName string
+	// SavedSearches is the list of [[saved_searches]] entries from
+	// config. They render in the folders pane as virtual folders;
+	// selecting one runs its pattern via the same machinery as
+	// `:filter` (spec 10).
+	SavedSearches []SavedSearch
+}
+
+// SavedSearch is a named pattern that surfaces in the sidebar. Defined
+// at the consumer site so the UI doesn't import internal/config.
+type SavedSearch struct {
+	Name    string
+	Pattern string
 }
 
 // bodyAsyncFetcher narrows render.Renderer to its fetch entry point.
@@ -161,6 +173,10 @@ func New(deps Deps) Model {
 		}
 		theme = t
 	}
+	folders := NewFolders()
+	if len(deps.SavedSearches) > 0 {
+		folders.SetSavedSearches(deps.SavedSearches)
+	}
 	return Model{
 		deps:       deps,
 		paneWidths: DefaultPaneWidths(),
@@ -168,7 +184,7 @@ func New(deps Deps) Model {
 		mode:       NormalMode,
 		keymap:     DefaultKeyMap(),
 		theme:      theme,
-		folders:    NewFolders(),
+		folders:    folders,
 		list:       NewList(),
 		viewer:     NewViewer(),
 		cmd:        NewCommand(),
@@ -692,6 +708,18 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keymap.Expand):
 		m.folders.ToggleExpand()
 	case key.Matches(msg, m.keymap.Open), key.Matches(msg, m.keymap.Right):
+		// Saved-search row: run its pattern via the existing filter
+		// machinery. Selection auto-focuses the list pane (parity
+		// with regular folder navigation).
+		if ss, ok := m.folders.SelectedSavedSearch(); ok {
+			m.focused = ListPane
+			if !m.searchActive && m.priorFolderID == "" {
+				m.priorFolderID = m.list.FolderID
+			}
+			m.searchActive = false
+			m.searchQuery = ""
+			return m, m.runFilterCmd(ss.Pattern)
+		}
 		f, ok := m.folders.Selected()
 		if ok {
 			m.list.FolderID = f.ID
