@@ -111,6 +111,47 @@ To edit the actual message body, set a schedule, or differentiate
 internal vs external audiences, use Outlook for now (those edits
 land in a later iteration).
 
+## Reply to a message
+
+Open a message in the viewer (Enter). Press `r`.
+
+inkwell suspends the TUI and opens your editor on a tempfile
+pre-populated with:
+
+```
+To: bob@vendor.com
+Cc:
+Subject: Re: Q4 forecast
+
+
+On Mon 2026-04-29 14:32, Bob <bob@vendor.com> wrote:
+> Hey team, see attached.
+> …
+```
+
+Edit the body. Save and exit. inkwell parses the file, creates the
+draft on the server (`Mail.ReadWrite`), and shows `✓ draft saved ·
+press s to open in Outlook` in the status bar.
+
+Press `s` to open the draft in your browser / Outlook desktop, where
+you finalise send. inkwell does not send mail — see
+[explanation](explanation.md#why-no-send).
+
+**Editor selection** order:
+1. `INKWELL_EDITOR` env var (per-app override; e.g. `INKWELL_EDITOR=vim`)
+2. `EDITOR` env var
+3. `nano` as a portable fallback
+
+**Discard a draft**: blank out the body in the editor and save (or
+exit without saving). The empty file produces `ErrEmpty` and the
+draft is dropped — no Graph round-trip.
+
+**No recipients**: if you delete the `To:` line, the parse returns
+`no recipients` and inkwell skips the round-trip with a friendly
+error in the status bar.
+
+Reply-all and forward (`R` / `f` in the viewer) are coming in v0.12.
+
 ## Read a thread with many attendees
 
 Open a message in the viewer pane. By default the headers row shows

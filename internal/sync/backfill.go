@@ -10,45 +10,51 @@ import (
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
-// backfillFolder pulls a folder's messages back to `until` from the
-// non-delta /messages endpoint. Spec §5.4: this is the older-on-demand
-// path triggered by `:backfill <folder> <duration>`. It paginates to
-// completion (foreground-blocking) and is NOT used on first-launch —
-// first-launch goes through the lazy progressive path in syncFolder
-// (spec §5.2).
-func (e *engine) backfillFolder(ctx context.Context, folderID string, until time.Time) error {
-	filter := fmt.Sprintf("receivedDateTime ge %s", until.UTC().Format(time.RFC3339))
-	page, err := e.gc.ListMessagesInFolder(ctx, folderID, graph.ListMessagesOpts{
-		Top:    100,
-		Filter: filter,
-	})
+// backfillFolder pulls one page of messages OLDER than `before` from
+// the non-delta /messages endpoint. The UI calls this when the user
+// scrolls past the cache wall — read-ahead pattern: one batch per
+// trigger, debounced by the UI's wallSyncRequested flag, repeat as
+// the user scrolls deeper.
+//
+// Filter: receivedDateTime lt <before> — strictly older than the
+// user's oldest currently-cached message. Order desc so the
+// most-recent-of-older arrives first (matches the user's scroll
+// direction). Top 100 is a single Graph page; we do NOT follow
+// nextLink here — that would block the foreground for thousands
+// of HTTP calls on a deep account. The next scroll-to-wall fires
+// the next page.
+//
+// When `before` is the zero time, the call falls back to "newest
+// 100" — useful for tests and as a sane no-op when the UI hasn't
+// loaded anything yet.
+func (e *engine) backfillFolder(ctx context.Context, folderID string, before time.Time) error {
+	opts := graph.ListMessagesOpts{
+		Top:     100,
+		OrderBy: "receivedDateTime desc",
+	}
+	if !before.IsZero() {
+		opts.Filter = fmt.Sprintf("receivedDateTime lt %s", before.UTC().Format(time.RFC3339))
+	}
+	page, err := e.gc.ListMessagesInFolder(ctx, folderID, opts)
 	if err != nil {
 		return err
 	}
-	for {
-		var batch []store.Message
-		for _, m := range page.Value {
-			sm, _ := e.toStoreMessage(folderID, m)
-			batch = append(batch, sm)
-		}
-		if len(batch) > 0 {
-			if err := e.st.UpsertMessagesBatch(ctx, batch); err != nil {
-				return err
-			}
-			e.emit(FolderSyncedEvent{
-				FolderID: folderID,
-				Added:    len(batch),
-				At:       time.Now(),
-			})
-		}
-		if page.NextLink == "" {
-			break
-		}
-		page, err = e.gc.FollowNext(ctx, page.NextLink)
-		if err != nil {
-			return err
-		}
+	if len(page.Value) == 0 {
+		return nil
 	}
+	batch := make([]store.Message, 0, len(page.Value))
+	for _, m := range page.Value {
+		sm, _ := e.toStoreMessage(folderID, m)
+		batch = append(batch, sm)
+	}
+	if err := e.st.UpsertMessagesBatch(ctx, batch); err != nil {
+		return err
+	}
+	e.emit(FolderSyncedEvent{
+		FolderID: folderID,
+		Added:    len(batch),
+		At:       time.Now(),
+	})
 	return nil
 }
 
