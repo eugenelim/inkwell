@@ -527,6 +527,20 @@ example, then `ScheduleWakeup` is **not** called. The user resumes the loop.
 For each spec under active loop, the assistant maintains a running note at
 `docs/plans/spec-NN.md`. This file is **the** state of the loop. It contains:
 
+**Mandatory at ship time.** When a spec is shipped (commit + tag +
+release), the corresponding `docs/plans/spec-NN.md` MUST exist and
+MUST be updated in the same commit that ships the feature. A spec
+that ships without a plan file is a missing artefact: the next
+contributor (or the assistant in a future session) loses the trail
+of decisions, deferred bullets, and known gaps.
+
+The check is mechanical — the spec inventory in `docs/PRD.md` §10
+lists every spec; for each row marked "shipped" or with a real
+status, `git ls-files docs/plans/spec-NN.md` must return non-empty.
+The plan file is the journal; the spec is the contract; both must
+land together. Forgetting it once (spec 16 v0.12.0 ship) is the
+reason this rule is now in CLAUDE.md.
+
 ```
 # Spec NN — <title>
 
