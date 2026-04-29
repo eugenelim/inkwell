@@ -310,7 +310,7 @@ func TestHelpBarVisibleInEveryFocusState(t *testing.T) {
 		setupKeys []string
 		wantHint  string
 	}{
-		{"list-focused", nil, "r/R"},
+		{"list-focused", nil, "/ search"},
 		{"folders-focused", []string{"1"}, "2 list"},
 		{"viewer-focused-after-open", []string{"\n"}, "h back"},
 	}
@@ -532,6 +532,123 @@ type atomicBool struct{ v bool }
 
 func (a *atomicBool) set()      { a.v = true }
 func (a *atomicBool) get() bool { return a.v }
+
+// TestSearchModeCapturesAndRunsQuery activates search via '/', types
+// a query, presses Enter, and asserts (a) the model entered SearchMode
+// then exited, (b) searchActive is true, and (c) a Cmd was returned to
+// run the FTS query.
+func TestSearchModeCapturesAndRunsQuery(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	// '/' enters search mode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	require.Equal(t, SearchMode, m.mode)
+	require.Empty(t, m.searchBuf)
+
+	// Type "forecast".
+	for _, r := range "forecast" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	require.Equal(t, "forecast", m.searchBuf)
+
+	// Enter commits and runs the query.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.True(t, m.searchActive)
+	require.Equal(t, "forecast", m.searchQuery)
+	require.NotNil(t, cmd, "Enter must return runSearchCmd")
+
+	// Esc clears search and restores prior folder.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	require.Equal(t, SearchMode, m.mode)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.False(t, m.searchActive, "Esc clears searchActive")
+}
+
+// TestSearchEmptyQueryDoesNothing confirms hitting Enter on an empty
+// search buffer just exits to NormalMode without firing a Cmd.
+func TestSearchEmptyQueryDoesNothing(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.False(t, m.searchActive)
+	require.Nil(t, cmd, "empty query must not run search")
+}
+
+// TestListLoadMoreFiresWhenCursorNearsBottom seeds a list with 200
+// messages, drives j to the threshold, and asserts the next j returns
+// a load-more Cmd that calls loadMessagesCmd with bumped limit.
+func TestListLoadMoreFiresWhenCursorNearsBottom(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Build a synthetic 200-message list at exactly initialListLimit.
+	msgs := make([]store.Message, initialListLimit)
+	for i := range msgs {
+		msgs[i] = store.Message{ID: "m-" + strconvI(i), AccountID: 1, FolderID: "f-inbox"}
+	}
+	m.list.SetMessages(msgs)
+	require.Equal(t, initialListLimit, m.list.LoadLimit())
+
+	// Move cursor to 200 - 21 = 179 → still above threshold.
+	m.list.cursor = len(msgs) - loadMoreThreshold - 1
+	require.False(t, m.list.ShouldLoadMore())
+
+	// One more j → cursor at 180 → threshold reached → ShouldLoadMore.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "j at threshold must return load-more Cmd")
+	require.True(t, m.list.loading, "loading flag set so duplicate j doesn't refire")
+	require.Equal(t, initialListLimit+pageIncrement, m.list.LoadLimit(),
+		"limit bumped by pageIncrement")
+
+	// A second j while loading must NOT fire another Cmd.
+	m2, cmd2 := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Nil(t, cmd2, "duplicate load-more suppressed while loading")
+	_ = m
+}
+
+// TestListLoadMoreSuppressedDuringSearch — search results have a
+// fixed FTS limit; pre-fetch must be a no-op so we don't trigger
+// folder loads with the search-sentinel ID.
+func TestListLoadMoreSuppressedDuringSearch(t *testing.T) {
+	m := newDispatchTestModel(t)
+	msgs := make([]store.Message, initialListLimit)
+	for i := range msgs {
+		msgs[i] = store.Message{ID: "m-" + strconvI(i)}
+	}
+	m.list.SetMessages(msgs)
+	m.list.cursor = len(msgs) - 1
+	m.searchActive = true
+	m.list.FolderID = "search:foo"
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Nil(t, cmd, "search results must not trigger pagination")
+	_ = m
+}
+
+// strconvI keeps the test self-contained without an extra import for
+// a single int-to-string conversion.
+func strconvI(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	digits := []byte{}
+	for i > 0 {
+		digits = append([]byte{byte('0' + i%10)}, digits...)
+		i /= 10
+	}
+	return string(digits)
+}
 
 // TestThemePresetsAreValid confirms every preset palette renders into
 // a Theme without empty styles. A new preset that fails this check

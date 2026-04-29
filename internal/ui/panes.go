@@ -262,17 +262,87 @@ type ListModel struct {
 	FolderID string
 	messages []store.Message
 	cursor   int
+	// loadLimit is the current store.ListMessages limit. Starts at the
+	// initial-load default and grows as the user scrolls down. The UI
+	// fires a "load more" Cmd when the cursor approaches the bottom
+	// of the currently-loaded slice.
+	loadLimit int
+	// loading is true while a load-more Cmd is in flight; prevents
+	// duplicate requests from rapid j-presses.
+	loading bool
 }
 
-// NewList returns an empty list pane.
-func NewList() ListModel { return ListModel{} }
+// initialListLimit is the first-page size for the list pane.
+const initialListLimit = 200
 
-// SetMessages replaces the displayed list.
+// loadMoreThreshold is the number of unviewed rows below the cursor
+// at which we trigger the next page. 20 rows ahead means the user
+// scrolling at 1 row/100ms gets a fresh slice ~2s before they hit the
+// edge — typically faster than a SQLite read of another 200 rows.
+const loadMoreThreshold = 20
+
+// pageIncrement is how much we extend the limit on each load-more.
+const pageIncrement = 200
+
+// NewList returns an empty list pane.
+func NewList() ListModel { return ListModel{loadLimit: initialListLimit} }
+
+// SetMessages replaces the displayed list. Keeps the cursor on the same
+// message id when possible (so a load-more refresh doesn't yank the
+// user's selection back to row 0).
 func (m *ListModel) SetMessages(ms []store.Message) {
+	prevID := ""
+	if m.cursor < len(m.messages) {
+		prevID = m.messages[m.cursor].ID
+	}
 	m.messages = ms
+	m.loading = false
+	if prevID != "" {
+		for i, msg := range ms {
+			if msg.ID == prevID {
+				m.cursor = i
+				return
+			}
+		}
+	}
 	if m.cursor >= len(ms) {
 		m.cursor = 0
 	}
+}
+
+// LoadLimit reports the current page size for store.ListMessages.
+func (m ListModel) LoadLimit() int {
+	if m.loadLimit <= 0 {
+		return initialListLimit
+	}
+	return m.loadLimit
+}
+
+// ShouldLoadMore returns true when the cursor is close enough to the
+// bottom that we should pre-fetch the next page. False once a load is
+// already in flight.
+func (m ListModel) ShouldLoadMore() bool {
+	if m.loading {
+		return false
+	}
+	if len(m.messages) == 0 {
+		return false
+	}
+	return m.cursor >= len(m.messages)-loadMoreThreshold
+}
+
+// MarkLoading flips the loading flag and bumps the load limit by one
+// page increment.
+func (m *ListModel) MarkLoading() {
+	m.loading = true
+	m.loadLimit = m.LoadLimit() + pageIncrement
+}
+
+// ResetLimit collapses the load limit back to the initial page (used
+// when the user switches folders).
+func (m *ListModel) ResetLimit() {
+	m.loadLimit = initialListLimit
+	m.loading = false
 }
 
 // Up / Down / Selected mirror the folders pane.

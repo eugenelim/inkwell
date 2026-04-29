@@ -57,6 +57,19 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 ## Iter — auth pivot 2026-04-27
 - Spec 04 functionality is unchanged by the spec-01 auth pivot (first-party Microsoft Graph CLI Tools client, /common authority, no tenant app registration). This package consumes the auth surface only via the typed `Authenticator` / `Token()` / `Invalidate()` contract, which is unchanged. No code changes needed; race + e2e + budget gates re-run and all green.
 
+### Iter 8 — 2026-04-28 (smart-scroll list pre-fetch)
+- Trigger: real-tenant report — "scrolling down should fetch or pre-fetch in a smart way". The list pane was hard-coded to 200 messages per folder, so users with deep archives couldn't see anything older.
+- Slice:
+  - ListModel gains `loadLimit` (current store.ListMessages page size) and `loading` (in-flight flag suppressing duplicate requests).
+  - New helpers: `LoadLimit()`, `ShouldLoadMore()` (true when cursor is within 20 rows of the loaded slice's end), `MarkLoading()` (flips the flag and bumps limit by 200), `ResetLimit()` (called on folder switch).
+  - dispatchList Down: if `!searchActive && ShouldLoadMore()`, fire loadMessagesCmd(folderID) which now uses `m.list.LoadLimit()` instead of a hard-coded 200.
+  - SetMessages preserves cursor on the same message id across reloads — without this, every load-more snaps the cursor back to row 0.
+  - Search results are exempt: pagination is a no-op while `searchActive` (the FTS query has its own fixed limit).
+- Tests:
+  - TestListLoadMoreFiresWhenCursorNearsBottom — seeded 200-row list, drove cursor to threshold, asserted next j returns a Cmd, loading=true, loadLimit bumped to 400. Second j while loading returns nil (no duplicate firing).
+  - TestListLoadMoreSuppressedDuringSearch — searchActive=true, cursor at end, j must return no Cmd.
+- Critique: the engine's progressive backfill (spec 03 §5.1) is what actually pulls more messages from Graph; the UI just paginates through whatever is locally cached. If the user scrolls past the local store's cached count, they'll hit the bottom of the cache and the new pages are empty until the next sync cycle delivers more. Acceptable for v0.4.0; a true "load more from server on demand" lands when the engine exposes a synchronous `BackfillFolder(folderID, beforeDate)` API.
+
 ### Iter 7 — 2026-04-28 (help bar fix + folder auto-focus + subfolder tree)
 - Triggers from real-tenant smoke after v0.2.8:
   1. "I can no longer see the keyboard shortcuts at the bottom when I open a message" — v0.2.8's root-level safety net (`lines = lines[:m.height]`) trimmed the LAST line, which is the help bar. Cause: lipgloss `Height(N)` pads with a trailing newline, JoinVertical inflated frame to height+1, the cap chopped the help bar.
