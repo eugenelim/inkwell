@@ -1,7 +1,8 @@
-# inkwell cheat sheet
+# Reference
 
-Every keybinding and command in the current release. For narrative
-context, see [`guide.md`](guide.md).
+Every keybinding, every command, every pattern operator. Quick
+lookup. For narrative, see [`tutorial.md`](tutorial.md). For task
+recipes, see [`how-to.md`](how-to.md).
 
 ---
 
@@ -21,8 +22,6 @@ context, see [`guide.md`](guide.md).
 | `/`            | Search (FTS over local cache)         |
 | `Esc`          | Cancel mode / clear search            |
 
----
-
 ## Folders pane (when focused)
 
 | Key       | Action                                     |
@@ -38,13 +37,11 @@ Saved searches (configured in `[[saved_searches]]`) show under a
 "Saved Searches" section with a `☆` glyph. Enter on one runs its
 pattern via the filter machinery.
 
----
-
 ## Messages pane (when focused)
 
 | Key       | Action                                                        |
 | --------- | ------------------------------------------------------------- |
-| `j` / `↓` | Cursor down (auto-paginates near the bottom — see below)      |
+| `j` / `↓` | Cursor down (auto-paginates near the bottom)                  |
 | `k` / `↑` | Cursor up                                                     |
 | `Enter`   | Open message in viewer (focus → viewer)                       |
 | `r`       | Mark read                                                     |
@@ -57,11 +54,14 @@ pattern via the filter machinery.
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
 | `/`       | Enter search mode                                             |
 
-**Smart-scroll:** when you reach the last 20 messages of the loaded
+**Smart-scroll**: when you reach the last 20 messages of the loaded
 slice, the next page (200 rows) loads from the local store
-automatically.
+automatically. When the cache is exhausted, inkwell kicks a sync to
+pull more from Graph.
 
----
+**Calendar-invite indicator**: messages whose subject starts with
+`Accepted:`, `Declined:`, `Tentative:`, `Updated:`, `Canceled:`,
+`Meeting:`, or `Invitation:` show a leading `📅` glyph.
 
 ## Viewer pane (when focused)
 
@@ -77,8 +77,6 @@ automatically.
 `r` / `R` are reserved in the viewer for spec 15 (reply / reply-all)
 and don't currently mark-read. Use the list pane for that.
 
----
-
 ## Command mode (`:`)
 
 | Command                       | Effect                                                         |
@@ -87,13 +85,12 @@ and don't currently mark-read. Use the list pane for that.
 | `:sync`                       | Trigger a sync cycle now                                        |
 | `:signin`                     | Re-auth (opens system browser)                                  |
 | `:signout`                    | Confirm modal → clears tokens + local cache                     |
-| `:filter <pattern>`           | Narrow message list to pattern matches (see below)              |
+| `:filter <pattern>`           | Narrow message list to pattern matches                          |
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
+| `:cal` / `:calendar`          | Open today's calendar in a modal                                |
 
 Plain-text patterns without a `~` operator are treated as `~B <text>`
 (subject or body contains).
-
----
 
 ## Search mode (`/`)
 
@@ -103,14 +100,22 @@ Plain-text patterns without a `~` operator are treated as `~B <text>`
 | `Esc`          | Cancel; if a search is active, clear it and restore the folder |
 | `Backspace`    | Delete the last character of the buffer                        |
 
-Search is local-only (FTS5 against the SQLite cache) in v0.6 / v0.7.
-Server-side `$search` merge is post-v0.7.
+Search is local-only (FTS5 against the SQLite cache) in v0.8.
+Server-side `$search` merge is post-v0.8.
+
+## Calendar mode (`:cal`)
+
+| Key            | Action                                                         |
+| -------------- | -------------------------------------------------------------- |
+| `Esc` / `q`    | Close the modal, return to Normal mode                         |
+
+Read-only. To act on an event, finish in Outlook.
 
 ---
 
 ## Pattern operators
 
-Argument-bearing (the most common):
+Argument-bearing:
 
 | Operator         | Field            | Example                              |
 | ---------------- | ---------------- | ------------------------------------ |
@@ -184,8 +189,7 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Search      | `/`                  | `Enter` (run) or `Esc`                           |
 | SignIn      | auth flow            | `Esc`                                            |
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
-
----
+| Calendar    | `:cal` / `:calendar` | `Esc` or `q`                                     |
 
 ## Indicators
 
@@ -196,8 +200,10 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | `· `               | Cursor on this row, unfocused pane                              |
 | `▾` / `▸`          | Folder expanded / collapsed                                     |
 | `☆`                | Saved search                                                    |
+| `📅`               | Calendar-invite message (heuristic by subject prefix)           |
 | `✓ synced HH:MM`   | Last sync time (top-right)                                      |
 | `syncing folders…` | Engine is working                                               |
+| `syncing more…`    | Engine kicked because list pane hit the cache wall              |
 | `⏳ throttled Ns`  | Graph is rate-limiting; engine backing off                      |
 | `ERR: …`           | Last error; full text in the log file                           |
 | `✓ <action> N`     | Bulk op succeeded for N messages                                |
@@ -226,4 +232,4 @@ Restart inkwell after editing.
 
 ---
 
-_Cheatsheet last reviewed against v0.7.0._
+_Last reviewed against v0.8.0._

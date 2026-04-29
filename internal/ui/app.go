@@ -79,6 +79,10 @@ type Deps struct {
 	// selecting one runs its pattern via the same machinery as
 	// `:filter` (spec 10).
 	SavedSearches []SavedSearch
+	// Calendar fetches today's events for the `:cal` modal (spec 12).
+	// Optional — when nil, `:cal` shows a friendly "calendar not wired"
+	// message instead of crashing.
+	Calendar CalendarFetcher
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -86,6 +90,26 @@ type Deps struct {
 type SavedSearch struct {
 	Name    string
 	Pattern string
+}
+
+// CalendarFetcher is the read-only calendar surface the UI consumes
+// (spec 12). Defined here so the UI doesn't import internal/graph's
+// full surface.
+type CalendarFetcher interface {
+	ListEventsToday(ctx context.Context) ([]CalendarEvent, error)
+}
+
+// CalendarEvent mirrors the fields the calendar modal renders. All
+// times are UTC.
+type CalendarEvent struct {
+	Subject          string
+	OrganizerName    string
+	OrganizerAddress string
+	Start            time.Time
+	End              time.Time
+	IsAllDay         bool
+	Location         string
+	OnlineMeetingURL string
 }
 
 // bodyAsyncFetcher narrows render.Renderer to its fetch entry point.
@@ -115,13 +139,14 @@ type Model struct {
 	height     int
 	paneWidths PaneWidths
 
-	folders FoldersModel
-	list    ListModel
-	viewer  ViewerModel
-	cmd     CommandModel
-	status  StatusModel
-	signin  SignInModel
-	confirm ConfirmModel
+	folders  FoldersModel
+	list     ListModel
+	viewer   ViewerModel
+	cmd      CommandModel
+	status   StatusModel
+	signin   SignInModel
+	confirm  ConfirmModel
+	calendar CalendarModel
 
 	focused Pane
 	mode    Mode
@@ -191,6 +216,7 @@ func New(deps Deps) Model {
 		status:     NewStatus(upn, tenant),
 		signin:     NewSignIn(),
 		confirm:    NewConfirm(),
+		calendar:   NewCalendar(),
 	}
 }
 
@@ -268,6 +294,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ErrorMsg:
 		m.lastError = msg.Err
+		return m, nil
+
+	case calendarFetchedMsg:
+		if msg.Err != nil {
+			m.calendar.SetError(msg.Err)
+		} else {
+			m.calendar.SetEvents(msg.Events)
+		}
 		return m, nil
 
 	case ConfirmResultMsg:
@@ -357,9 +391,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCommand(msg)
 	case SearchMode:
 		return m.updateSearch(msg)
+	case CalendarMode:
+		return m.updateCalendar(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateCalendar handles input while the calendar modal is open.
+// Esc closes; everything else is swallowed (the modal is read-only).
+func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyEsc || string(keyMsg.Runes) == "q" {
+		m.mode = NormalMode
+		m.calendar.Reset()
+	}
+	return m, nil
 }
 
 func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -571,6 +621,14 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m, m.runFilterCmd(patternSrc)
 	case "unfilter":
 		return m.clearFilter(), nil
+	case "cal", "calendar":
+		if m.deps.Calendar == nil {
+			m.lastError = fmt.Errorf("calendar: not wired (CLI mode or unsigned)")
+			return m, nil
+		}
+		m.mode = CalendarMode
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarCmd()
 	}
 	m.lastError = fmt.Errorf("unknown command: %s", line)
 	return m, nil
@@ -629,6 +687,24 @@ type bulkDoneMsg struct {
 	succeeded int
 	failed    int
 	firstErr  error
+}
+
+// calendarFetchedMsg is the result of the :cal Cmd. Either Events is
+// populated or Err is set.
+type calendarFetchedMsg struct {
+	Events []CalendarEvent
+	Err    error
+}
+
+// fetchCalendarCmd hits the CalendarFetcher in a goroutine and returns
+// a calendarFetchedMsg.
+func (m Model) fetchCalendarCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		es, err := m.deps.Calendar.ListEventsToday(ctx)
+		return calendarFetchedMsg{Events: es, Err: err}
+	}
 }
 
 // confirmBulk pops up the confirm modal for a destructive bulk
@@ -770,6 +846,13 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.searchActive && m.list.ShouldLoadMore() {
 			m.list.MarkLoading()
 			return m, m.loadMessagesCmd(m.list.FolderID)
+		}
+		// Cache wall: cursor is at the bottom of what the local store
+		// has. Kick a sync so the engine pulls more from Graph instead
+		// of waiting up to 30s for the next foreground tick.
+		if !m.searchActive && m.list.AtCacheWall() && m.deps.Engine != nil {
+			go func() { _ = m.deps.Engine.SyncAll(context.Background()) }()
+			m.engineActivity = "syncing more…"
 		}
 	case key.Matches(msg, m.keymap.Open):
 		sel, ok := m.list.Selected()
@@ -1057,6 +1140,9 @@ func (m Model) View() string {
 	if m.mode == ConfirmMode {
 		return m.confirm.View(m.theme, m.width, m.height)
 	}
+	if m.mode == CalendarMode {
+		return m.calendar.View(m.theme, m.width, m.height)
+	}
 
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{
 		LastSync:  m.lastSyncAt,
@@ -1118,7 +1204,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case FoldersPane:
 		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f/d/a", "triage"}, {"q", "quit"}}
+		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
 	case ViewerPane:
 		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:

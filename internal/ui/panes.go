@@ -348,6 +348,12 @@ type ListModel struct {
 	// loading is true while a load-more Cmd is in flight; prevents
 	// duplicate requests from rapid j-presses.
 	loading bool
+	// cacheExhausted is true when the last load returned fewer rows
+	// than loadLimit — the local store has nothing more to give at
+	// this limit. ShouldLoadMore returns false in that state to stop
+	// flapping reloads. Cleared on folder switch (ResetLimit) and
+	// rechecked on every SetMessages.
+	cacheExhausted bool
 }
 
 // initialListLimit is the first-page size for the list pane.
@@ -367,7 +373,10 @@ func NewList() ListModel { return ListModel{loadLimit: initialListLimit} }
 
 // SetMessages replaces the displayed list. Keeps the cursor on the same
 // message id when possible (so a load-more refresh doesn't yank the
-// user's selection back to row 0).
+// user's selection back to row 0). Marks cacheExhausted when the
+// returned page is shorter than the requested limit — that signals
+// the local store has nothing more to give until a sync delivers
+// fresh messages.
 func (m *ListModel) SetMessages(ms []store.Message) {
 	prevID := ""
 	if m.cursor < len(m.messages) {
@@ -375,6 +384,7 @@ func (m *ListModel) SetMessages(ms []store.Message) {
 	}
 	m.messages = ms
 	m.loading = false
+	m.cacheExhausted = len(ms) < m.LoadLimit()
 	if prevID != "" {
 		for i, msg := range ms {
 			if msg.ID == prevID {
@@ -398,9 +408,11 @@ func (m ListModel) LoadLimit() int {
 
 // ShouldLoadMore returns true when the cursor is close enough to the
 // bottom that we should pre-fetch the next page. False once a load is
-// already in flight.
+// already in flight, or when the local store is exhausted at the
+// current limit (no point asking SQLite for more rows it doesn't
+// have; the engine's foreground sync will deliver more eventually).
 func (m ListModel) ShouldLoadMore() bool {
-	if m.loading {
+	if m.loading || m.cacheExhausted {
 		return false
 	}
 	if len(m.messages) == 0 {
@@ -416,11 +428,20 @@ func (m *ListModel) MarkLoading() {
 	m.loadLimit = m.LoadLimit() + pageIncrement
 }
 
-// ResetLimit collapses the load limit back to the initial page (used
-// when the user switches folders).
+// AtCacheWall returns true when the cursor sits at the last row of a
+// list that's exhausted the local store. Caller can use this to kick
+// a sync so the engine pulls more from Graph.
+func (m ListModel) AtCacheWall() bool {
+	return m.cacheExhausted && len(m.messages) > 0 && m.cursor == len(m.messages)-1
+}
+
+// ResetLimit collapses the load limit back to the initial page and
+// clears the exhausted flag (used when the user switches folders —
+// the new folder's cache state is unknown).
 func (m *ListModel) ResetLimit() {
 	m.loadLimit = initialListLimit
 	m.loading = false
+	m.cacheExhausted = false
 }
 
 // Up / Down / Selected mirror the folders pane.
@@ -465,7 +486,16 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		line := fmt.Sprintf("%s%-10s %-14s %s", marker, when, truncate(from, 14), msg.Subject)
+		// Meeting-invite indicator: a leading 📅 glyph for messages that
+		// are recognisable as calendar invites or invite responses
+		// (Accepted: / Declined: / Updated: / etc.). Heuristic — see
+		// isLikelyMeeting. v0.9 will read Graph's meetingMessageType
+		// via $select for an exact signal.
+		invite := "  "
+		if isLikelyMeeting(msg.Subject) {
+			invite = "📅 "
+		}
+		line := fmt.Sprintf("%s%s%-10s %-14s %s", marker, invite, when, truncate(from, 14), msg.Subject)
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
@@ -770,6 +800,38 @@ func clipToCursorViewport(rows []string, cursor, room int) []string {
 		top = len(rows) - room
 	}
 	return rows[top : top+room]
+}
+
+// meetingPrefixes is the set of subject-line prefixes that indicate a
+// calendar-invite-style message. Detected case-insensitively. Covers
+// the response messages Outlook generates when attendees act on an
+// invite, plus common original-invite forms.
+var meetingPrefixes = []string{
+	"accepted:",
+	"declined:",
+	"tentative:",
+	"tentatively accepted:",
+	"canceled:",
+	"cancelled:",
+	"updated:",
+	"meeting:",
+	"invitation:",
+	"new time proposed:",
+	"forwarded invitation:",
+}
+
+// isLikelyMeeting reports whether subject's prefix matches one of the
+// known invite/response forms. Heuristic — covers the common cases
+// without a schema change. Future iter ($select meetingMessageType)
+// will replace this with the canonical Graph signal.
+func isLikelyMeeting(subject string) bool {
+	s := strings.ToLower(strings.TrimSpace(subject))
+	for _, p := range meetingPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncate cuts s to width characters.
