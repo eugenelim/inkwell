@@ -31,7 +31,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Latest 1.25.x patch. Without this, setup-go pins go.mod's
+          # exact `go` directive and govulncheck reports stdlib CVEs
+          # that are already fixed in newer patches.
+          go-version: 1.25.x
+          check-latest: true
           cache: true
       - name: install gosec
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
@@ -83,7 +87,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Latest 1.25.x patch. Without this, setup-go pins go.mod's
+          # exact `go` directive and govulncheck reports stdlib CVEs
+          # that are already fixed in newer patches.
+          go-version: 1.25.x
+          check-latest: true
           cache: true
       - name: install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest

@@ -1,4 +1,4 @@
-# Spec 20 — Cross-folder bulk operations
+# Spec 21 — Cross-folder bulk operations
 
 **Status:** Ready for implementation.
 **Depends on:** Specs 08 (pattern compile), 09 (batch executor), 10

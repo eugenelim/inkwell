@@ -251,16 +251,25 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 13  | `13-mailbox-settings.md`           | 5.11                         |
 | 14  | `14-cli-mode.md`                   | 5.12                         |
 | 15  | `15-compose-reply.md`              | 5.13                         |
-| 16  | `16-unsubscribe.md`                | post-v1, ROADMAP §0 bucket 1 |
-| 17  | `17-folder-management.md`          | post-v1, ROADMAP §0 bucket 1 |
-| 18  | `18-mute-thread.md`                | post-v1, ROADMAP §0 bucket 1 |
-| 19  | `19-conversation-ops.md`           | post-v1, ROADMAP §0 bucket 1 |
-| 20  | `20-cross-folder-bulk.md`          | post-v1, ROADMAP §0 bucket 1 |
+| 16  | `16-unsubscribe.md`                          | post-v1, ROADMAP §0 bucket 1 (shipped v0.12.0) |
+| 17  | `17-security-testing-and-casa-evidence.md`  | hardening — CI shipped v0.12.0, tests + docs pending; recommended before public v1 distribution |
+| 18  | `18-folder-management.md`                    | post-v1, ROADMAP §0 bucket 1 |
+| 19  | `19-mute-thread.md`                          | post-v1, ROADMAP §0 bucket 1 |
+| 20  | `20-conversation-ops.md`                     | post-v1, ROADMAP §0 bucket 1 |
+| 21  | `21-cross-folder-bulk.md`                    | post-v1, ROADMAP §0 bucket 1 |
 
-Specs 16–20 cover the "triage primitives" bucket from `docs/ROADMAP.md`
-§0 — atomic verbs that subsequent buckets depend on. They follow the
-v1 capabilities (§5) chronologically; the build order within bucket 1
-is the order listed.
+Spec 17 (security testing + CASA evidence) is a hardening pass over
+the v1 specs — additive, no architectural change. The CI portion
+shipped in v0.12.0; the security tests and the SECURITY.md /
+THREAT_MODEL.md / PRIVACY.md documents are pending. CLAUDE.md §11
+makes "did this PR change anything spec 17 cares about?" a required
+cross-cutting checklist item, so future specs surface threat-model
+deltas as they land instead of accumulating into a separate audit.
+
+Specs 16, 18–21 cover the "triage primitives" bucket from
+`docs/ROADMAP.md` §0 — atomic verbs that subsequent buckets depend
+on. They follow the v1 capabilities (§5) chronologically; the build
+order within bucket 1 is the order listed.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 
