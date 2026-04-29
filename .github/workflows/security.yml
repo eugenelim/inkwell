@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
           # exact `go` directive and govulncheck reports stdlib CVEs
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
           # exact `go` directive and govulncheck reports stdlib CVEs
