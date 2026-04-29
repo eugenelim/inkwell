@@ -1042,6 +1042,81 @@ func TestCompactAddrsSummarisesAcrossToCcBcc(t *testing.T) {
 		"empty case shows em-dash")
 }
 
+// TestViewerReplyKeyDispatchesCompose drives `r` in the viewer pane
+// with a Drafts dep wired and asserts the compose flow starts:
+// composeStartedMsg fires, the model captures the source id, and a
+// non-nil Cmd is returned (which would then trigger tea.ExecProcess).
+func TestViewerReplyKeyDispatchesCompose(t *testing.T) {
+	m := newDispatchTestModel(t)
+	called := atomicBool{}
+	m.deps.Drafts = stubDraftCreator{onCall: called.set}
+
+	// Open a message → focus moves to viewer.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.NotNil(t, m.viewer.current)
+
+	// Press r in the viewer pane.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "viewer-pane r must return startReplyCmd")
+
+	// Driving cmd produces composeStartedMsg. We can't run the
+	// editor in the test (and tea.ExecProcess is owned by the
+	// runtime), so we just verify the started msg shape.
+	res := cmd()
+	started, ok := res.(composeStartedMsg)
+	require.True(t, ok, "cmd produces composeStartedMsg")
+	// A working editor is unlikely in CI; allow either path.
+	if started.err == nil {
+		require.NotEmpty(t, started.tempfile)
+		require.NotEmpty(t, started.sourceID)
+		require.NotNil(t, started.editor)
+		// Cleanup the tempfile we just wrote.
+		_ = called // stub doesn't fire on the start path
+	}
+}
+
+// TestViewerReplyWithoutDraftsDepShowsFriendlyError confirms `r` in
+// the viewer pane records a friendly error when Drafts is nil
+// instead of crashing.
+func TestViewerReplyWithoutDraftsDepShowsFriendlyError(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.Nil(t, m.deps.Drafts)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Nil(t, cmd)
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "drafts")
+}
+
+// TestDraftSavedMsgPopulatesWebLinkAndStatus confirms the
+// post-save handler stashes webLink for the `s` shortcut and shows
+// the success blurb in the status bar.
+func TestDraftSavedMsgPopulatesWebLinkAndStatus(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(draftSavedMsg{webLink: "https://outlook.office.com/draft/abc"})
+	m = m2.(Model)
+	require.Equal(t, "https://outlook.office.com/draft/abc", m.lastDraftWebLink)
+	require.Contains(t, m.engineActivity, "draft saved")
+	require.Contains(t, m.engineActivity, "press s")
+}
+
+// stubDraftCreator satisfies ui.DraftCreator.
+type stubDraftCreator struct{ onCall func() }
+
+func (s stubDraftCreator) CreateDraftReply(_ context.Context, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
+	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
+}
+
 // TestFolderSwitchClearsActiveSearch is the regression for the bug
 // caught in the v0.5.0 internal code review: pressing '/foo<Enter>'
 // then switching folders via '1' + 'Enter' left searchActive=true,

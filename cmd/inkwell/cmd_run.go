@@ -158,6 +158,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Bulk:          bulkAdapter{exec: exec},
 		Calendar:      calendarAdapter{gc: gc},
 		Mailbox:       mailboxAdapter{gc: gc},
+		Drafts:        draftAdapter{exec: exec},
 		ThemeName:     cfg.UI.Theme,
 		SavedSearches: saved,
 	})
@@ -214,6 +215,19 @@ func (b bulkAdapter) BulkArchive(ctx context.Context, accountID int64, ids []str
 func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
 	got, err := b.exec.BulkMarkRead(ctx, accountID, ids)
 	return convertBatchResults(got), err
+}
+
+// draftAdapter bridges action.Executor.CreateDraftReply →
+// ui.DraftCreator. Same shape; the adapter exists so the UI doesn't
+// import internal/action.
+type draftAdapter struct{ exec *action.Executor }
+
+func (d draftAdapter) CreateDraftReply(ctx context.Context, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
+	res, err := d.exec.CreateDraftReply(ctx, sourceID, body, to, cc, bcc, subject)
+	if res == nil {
+		return nil, err
+	}
+	return &ui.DraftRef{ID: res.ID, WebLink: res.WebLink}, err
 }
 
 // mailboxAdapter bridges graph mailbox-settings calls → ui.MailboxClient.

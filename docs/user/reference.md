@@ -71,6 +71,8 @@ pull more from Graph.
 | `k` / `↑` | Scroll body up                                                |
 | `h` / `←` | Back to messages pane                                         |
 | `H`       | Toggle compact / full headers (To/Cc/Bcc expansion)           |
+| `r`       | Reply (opens `$INKWELL_EDITOR` / `$EDITOR` / nano with a draft skeleton) |
+| `s`       | Open the most-recently-saved draft in Outlook (after `r` saves) |
 | `f`       | Toggle flag (focus stays — flag, keep reading)                |
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `a`       | Archive (focus pops back to list)                             |
@@ -79,6 +81,16 @@ pull more from Graph.
 recipients with "+ N more". On a 50-attendee thread, the body
 gets the room. Press `H` to expand To / Cc / Bcc on their own
 lines.
+
+**Reply flow** (`r`): inkwell writes a tempfile pre-populated with
+To / Cc / Subject + a quoted-body skeleton, then opens it in your
+editor. When you save and exit, inkwell parses the file, calls
+Microsoft Graph `createReply` + `PATCH /me/messages/{id}` to update
+body and headers, and stores a draft in your Drafts folder. The
+status bar shows `✓ draft saved · press s to open in Outlook`. Press
+`s` to launch the draft in your browser / Outlook desktop, where
+you finalise send. inkwell never sends mail — see the
+[explanation](explanation.md#why-no-send) for why.
 
 `r` / `R` are reserved in the viewer for spec 15 (reply / reply-all)
 and don't currently mark-read. Use the list pane for that.

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/pattern"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -96,6 +98,9 @@ type Deps struct {
 	Calendar CalendarFetcher
 	// Mailbox is the surface for the :ooo flow (spec 13). Optional.
 	Mailbox MailboxClient
+	// Drafts handles compose / reply (spec 15). Optional — when nil,
+	// the `r` keybinding in the viewer pane shows a friendly error.
+	Drafts DraftCreator
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -127,6 +132,21 @@ type MailboxSettings struct {
 type MailboxClient interface {
 	Get(ctx context.Context) (*MailboxSettings, error)
 	SetAutoReply(ctx context.Context, enabled bool, internalMsg, externalMsg string) error
+}
+
+// DraftCreator is the surface the UI consumes for spec 15
+// (compose / reply). Defined here so the UI doesn't import
+// internal/action's full type set.
+type DraftCreator interface {
+	CreateDraftReply(ctx context.Context, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+}
+
+// DraftRef mirrors action.DraftResult. WebLink is the Outlook URL
+// surfaced on the status bar after a save — pressing 's' opens it
+// in the browser / Outlook desktop.
+type DraftRef struct {
+	ID      string
+	WebLink string
 }
 
 // CalendarEvent mirrors the fields the calendar modal renders. All
@@ -206,6 +226,13 @@ type Model struct {
 	filterIDs     []string // matched message IDs (for bulk apply)
 	bulkPending   bool     // true after `;` is pressed; next d/a fires bulk
 	pendingBulk   string   // "soft_delete" / "archive" while in ConfirmMode
+
+	// Compose / reply (spec 15). Tracks the most-recently-saved draft
+	// so the viewer-pane `s` shortcut can open it in Outlook. Cleared
+	// when the user starts another compose flow or moves on.
+	lastDraftWebLink string
+	composeTempfile  string // path of the in-flight tempfile, if any
+	composeSourceID  string // source message id for the in-flight reply
 }
 
 // New constructs the root model. After construction, callers run
@@ -350,6 +377,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.oof.SetSettings(msg.Settings)
 		}
+		return m, nil
+
+	case composeStartedMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("compose: %w", msg.err)
+			return m, nil
+		}
+		// Skeleton + tempfile + editor cmd ready — suspend the TUI
+		// and run the editor.
+		m.composeTempfile = msg.tempfile
+		m.composeSourceID = msg.sourceID
+		m.engineActivity = "editing draft…"
+		return m, runEditorCmd(msg.tempfile, msg.sourceID, msg.editor)
+
+	case composeEditedMsg:
+		// Editor exited. Either the user wrote something (parse + save)
+		// or they aborted (the parser surfaces ErrEmpty / ErrNoRecipients).
+		if msg.err != nil {
+			// exec error before the editor even started.
+			m.lastError = fmt.Errorf("compose: %w", msg.err)
+			m.engineActivity = ""
+			return m, nil
+		}
+		m.engineActivity = "saving draft…"
+		return m, m.saveDraftCmd(msg.tempfile, msg.sourceID)
+
+	case draftSavedMsg:
+		m.composeTempfile = ""
+		m.composeSourceID = ""
+		m.engineActivity = ""
+		if msg.err != nil {
+			// Pretty-printed errors for the parse-time discard cases.
+			// Anything else is a Graph round-trip failure; surface the
+			// preserved tempfile path so the user can recover.
+			switch {
+			case errors.Is(msg.err, compose.ErrEmpty):
+				m.lastError = nil
+				m.engineActivity = "draft was empty — discarded"
+			case errors.Is(msg.err, compose.ErrNoRecipients):
+				m.lastError = fmt.Errorf("draft: %w", msg.err)
+			default:
+				if msg.tempfile != "" {
+					m.lastError = fmt.Errorf("draft: %w (preserved at %s)", msg.err, msg.tempfile)
+				} else {
+					m.lastError = fmt.Errorf("draft: %w", msg.err)
+				}
+			}
+			m.lastDraftWebLink = msg.webLink // may be set on partial-failure (createReply ok, body PATCH failed)
+			return m, nil
+		}
+		m.lastError = nil
+		m.lastDraftWebLink = msg.webLink
+		m.engineActivity = "✓ draft saved · press s to open in Outlook"
 		return m, nil
 
 	case ConfirmResultMsg:
@@ -1134,9 +1214,22 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.deps.Triage.Archive(ctx, accID, src.ID)
 			})
 		}
-		// r / R are reserved for reply / reply-all per spec 15 §9.
-		// They land alongside spec 15 (compose). Until then, the user
-		// can mark-read by going back to the list pane (h, then r).
+	case key.Matches(msg, m.keymap.MarkRead):
+		// Per spec 15 §9 the viewer-pane `r` binding is REPLY (mutt
+		// convention). The list-pane `r` stays mark-read.
+		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
+			return m, m.startReplyCmd(*cur)
+		}
+		if m.deps.Drafts == nil {
+			m.lastError = fmt.Errorf("reply: not wired (drafts component missing)")
+		}
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+		// Open the most-recently-saved draft in Outlook. The webLink
+		// is set on draftSavedMsg and lives on the Model until the
+		// next compose action or Esc clears it.
+		if m.lastDraftWebLink != "" {
+			go openInBrowser(m.lastDraftWebLink)
+		}
 	}
 	return m, nil
 }
@@ -1348,7 +1441,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case ListPane:
 		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"r", "reply"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}
