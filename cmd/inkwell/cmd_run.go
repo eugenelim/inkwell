@@ -151,6 +151,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Logger:    logger,
 		Account:   acc,
 		Triage:    exec,
+		Bulk:      bulkAdapter{exec: exec},
 		ThemeName: cfg.UI.Theme,
 	})
 	prog := tea.NewProgram(model, tea.WithAltScreen())
@@ -187,3 +188,31 @@ func openLogFile(ownUPN string, level slog.Level) (*slog.Logger, io.Closer, erro
 type noopCloser struct{}
 
 func (noopCloser) Close() error { return nil }
+
+// bulkAdapter bridges action.BatchResult slices into ui.BulkResult
+// slices. The two structs are intentionally identical in shape; this
+// adapter exists so the ui package doesn't have to import internal/action.
+type bulkAdapter struct{ exec *action.Executor }
+
+func (b bulkAdapter) BulkSoftDelete(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkSoftDelete(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkArchive(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkArchive(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkMarkRead(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func convertBatchResults(in []action.BatchResult) []ui.BulkResult {
+	out := make([]ui.BulkResult, len(in))
+	for i, r := range in {
+		out[i] = ui.BulkResult{MessageID: r.MessageID, Err: r.Err}
+	}
+	return out
+}

@@ -43,6 +43,12 @@ type Store interface {
 	DeleteMessage(ctx context.Context, id string) error
 	DeleteMessages(ctx context.Context, ids []string) error
 	UpdateMessageFields(ctx context.Context, id string, f MessageFields) error
+	// SearchByPredicate runs a caller-supplied SQL WHERE clause + args
+	// against the messages table (spec 10 — pattern-based filter).
+	// `where` is appended to a fixed `account_id = ?` filter; the
+	// caller is responsible for parameterising values to avoid
+	// injection. Used by the UI's :filter command (spec 10).
+	SearchByPredicate(ctx context.Context, accountID int64, where string, args []any, limit int) ([]Message, error)
 
 	// Bodies
 	GetBody(ctx context.Context, messageID string) (*Body, error)

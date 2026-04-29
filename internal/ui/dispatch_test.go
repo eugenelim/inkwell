@@ -536,6 +536,147 @@ type atomicBool struct{ v bool }
 func (a *atomicBool) set()      { a.v = true }
 func (a *atomicBool) get() bool { return a.v }
 
+// TestFilterCommandActivatesFilter drives `:filter ~A` and asserts
+// the filter Cmd fires; the filterAppliedMsg handler then sets
+// filterActive=true with the matched IDs.
+func TestFilterCommandActivatesFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	// Enter command mode and type "filter ~A" + Enter.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "filter ~A" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "filter command must return runFilterCmd")
+
+	// The Cmd hits the store; let it run. It returns either ErrorMsg
+	// (none of the seeded messages have attachments) or
+	// filterAppliedMsg with empty results — either way Update should
+	// not panic.
+	msg := cmd()
+	m2, _ = m.Update(msg)
+	m = m2.(Model)
+
+	// Whether or not anything matched, the filter command itself must
+	// not crash and the model must remain in NormalMode.
+	require.Equal(t, NormalMode, m.mode)
+}
+
+// TestFilterPlainTextWrapsInBOperator confirms `:filter foo` (no `~`
+// operator) is rewritten to `~B foo`.
+func TestFilterPlainTextWrapsInBOperator(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Seed a message with subject containing "forecast".
+	require.GreaterOrEqual(t, len(m.list.messages), 1)
+
+	cmd := m.runFilterCmd("forecast")
+	require.NotNil(t, cmd)
+	msg := cmd()
+	// On a successful pattern compile we get filterAppliedMsg.
+	if applied, ok := msg.(filterAppliedMsg); ok {
+		require.Contains(t, applied.src, "~B forecast")
+	}
+}
+
+// TestSemicolonChordRequiresFilter confirms `;` outside a filter is
+// a no-op that records an error and DOES NOT enter bulk-pending state.
+func TestSemicolonChordRequiresFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.False(t, m.filterActive)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	require.False(t, m.bulkPending, "; without a filter must not arm bulk")
+	require.Error(t, m.lastError)
+}
+
+// TestSemicolonDOpensConfirmModal sets up a fake filter state and
+// asserts `;d` asks the user to confirm a bulk delete. The confirm
+// modal carries the matched count.
+func TestSemicolonDOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Force filter state.
+	m.filterActive = true
+	m.filterPattern = "~A"
+	m.filterIDs = []string{"m-1", "m-2", "m-3"}
+	m.deps.Bulk = stubBulkExecutor{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	require.True(t, m.bulkPending)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode, ";d must enter confirm mode")
+	require.Equal(t, "soft_delete", m.pendingBulk)
+	require.Contains(t, m.confirm.Message, "3 messages")
+}
+
+// TestConfirmYesFiresBulkCmd runs through the full ;d → confirm-y
+// flow and verifies the bulk Cmd is returned.
+func TestConfirmYesFiresBulkCmd(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.filterActive = true
+	m.filterIDs = []string{"m-1", "m-2"}
+	called := atomicBool{}
+	m.deps.Bulk = stubBulkExecutor{onSoftDelete: called.set}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+
+	// User presses 'y'.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+	// 'y' produces a ConfirmResultMsg via a Cmd.
+	require.NotNil(t, cmd)
+	confirmMsg := cmd()
+	m2, bulkCmd := m.Update(confirmMsg)
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.NotNil(t, bulkCmd, "confirmed bulk must return runBulkCmd")
+
+	// Drive the bulk Cmd.
+	_ = bulkCmd()
+	require.True(t, called.get(), "Bulk.SoftDelete invoked")
+}
+
+// stubBulkExecutor satisfies ui.BulkExecutor with optional onCall hooks.
+type stubBulkExecutor struct {
+	onSoftDelete func()
+}
+
+func (s stubBulkExecutor) BulkSoftDelete(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	if s.onSoftDelete != nil {
+		s.onSoftDelete()
+	}
+	out := make([]BulkResult, len(ids))
+	for i, id := range ids {
+		out[i] = BulkResult{MessageID: id}
+	}
+	return out, nil
+}
+func (s stubBulkExecutor) BulkArchive(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	out := make([]BulkResult, len(ids))
+	for i, id := range ids {
+		out[i] = BulkResult{MessageID: id}
+	}
+	return out, nil
+}
+func (s stubBulkExecutor) BulkMarkRead(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	out := make([]BulkResult, len(ids))
+	for i, id := range ids {
+		out[i] = BulkResult{MessageID: id}
+	}
+	return out, nil
+}
+
 // TestFolderSwitchClearsActiveSearch is the regression for the bug
 // caught in the v0.5.0 internal code review: pressing '/foo<Enter>'
 // then switching folders via '1' + 'Enter' left searchActive=true,

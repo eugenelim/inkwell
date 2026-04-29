@@ -97,6 +97,12 @@ If a change violates any of these, the change is wrong.
 The test pyramid for this repo is non-negotiable. Every spec lands with all
 four layers green.
 
+> **Reference:** `docs/TESTING.md` is the canonical guide for how tests
+> are written, named, and run in this repo. CLAUDE.md §5 is the
+> high-level policy; TESTING.md has the mechanics (helpers, naming,
+> goleak, fuzz, teatest patterns, anti-patterns). When in doubt, read
+> TESTING.md first.
+
 ### 5.1 Unit tests (`*_test.go` next to source)
 
 - Pure functions, parsers, encoders, schema migrations, FTS triggers,

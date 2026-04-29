@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/eugenelim/inkwell/internal/pattern"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
 	isync "github.com/eugenelim/inkwell/internal/sync"
@@ -41,6 +42,21 @@ type TriageExecutor interface {
 	Archive(ctx context.Context, accountID int64, messageID string) error
 }
 
+// BulkResult mirrors action.BatchResult — defined here so the UI
+// doesn't import internal/action's full type surface.
+type BulkResult struct {
+	MessageID string
+	Err       error
+}
+
+// BulkExecutor handles "apply this action to N messages" operations
+// (spec 09 / 10). Implementations route through Graph $batch.
+type BulkExecutor interface {
+	BulkSoftDelete(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkArchive(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkMarkRead(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+}
+
 // Deps wires the UI to its lower-layer collaborators.
 type Deps struct {
 	Auth     Authenticator
@@ -53,6 +69,8 @@ type Deps struct {
 	// archive, etc.). Optional — when nil, the corresponding key
 	// bindings are no-ops.
 	Triage TriageExecutor
+	// Bulk executes batch triage (spec 09/10). Optional like Triage.
+	Bulk BulkExecutor
 	// ThemeName is the [ui] theme key from config. Empty falls back to
 	// "default". Unknown values fall back with a logged warning.
 	ThemeName string
@@ -111,6 +129,15 @@ type Model struct {
 	searchActive  bool
 	searchQuery   string // committed query (the one that produced m.list contents)
 	priorFolderID string // folder to restore when search is cleared
+
+	// Filter mode (spec 10): :filter <pattern> compiles via spec 08
+	// and narrows the list pane to matches. ; prefix + a triage key
+	// applies that action to all matched messages via BulkExecutor.
+	filterActive  bool
+	filterPattern string
+	filterIDs     []string // matched message IDs (for bulk apply)
+	bulkPending   bool     // true after `;` is pressed; next d/a fires bulk
+	pendingBulk   string   // "soft_delete" / "archive" while in ConfirmMode
 }
 
 // New constructs the root model. After construction, callers run
@@ -228,9 +255,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ConfirmResultMsg:
-		// ConfirmMode owns dispatch; return to Normal and let Update
-		// hand the result to the registered callback in a future spec.
 		m.mode = NormalMode
+		// Bulk-action confirmation: pendingBulk carries the action key
+		// set by confirmBulk(). Only fire on Confirm=true; on No, just
+		// drop it.
+		if m.pendingBulk != "" {
+			action := m.pendingBulk
+			m.pendingBulk = ""
+			if msg.Confirm {
+				return m, m.runBulkCmd(action)
+			}
+		}
+		return m, nil
+
+	case filterAppliedMsg:
+		m.filterActive = true
+		m.filterPattern = msg.src
+		ids := make([]string, 0, len(msg.messages))
+		for _, mm := range msg.messages {
+			ids = append(ids, mm.ID)
+		}
+		m.filterIDs = ids
+		// Render the filter results in the list pane via the existing
+		// SetMessages path; sentinel folder ID keeps load-more / triage
+		// keyed off the current filter, not the underlying folder.
+		if !m.searchActive && m.priorFolderID == "" {
+			m.priorFolderID = m.list.FolderID
+		}
+		m.list.FolderID = "filter:" + msg.src
+		m.list.SetMessages(msg.messages)
+		m.focused = ListPane
+		return m, nil
+
+	case bulkDoneMsg:
+		if msg.firstErr != nil && msg.succeeded == 0 {
+			m.lastError = fmt.Errorf("%s: %w", msg.name, msg.firstErr)
+			return m, nil
+		}
+		// Partial successes log the error but don't surface as red.
+		m.lastError = nil
+		// Status bar carries the result via engineActivity for a tick.
+		if msg.failed == 0 {
+			m.engineActivity = fmt.Sprintf("✓ %s %d", msg.name, msg.succeeded)
+		} else {
+			m.engineActivity = fmt.Sprintf("⚠ %s %d/%d", msg.name, msg.succeeded, msg.succeeded+msg.failed)
+		}
+		// Filter set is now stale; clear it and reload the prior folder.
+		m = m.clearFilter()
+		if m.priorFolderID != "" {
+			return m, m.loadMessagesCmd(m.priorFolderID)
+		}
 		return m, nil
 
 	case triageDoneMsg:
@@ -472,9 +546,141 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		m.confirm = m.confirm.Ask("Sign out and clear cached credentials?", "signout")
 		m.mode = ConfirmMode
 		return m, nil
+	case "filter":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("filter: usage `:filter <pattern>` (spec 08 operators or plain text)")
+			return m, nil
+		}
+		patternSrc := strings.TrimSpace(strings.TrimPrefix(line, "filter"))
+		return m, m.runFilterCmd(patternSrc)
+	case "unfilter":
+		return m.clearFilter(), nil
 	}
 	m.lastError = fmt.Errorf("unknown command: %s", line)
 	return m, nil
+}
+
+// runFilterCmd compiles the supplied pattern and runs it against the
+// local store. The matched messages replace the list pane contents.
+// Plain text (no `~` operator) is treated as `~B <text>` (subject or
+// body contains).
+func (m Model) runFilterCmd(src string) tea.Cmd {
+	src = strings.TrimSpace(src)
+	if !strings.Contains(src, "~") {
+		src = "~B " + src
+	}
+	return func() tea.Msg {
+		root, err := pattern.Parse(src)
+		if err != nil {
+			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
+		}
+		clause, err := pattern.CompileLocal(root)
+		if err != nil {
+			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var accountID int64
+		if m.deps.Account != nil {
+			accountID = m.deps.Account.ID
+		}
+		msgs, err := m.deps.Store.SearchByPredicate(ctx, accountID, clause.Where, clause.Args, 1000)
+		if err != nil {
+			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
+		}
+		return filterAppliedMsg{src: src, messages: msgs}
+	}
+}
+
+func (m Model) clearFilter() Model {
+	m.filterActive = false
+	m.filterPattern = ""
+	m.filterIDs = nil
+	m.bulkPending = false
+	if m.priorFolderID != "" {
+		m.list.FolderID = m.priorFolderID
+	}
+	return m
+}
+
+type filterAppliedMsg struct {
+	src      string
+	messages []store.Message
+}
+
+type bulkDoneMsg struct {
+	name      string
+	succeeded int
+	failed    int
+	firstErr  error
+}
+
+// confirmBulk pops up the confirm modal for a destructive bulk
+// operation. Stores the action name in pendingBulk so the
+// ConfirmResult handler knows what to dispatch on `y`.
+func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
+	if m.deps.Bulk == nil {
+		m.lastError = fmt.Errorf("bulk: not wired")
+		return m, nil
+	}
+	verb := action
+	if action == "soft_delete" {
+		verb = "delete"
+	}
+	m.confirm = m.confirm.Ask(fmt.Sprintf("%s %d messages?", strings.Title(verb), count), "bulk:"+action)
+	m.pendingBulk = action
+	m.mode = ConfirmMode
+	return m, nil
+}
+
+// runBulkCmd fires the BulkExecutor for the named action against the
+// current filter. The caller has already confirmed.
+func (m Model) runBulkCmd(action string) tea.Cmd {
+	if m.deps.Bulk == nil {
+		return nil
+	}
+	ids := append([]string(nil), m.filterIDs...) // copy to avoid races with model mutation
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var (
+			results []BulkResult
+			err     error
+		)
+		switch action {
+		case "soft_delete":
+			results, err = m.deps.Bulk.BulkSoftDelete(ctx, accountID, ids)
+		case "archive":
+			results, err = m.deps.Bulk.BulkArchive(ctx, accountID, ids)
+		case "mark_read":
+			results, err = m.deps.Bulk.BulkMarkRead(ctx, accountID, ids)
+		default:
+			return ErrorMsg{Err: fmt.Errorf("runBulkCmd: unknown action %q", action)}
+		}
+		var (
+			ok, fail int
+			firstErr error
+		)
+		for _, r := range results {
+			if r.Err != nil {
+				fail++
+				if firstErr == nil {
+					firstErr = r.Err
+				}
+			} else {
+				ok++
+			}
+		}
+		// Outer error trumps the per-item error tally.
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return bulkDoneMsg{name: action, succeeded: ok, failed: fail, firstErr: firstErr}
+	}
 }
 
 func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -503,6 +709,26 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// `;` prefix begins a bulk-apply chord. Only meaningful while a
+	// filter is active.
+	if msg.Type == tea.KeyRunes && string(msg.Runes) == ";" {
+		if !m.filterActive {
+			m.lastError = fmt.Errorf(";: requires an active filter (run :filter <pattern>)")
+			return m, nil
+		}
+		m.bulkPending = true
+		return m, nil
+	}
+	if m.bulkPending {
+		m.bulkPending = false
+		switch string(msg.Runes) {
+		case "d":
+			return m.confirmBulk("soft_delete", len(m.filterIDs))
+		case "a":
+			return m.confirmBulk("archive", len(m.filterIDs))
+		}
+		// Unknown chord follow-up: clear pending, fall through.
+	}
 	switch {
 	case key.Matches(msg, m.keymap.Up):
 		m.list.Up()
@@ -815,6 +1041,12 @@ func (m Model) View() string {
 		cmdBar = m.theme.CommandBar.Render("/" + m.searchBuf)
 	} else if m.searchActive {
 		cmdBar = m.theme.Dim.Render("search: " + m.searchQuery + "  (esc to clear)")
+	} else if m.filterActive {
+		hint := fmt.Sprintf("filter: %s · matched %d · ;d delete · ;a archive · :unfilter", m.filterPattern, len(m.filterIDs))
+		if m.bulkPending {
+			hint = "bulk: press d (delete) or a (archive) — esc to cancel"
+		}
+		cmdBar = m.theme.CommandBar.Render(hint)
 	}
 	helpBar := renderHelpBar(m.theme, m.width, m.focused)
 
@@ -858,7 +1090,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case FoldersPane:
 		hints = [][2]string{{"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"2", "list"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f/d/a", "triage"}, {"q", "quit"}}
 	case ViewerPane:
 		hints = [][2]string{{"h", "back"}, {"j/k", "scroll"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
 	default:

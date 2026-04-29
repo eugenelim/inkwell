@@ -42,6 +42,36 @@ func (s *store) ListMessages(ctx context.Context, q MessageQuery) ([]Message, er
 	return out, rows.Err()
 }
 
+// SearchByPredicate runs a caller-supplied SQL WHERE fragment against
+// the messages table. The fragment is composed by spec 08's pattern
+// evaluator and is wrapped in `account_id = ? AND (<where>)` to scope
+// the result to one mailbox. Caller passes args separately.
+func (s *store) SearchByPredicate(ctx context.Context, accountID int64, where string, args []any, limit int) ([]Message, error) {
+	if where == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	full := "SELECT " + messageColumns + " FROM messages WHERE account_id = ? AND (" + where + ") ORDER BY received_at DESC LIMIT ?"
+	queryArgs := append([]any{accountID}, args...)
+	queryArgs = append(queryArgs, limit)
+	rows, err := s.db.QueryContext(ctx, full, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
 // UpsertMessage writes a single envelope.
 func (s *store) UpsertMessage(ctx context.Context, m Message) error {
 	return s.UpsertMessagesBatch(ctx, []Message{m})
