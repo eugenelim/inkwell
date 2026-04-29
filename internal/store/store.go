@@ -183,4 +183,3 @@ func (s *store) Vacuum(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, "VACUUM")
 	return err
 }
-

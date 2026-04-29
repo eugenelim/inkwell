@@ -12,12 +12,12 @@ import (
 
 // ListMessagesOpts narrows /me/mailFolders/{id}/messages results.
 type ListMessagesOpts struct {
-	Select         string
-	Filter         string
-	Top            int
-	OrderBy        string
-	IncludeBodies  bool // when true, omit $select restriction
-	ReceivedSince  time.Time
+	Select        string
+	Filter        string
+	Top           int
+	OrderBy       string
+	IncludeBodies bool // when true, omit $select restriction
+	ReceivedSince time.Time
 }
 
 // ListMessagesResponse is the paginated wrapper.

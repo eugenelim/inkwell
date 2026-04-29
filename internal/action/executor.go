@@ -20,13 +20,13 @@ type Type = store.ActionType
 // Action types this executor handles. The full list lives in
 // internal/store/types.go; v0.3.0 implements the most-used subset.
 const (
-	TypeMarkRead    = store.ActionMarkRead
-	TypeMarkUnread  = store.ActionMarkUnread
-	TypeFlag        = store.ActionFlag
-	TypeUnflag      = store.ActionUnflag
-	TypeSoftDelete  = store.ActionSoftDelete
-	TypeArchive     = store.ActionMove // archive resolves to move-to-archive
-	TypeMove        = store.ActionMove
+	TypeMarkRead   = store.ActionMarkRead
+	TypeMarkUnread = store.ActionMarkUnread
+	TypeFlag       = store.ActionFlag
+	TypeUnflag     = store.ActionUnflag
+	TypeSoftDelete = store.ActionSoftDelete
+	TypeArchive    = store.ActionMove // archive resolves to move-to-archive
+	TypeMove       = store.ActionMove
 )
 
 // Executor applies optimistic local mutations and dispatches Graph
@@ -36,10 +36,6 @@ type Executor struct {
 	st     store.Store
 	gc     *graph.Client
 	logger *slog.Logger
-	// archiveFolderID is the resolved Graph folder ID for the user's
-	// Archive folder. Cached at construction; falls back to the
-	// well-known "archive" alias if the lookup fails.
-	archiveFolderID string
 }
 
 // New constructs an executor.
@@ -47,15 +43,7 @@ func New(st store.Store, gc *graph.Client, logger *slog.Logger) *Executor {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Executor{st: st, gc: gc, logger: logger, archiveFolderID: "archive"}
-}
-
-// SetArchiveFolderID overrides the archive destination. The TUI
-// resolves this from the synced folders list.
-func (e *Executor) SetArchiveFolderID(id string) {
-	if id != "" {
-		e.archiveFolderID = id
-	}
+	return &Executor{st: st, gc: gc, logger: logger}
 }
 
 // MarkRead enqueues + applies a mark-read action.
@@ -154,7 +142,7 @@ func (e *Executor) run(ctx context.Context, a store.Action) error {
 
 	// Snapshot pre-state for rollback.
 	if len(a.MessageIDs) != 1 {
-		return fmt.Errorf("action: v0.3.0 only supports single-message actions")
+		return fmt.Errorf("action: single-message actions only (bulk lands in spec 09)")
 	}
 	id := a.MessageIDs[0]
 	pre, err := e.st.GetMessage(ctx, id)

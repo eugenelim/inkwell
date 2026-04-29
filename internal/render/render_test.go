@@ -78,10 +78,10 @@ func TestHeadersTruncateRecipientsBeyondThree(t *testing.T) {
 func TestHeadersFullExpandsExtras(t *testing.T) {
 	r := New(nil, nil)
 	m := &store.Message{
-		Subject:     "x",
-		Importance:  "high",
-		Categories:  []string{"Work", "Q4"},
-		FlagStatus:  "flagged",
+		Subject:        "x",
+		Importance:     "high",
+		Categories:     []string{"Work", "Q4"},
+		FlagStatus:     "flagged",
 		HasAttachments: true,
 	}
 	out := r.Headers(m, BodyOpts{ShowFullHeaders: true, Theme: DefaultTheme()})

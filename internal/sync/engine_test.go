@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	stdsync "sync"
 	"strings"
+	stdsync "sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,8 +86,8 @@ func newFakeServer() *fakeServer {
 	return f
 }
 
-func (f *fakeServer) Close()          { f.server.Close() }
-func (f *fakeServer) URL() string     { return f.server.URL }
+func (f *fakeServer) Close()      { f.server.Close() }
+func (f *fakeServer) URL() string { return f.server.URL }
 func (f *fakeServer) Handle(path string, h http.HandlerFunc) {
 	f.mux.HandleFunc(path, h)
 }

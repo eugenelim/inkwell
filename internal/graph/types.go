@@ -26,41 +26,41 @@ type Flag struct {
 
 // MailFolder mirrors the subset of /me/mailFolders we read.
 type MailFolder struct {
-	ID               string `json:"id"`
-	DisplayName      string `json:"displayName"`
-	ParentFolderID   string `json:"parentFolderId,omitempty"`
-	WellKnownName    string `json:"wellKnownName,omitempty"`
-	TotalItemCount   int    `json:"totalItemCount,omitempty"`
-	UnreadItemCount  int    `json:"unreadItemCount,omitempty"`
-	IsHidden         bool   `json:"isHidden,omitempty"`
+	ID              string `json:"id"`
+	DisplayName     string `json:"displayName"`
+	ParentFolderID  string `json:"parentFolderId,omitempty"`
+	WellKnownName   string `json:"wellKnownName,omitempty"`
+	TotalItemCount  int    `json:"totalItemCount,omitempty"`
+	UnreadItemCount int    `json:"unreadItemCount,omitempty"`
+	IsHidden        bool   `json:"isHidden,omitempty"`
 }
 
 // Message is the shape we request via $select. Fields not listed in the
 // spec §5.2 envelope set are omitted intentionally.
 type Message struct {
-	ID                       string       `json:"id"`
-	InternetMessageID        string       `json:"internetMessageId,omitempty"`
-	ConversationID           string       `json:"conversationId,omitempty"`
-	ConversationIndex        []byte       `json:"conversationIndex,omitempty"`
-	Subject                  string       `json:"subject,omitempty"`
-	BodyPreview              string       `json:"bodyPreview,omitempty"`
-	From                     *Recipient   `json:"from,omitempty"`
-	ToRecipients             []Recipient  `json:"toRecipients,omitempty"`
-	CcRecipients             []Recipient  `json:"ccRecipients,omitempty"`
-	BccRecipients            []Recipient  `json:"bccRecipients,omitempty"`
-	ReceivedDateTime         time.Time    `json:"receivedDateTime,omitempty"`
-	SentDateTime             time.Time    `json:"sentDateTime,omitempty"`
-	IsRead                   bool         `json:"isRead,omitempty"`
-	IsDraft                  bool         `json:"isDraft,omitempty"`
-	Flag                     *Flag        `json:"flag,omitempty"`
-	Importance               string       `json:"importance,omitempty"`
-	InferenceClassification  string       `json:"inferenceClassification,omitempty"`
-	HasAttachments           bool         `json:"hasAttachments,omitempty"`
-	Categories               []string     `json:"categories,omitempty"`
-	WebLink                  string       `json:"webLink,omitempty"`
-	ParentFolderID           string       `json:"parentFolderId,omitempty"`
-	LastModifiedDateTime     time.Time    `json:"lastModifiedDateTime,omitempty"`
-	Body                     *Body        `json:"body,omitempty"`
+	ID                      string      `json:"id"`
+	InternetMessageID       string      `json:"internetMessageId,omitempty"`
+	ConversationID          string      `json:"conversationId,omitempty"`
+	ConversationIndex       []byte      `json:"conversationIndex,omitempty"`
+	Subject                 string      `json:"subject,omitempty"`
+	BodyPreview             string      `json:"bodyPreview,omitempty"`
+	From                    *Recipient  `json:"from,omitempty"`
+	ToRecipients            []Recipient `json:"toRecipients,omitempty"`
+	CcRecipients            []Recipient `json:"ccRecipients,omitempty"`
+	BccRecipients           []Recipient `json:"bccRecipients,omitempty"`
+	ReceivedDateTime        time.Time   `json:"receivedDateTime,omitempty"`
+	SentDateTime            time.Time   `json:"sentDateTime,omitempty"`
+	IsRead                  bool        `json:"isRead,omitempty"`
+	IsDraft                 bool        `json:"isDraft,omitempty"`
+	Flag                    *Flag       `json:"flag,omitempty"`
+	Importance              string      `json:"importance,omitempty"`
+	InferenceClassification string      `json:"inferenceClassification,omitempty"`
+	HasAttachments          bool        `json:"hasAttachments,omitempty"`
+	Categories              []string    `json:"categories,omitempty"`
+	WebLink                 string      `json:"webLink,omitempty"`
+	ParentFolderID          string      `json:"parentFolderId,omitempty"`
+	LastModifiedDateTime    time.Time   `json:"lastModifiedDateTime,omitempty"`
+	Body                    *Body       `json:"body,omitempty"`
 	// Removed is set by the delta endpoint when a message has been
 	// deleted from the folder. Receivers treat as a tombstone.
 	Removed *RemovedMarker `json:"@removed,omitempty"`

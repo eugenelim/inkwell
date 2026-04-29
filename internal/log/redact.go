@@ -21,18 +21,18 @@ import (
 // SensitiveKeys are slog attribute keys whose values are always redacted.
 // Add to this list when introducing a new attribute that may carry secrets.
 var SensitiveKeys = map[string]bool{
-	"token":          true,
-	"access_token":   true,
-	"refresh_token":  true,
-	"id_token":       true,
-	"bearer":         true,
-	"authorization":  true,
-	"cache_blob":     true,
-	"body":           true,
-	"content":        true,
-	"password":       true,
-	"secret":         true,
-	"client_secret":  true,
+	"token":         true,
+	"access_token":  true,
+	"refresh_token": true,
+	"id_token":      true,
+	"bearer":        true,
+	"authorization": true,
+	"cache_blob":    true,
+	"body":          true,
+	"content":       true,
+	"password":      true,
+	"secret":        true,
+	"client_secret": true,
 }
 
 // SubjectIsSensitiveAtLevel returns true when subject lines must be
@@ -91,9 +91,9 @@ type Options struct {
 func New(w io.Writer, opts Options) *slog.Logger {
 	base := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: opts.Level})
 	return slog.New(&redactor{
-		base:    base,
-		emails:  NewEmailMap(),
-		ownUPN:  strings.ToLower(strings.TrimSpace(opts.AllowOwnUPN)),
+		base:     base,
+		emails:   NewEmailMap(),
+		ownUPN:   strings.ToLower(strings.TrimSpace(opts.AllowOwnUPN)),
 		minLevel: opts.Level,
 	})
 }

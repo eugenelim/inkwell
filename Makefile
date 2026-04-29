@@ -1,4 +1,4 @@
-.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version
+.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version regress
 
 BIN_NAME := inkwell
 BIN_DIR  := bin
@@ -41,6 +41,9 @@ test-budgets: ## Spec §7 budget gate (skipped under -race; this is the gating r
 	go test -timeout 600s -run TestBudgetsHonoured -v ./internal/store/...
 
 test-all: test test-e2e ## Race + e2e
+
+regress: ## Full regression suite (CLAUDE.md §5.8). Run before tagging.
+	@./scripts/regress.sh
 
 vet:
 	go vet ./...

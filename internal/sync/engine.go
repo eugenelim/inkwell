@@ -56,13 +56,13 @@ type FoldersEnumeratedEvent struct {
 	At    time.Time
 }
 
-func (FolderSyncedEvent) isEvent()        {}
-func (FoldersEnumeratedEvent) isEvent()   {}
-func (SyncStartedEvent) isEvent()         {}
-func (SyncCompletedEvent) isEvent()       {}
-func (SyncFailedEvent) isEvent()          {}
-func (ThrottledEvent) isEvent()           {}
-func (AuthRequiredEvent) isEvent()        {}
+func (FolderSyncedEvent) isEvent()      {}
+func (FoldersEnumeratedEvent) isEvent() {}
+func (SyncStartedEvent) isEvent()       {}
+func (SyncCompletedEvent) isEvent()     {}
+func (SyncFailedEvent) isEvent()        {}
+func (ThrottledEvent) isEvent()         {}
+func (AuthRequiredEvent) isEvent()      {}
 
 // State enumerates the engine's lifecycle.
 type State int
