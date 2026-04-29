@@ -1,4 +1,4 @@
-# Spec 19 — Conversation-level operations
+# Spec 20 — Conversation-level operations
 
 **Status:** Ready for implementation.
 **Depends on:** Specs 02 (`messages.conversation_id` exists), 07
@@ -52,7 +52,7 @@ existing single-message verbs:
 | `T f` | Toggle flag on every message in the thread                |
 | `T d` | Soft-delete the entire thread                             |
 | `T a` | Archive the entire thread                                 |
-| `T m` | Move whole thread (mute conversations from spec 18 use M) |
+| `T m` | Move whole thread (mute conversations from spec 19 use M) |
 
 `T` enters a "thread chord pending" state (3-second timeout, Esc to
 cancel). The status bar shows `thread: r/R/f/d/a/m  esc cancel`.

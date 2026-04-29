@@ -33,11 +33,20 @@ The atomic verbs every other bucket depends on. These ship first.
 
 | Order | Item                            | Spec | Why this slot                                        |
 | ----- | ------------------------------- | ---- | ---------------------------------------------------- |
-| 1     | First-class unsubscribe (1.4)   | 16   | Highest ROI in the backlog, no dependencies.         |
-| 2     | Folder management (1.1)         | 17   | Table-stakes capability; needed by routing in B2.    |
-| 3     | Mute thread (1.5)               | 18   | Cheap; new `muted_conversations` table reused later. |
-| 4     | Conversation-level ops (1.8)    | 19   | Promotes thread as a first-class unit (B2 needs it). |
-| 5     | Cross-folder bulk (1.3)         | 20   | Small extension to the existing filter path.         |
+| 1     | First-class unsubscribe (1.4)   | 16   | Shipped v0.12.0. Highest ROI in the backlog.         |
+| 2     | Folder management (1.1)         | 18   | Table-stakes capability; needed by routing in B2.    |
+| 3     | Mute thread (1.5)               | 19   | Cheap; new `muted_conversations` table reused later. |
+| 4     | Conversation-level ops (1.8)    | 20   | Promotes thread as a first-class unit (B2 needs it). |
+| 5     | Cross-folder bulk (1.3)         | 21   | Small extension to the existing filter path.         |
+
+### Bucket 1.5 — Pre-public-distribution hardening
+
+Cuts across all v1 specs. CI tooling is live (v0.12.0); the rest
+gates the first signed/notarized public binary.
+
+| Order | Item                                          | Spec | Status                                                 |
+| ----- | --------------------------------------------- | ---- | ------------------------------------------------------ |
+| 1     | Security testing + CASA evidence              | 17   | CI shipped v0.12.0; tests + threat model + privacy doc pending. Required before public v1 distribution. |
 
 ### Bucket 2 — Inbox philosophy
 

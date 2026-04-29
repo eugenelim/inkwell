@@ -1,9 +1,9 @@
-# Spec 18 — Mute thread
+# Spec 19 — Mute thread
 
 **Status:** Ready for implementation.
 **Depends on:** Specs 02 (store + new `muted_conversations` table),
 04 (TUI), 07 (action queue).
-**Blocks:** Conversation-level operations (spec 19) — the
+**Blocks:** Conversation-level operations (spec 20) — the
 muting model assumes the thread-as-unit semantics formalised
 there. Custom actions framework (§2) — the `set_thread_muted` op
 primitive is exposed here.

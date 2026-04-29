@@ -1,4 +1,4 @@
-# Spec 17 — Folder management (create / rename / delete)
+# Spec 18 — Folder management (create / rename / delete)
 
 **Status:** Ready for implementation.
 **Depends on:** Specs 02 (folders table), 03 (sync), 04 (TUI sidebar),

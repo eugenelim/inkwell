@@ -255,6 +255,15 @@ not optional.
 
 ## 7. Privacy and security (non-negotiable)
 
+> **Cross-reference:** spec 17
+> (`docs/specs/17-security-testing-and-casa-evidence.md`) is the
+> canonical source for security CI gates, security-specific tests,
+> and the threat-model / privacy-policy documents. The rules below
+> are the day-to-day implementation contract; spec 17 is the
+> hardening + evidence layer that proves the rules hold. Future
+> specs MUST review spec 17 (per §11 cross-cutting checklist) and
+> surface threat-model deltas in their PR.
+
 These rules apply to every piece of code, every log line, every test fixture.
 
 1. **No mail content leaves `~/`.** SQLite cache lives at
@@ -334,6 +343,15 @@ If a code path could log a token, body, or PII, add a redaction test for it.
   ticked boxes and links to the green CI run.
 - No squash of unrelated changes; rebase to keep history readable.
 - Never `--no-verify`, never force-push to `main`.
+- **Always check CI after a push or tag.** Local green is necessary,
+  not sufficient. After every `git push` or `git push --tags`, run
+  `gh run list --limit 5` and inspect any failure with
+  `gh run view <id> --log-failed`. CI runs on a different toolchain
+  version + Linux kernel than the dev machine; v0.12.0 shipped a
+  govulncheck failure on `main` because Go 1.25.0 (CI) had stdlib
+  CVEs that Go 1.26.x (dev) did not. The fix is part of the same
+  push, not a follow-up. Treat a red CI on main as a stop-the-line
+  signal.
 
 ## 11. Cross-cutting checklist for every spec PR
 
@@ -349,6 +367,20 @@ Copy from ARCH §16 into every PR description:
 - [ ] What logs does it emit, and what is redacted?
 - [ ] Is there a CLI-mode equivalent (PRD §5.12)?
 - [ ] Are unit / integration / e2e / bench tests all present and green?
+- [ ] **Spec 17 review (security testing + CASA evidence)** — does
+      this PR introduce or change any of: token handling, file I/O
+      paths, subprocess invocation, external HTTP, new third-party
+      data flow, new cryptographic primitive, new SQL composition,
+      new local persisted state? If **any** of those, the PR MUST
+      update `docs/specs/17-security-testing-and-casa-evidence.md`
+      §4 (security tests), `docs/THREAT_MODEL.md` (threats &
+      mitigations once it lands), and/or `docs/PRIVACY.md`
+      (where data is stored / what leaves the device). When in
+      doubt, surface it explicitly in the PR description with a
+      one-line "spec 17 impact: …" note.
+- [ ] **Spec 17 CI gates green** — gosec, Semgrep, govulncheck.
+      New `// #nosec` annotations carry a one-line WHY comment
+      (no blanket suppression). Local `make sec` clean.
 
 ---
 
