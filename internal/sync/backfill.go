@@ -39,7 +39,18 @@ func (e *engine) backfillFolder(ctx context.Context, folderID string, before tim
 	if err != nil {
 		return err
 	}
+	// Always emit FolderSyncedEvent — even on zero results — so the
+	// UI can react. Without this, a user who scrolls to the cache
+	// wall on a truly-exhausted mailbox never receives an event,
+	// the list pane's wallSyncRequested flag never clears, and j
+	// presses appear to do nothing. Real-tenant regression
+	// reported on v0.14.x.
 	if len(page.Value) == 0 {
+		e.emit(FolderSyncedEvent{
+			FolderID: folderID,
+			Added:    0,
+			At:       time.Now(),
+		})
 		return nil
 	}
 	batch := make([]store.Message, 0, len(page.Value))

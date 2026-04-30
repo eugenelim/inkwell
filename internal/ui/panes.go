@@ -380,6 +380,13 @@ type ListModel struct {
 	// press at the wall fired SyncAll → real-tenant log showed 3
 	// cycles in 2.5s.
 	wallSyncRequested bool
+	// graphExhausted is sticky: set when a backfill round-trip
+	// returned zero new messages. Tells the UI "this folder has no
+	// more older mail on Graph, stop kicking Backfill". Cleared on
+	// folder switch (ResetLimit). Without this flag, a user at the
+	// genuine end of a mailbox kept hitting j and re-firing
+	// no-op backfills (real-tenant regression v0.14.x).
+	graphExhausted bool
 }
 
 // initialListLimit is the first-page size for the list pane.
@@ -475,23 +482,36 @@ func (m ListModel) AtCacheWall() bool {
 }
 
 // ShouldKickWallSync returns true when the cursor is at the cache
-// wall AND we haven't already requested a sync for this state. The
-// caller flips wallSyncRequested via [MarkWallSyncRequested] after
-// firing the Cmd, so subsequent j-presses don't re-fire until the
-// next SetMessages.
+// wall AND we haven't already requested a sync for this state AND
+// Graph hasn't told us the mailbox is truly exhausted. The caller
+// flips wallSyncRequested via [MarkWallSyncRequested] after firing
+// the Cmd, so subsequent j-presses don't re-fire until the next
+// SetMessages.
 func (m ListModel) ShouldKickWallSync() bool {
-	return m.AtCacheWall() && !m.wallSyncRequested
+	return m.AtCacheWall() && !m.wallSyncRequested && !m.graphExhausted
 }
+
+// MarkGraphExhausted sets the sticky flag that stops further
+// Backfill kicks. Caller invokes this when a FolderSyncedEvent
+// arrives with Added=0 for the folder the list is on — Graph has
+// confirmed there's no more older mail. Cleared on folder switch
+// via ResetLimit.
+func (m *ListModel) MarkGraphExhausted() { m.graphExhausted = true }
+
+// GraphExhausted reports whether the user has hit the true end of
+// the mailbox per Graph. Used by the status bar to paint a hint.
+func (m ListModel) GraphExhausted() bool { return m.graphExhausted }
 
 // MarkWallSyncRequested arms the wall-sync debounce flag.
 func (m *ListModel) MarkWallSyncRequested() { m.wallSyncRequested = true }
 
 // ResetLimit collapses the load limit back to the initial page and
-// clears the exhausted flag (used when the user switches folders —
+// clears the exhausted flags (used when the user switches folders —
 // the new folder's cache state is unknown).
 func (m *ListModel) ResetLimit() {
 	m.loadLimit = initialListLimit
 	m.loading = false
+	m.graphExhausted = false
 	m.cacheExhausted = false
 }
 
