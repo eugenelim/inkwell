@@ -127,6 +127,40 @@ Three ways:
 - `:filter clear` or `:filter` (no argument) → same.
 - `:filter <new pattern>` → replace the current filter.
 
+### 4.6 Single-message triage on a filtered list
+
+Pressing a single-message triage key (`d`, `r`, `R`, `f`, `a`, `D`)
+on a filtered list **acts on the focused row only**, not on the
+whole filtered set. The bulk verbs are armed via the `;` prefix
+(spec §5.1); plain `d` is the same single-message dispatch as in a
+normal folder view.
+
+After the dispatch lands, the list pane re-runs the active filter
+(NOT the underlying folder) so the post-state is reflected against
+the same pattern. The list pane's `m.list.FolderID` while filtered
+is a sentinel string `filter:<pattern>`; reloading via the normal
+`loadMessagesCmd(folderID)` path against that sentinel returns
+zero rows and makes the user think every filtered message
+disappeared. This was the v0.13.x real-tenant bug (`d` on a
+filtered list looked like it deleted everything; only the focused
+row was actually mutated).
+
+Status bar after a successful single-message triage on a filtered
+list: `✓ <action> · u to undo`. The `u` key (spec 07 §11) reverses
+the most recent triage regardless of filter state — undoing a
+soft-delete brings the message back to its source folder.
+
+| Action            | What it does on a filtered list                          |
+| ----------------- | -------------------------------------------------------- |
+| `d`               | Soft-delete the focused row; filter re-runs.             |
+| `;d`              | Soft-delete the entire filtered set (with confirm).      |
+| `D`               | Permanent-delete the focused row (with confirm; not undoable). |
+| `r` / `R`         | Mark read / unread the focused row.                      |
+| `f`               | Toggle flag on the focused row.                          |
+| `a`               | Archive the focused row; filter re-runs.                 |
+| `;a`              | Archive the entire filtered set (with confirm).          |
+| `u`               | Undo the most recent triage (works regardless of filter state). |
+
 After clearing: the list pane returns to showing the folder's full message list, sorted by `received_at DESC`.
 
 ## 5. The `;` prefix: action-on-filtered

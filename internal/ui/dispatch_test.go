@@ -623,6 +623,43 @@ func TestFilterBracketTextMatchesSubjectContains(t *testing.T) {
 	require.GreaterOrEqual(t, len(applied.messages), 1, ":filter [External] must hit messages tagged by transport rule")
 }
 
+// TestSingleMessageTriageOnFilteredListReRunsFilter is the real-
+// tenant regression for the v0.13.x bug where pressing `d` (or any
+// single-message triage) on a filtered list reloaded against the
+// `filter:<pattern>` sentinel folder ID, returned zero rows from
+// the store, and made the user think every filtered message had
+// been deleted. Spec 10 §4.6 invariant: triageDoneMsg must re-run
+// the active filter, not loadMessagesCmd, when filterActive is true.
+func TestSingleMessageTriageOnFilteredListReRunsFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.GreaterOrEqual(t, len(m.list.messages), 1)
+	// Force filter state mimicking the post-runFilterCmd shape.
+	m.filterActive = true
+	m.filterPattern = "~B *forecast*"
+	m.priorFolderID = "f-inbox"
+	m.list.FolderID = "filter:" + m.filterPattern
+
+	// triageDoneMsg with a non-error result. The model must re-run
+	// the filter (returning a Cmd that produces filterAppliedMsg)
+	// rather than loadMessagesCmd against the sentinel folder ID
+	// (which would return zero rows).
+	done := triageDoneMsg{name: "soft_delete", folderID: m.list.FolderID, msgID: "m-1"}
+	m2, cmd := m.Update(done)
+	m = m2.(Model)
+	require.NotNil(t, cmd, "triageDoneMsg on a filtered list must return a Cmd")
+	require.Contains(t, m.engineActivity, "soft_delete",
+		"status bar must reassure the user about what just happened")
+	require.Contains(t, m.engineActivity, "u to undo")
+
+	// The Cmd must be the filter-rerun, not loadMessagesCmd. We
+	// detect this by running the Cmd and asserting the resulting
+	// message is filterAppliedMsg (loadMessagesCmd would produce
+	// MessagesLoadedMsg).
+	result := cmd()
+	_, isFilter := result.(filterAppliedMsg)
+	require.True(t, isFilter, "Cmd must produce filterAppliedMsg, got %T", result)
+}
+
 // TestUnfilterReloadsPriorFolder is the real-tenant regression for
 // the v0.11-era bug where `:unfilter` reset the model's filterActive
 // flag but the list pane kept showing the stale filter results
