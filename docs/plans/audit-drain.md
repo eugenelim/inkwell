@@ -302,7 +302,7 @@ config surface.
 | 9  | 08      | not-started | — | — | — |
 | 10 | 05 (+17)| not-started | — | — | — |
 | 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter — |
-| 12 | config  | not-started | — | — | — |
+| 12 | config  | partial (v0.13.x) — runtime-consumed [triage]/[bulk]/[calendar] sections shipped; aspirational sections (`[search]`, `[batch]`, `[saved_search]`, `[mailbox_settings]`, `[cli]`, `[pattern]`) wait for the specs that consume them | main | spec 02 §17 / spec 04 §17 / spec 12 §config | docs/plans/spec-04.md notes |
 
 When all rows show "shipped" and the audit doc is empty, this
 plan file (`audit-drain.md`) gets a final commit deleting it

@@ -337,7 +337,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
 | 02   | partial | 3 | maintenance loop closed in v0.13.x; remaining gaps are §9 integration tests + bench-vs-100k drift |
 | 03   | partial | 4 | Priority queue for body fetches (§11) absent; quickStart/pullSince don't see tombstones (deviation tracked) |
-| 04   | partial | 5 | `:save` + `:rule` block on spec 11; other gaps remain (transient_status_ttl, min_terminal, full lifecycle teardown) |
+| 04   | partial | 5 | `:save` + `:rule` block on spec 11; transient_status_ttl, min_terminal, full lifecycle teardown remain. [triage]/[bulk]/[calendar] config sections shipped v0.13.x. |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
 | 07   | partial | 5 | `m` (move-with-picker) unbound; D / categories closed v0.13.x |
