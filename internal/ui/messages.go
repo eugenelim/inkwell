@@ -31,6 +31,7 @@ const (
 	ComposeConfirmMode
 	HelpMode
 	CategoryInputMode
+	FolderNameInputMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update

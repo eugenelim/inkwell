@@ -61,6 +61,34 @@ undo" in the status bar; no error.
 delete (`D`, when shipped) is intentionally NOT undoable; the
 confirm modal warns you.
 
+## Reorganise your mailbox
+
+Manage folders without leaving inkwell. Focus the folders pane
+(`1`), then:
+
+- **`N`** — create a new folder under the focused one. With no
+  selection or focus on a top-level folder, creates a top-level.
+  Type the name + Enter.
+- **`R`** — rename the focused folder. The buffer pre-seeds with
+  the current name so you can edit in place.
+- **`X`** — delete the focused folder (with confirm). Children +
+  messages cascade to Deleted Items server-side. Recoverable
+  from Outlook's Deleted Items folder within the tenant
+  retention window.
+
+Well-known folders (Inbox, Drafts, Sent Items, Archive, Deleted
+Items, Junk Email) reject rename and delete server-side; the
+status bar shows the error.
+
+CLI parity:
+
+```sh
+inkwell folder new "Vendor Quotes"
+inkwell folder new "Vendor Quotes/2026"     # nested via slash
+inkwell folder rename "Vendor Quotes" "Vendor"
+inkwell folder delete "Vendor Quotes" --yes
+```
+
 ## Get off a mailing list
 
 Open any newsletter, then press `U` (or run `:unsub`). inkwell reads

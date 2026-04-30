@@ -63,11 +63,26 @@ type TriageExecutor interface {
 	// per Outlook semantics.
 	AddCategory(ctx context.Context, accountID int64, messageID, category string) error
 	RemoveCategory(ctx context.Context, accountID int64, messageID, category string) error
+
+	// CreateFolder / RenameFolder / DeleteFolder are spec 18 folder
+	// management. CreateFolder accepts an empty parentID for top-
+	// level folders; returns the canonical Graph-assigned id +
+	// displayName so the UI can refocus on the new row.
+	CreateFolder(ctx context.Context, accountID int64, parentID, displayName string) (CreatedFolder, error)
+	RenameFolder(ctx context.Context, folderID, displayName string) error
+	DeleteFolder(ctx context.Context, folderID string) error
 	// Undo pops the most recent UndoEntry and applies the inverse
 	// action. Returns a UndoneAction describing what just got rolled
 	// back so the UI can paint a status message ("undid: deleted").
 	// Returns the typed UndoEmpty when the stack is empty.
 	Undo(ctx context.Context, accountID int64) (UndoneAction, error)
+}
+
+// CreatedFolder is the spec 18 result of a successful create.
+type CreatedFolder struct {
+	ID             string
+	DisplayName    string
+	ParentFolderID string
 }
 
 // UndoneAction is the UI-facing summary of a successful Undo. Mirrors
@@ -326,6 +341,19 @@ type Model struct {
 	pendingCategoryAction string // "add" | "remove"
 	pendingCategoryMsg    *store.Message
 	categoryBuf           string
+
+	// Folder name input (spec 18). Reused for both `N` (create) and
+	// `R` (rename). pendingFolderAction is "new" | "rename"; for
+	// rename, pendingFolderID identifies the target. The buffer is
+	// pre-seeded with the current name on rename.
+	pendingFolderAction string // "new" | "rename"
+	pendingFolderID     string
+	pendingFolderParent string // parent folder ID for `new` (empty = top-level)
+	folderNameBuf       string
+
+	// Folder delete (spec 18). pendingFolderDelete holds the target
+	// while the confirm modal is open. Set to nil after y/n.
+	pendingFolderDelete *store.Folder
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -554,6 +582,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.runBulkCmd(action)
 			}
 		}
+		// Folder delete confirmation (spec 18): pendingFolderDelete
+		// carries the target. y fires Triage.DeleteFolder.
+		if m.pendingFolderDelete != nil && msg.Topic == "delete_folder" {
+			f := *m.pendingFolderDelete
+			m.pendingFolderDelete = nil
+			if msg.Confirm {
+				cmd := func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+					defer cancel()
+					err := m.deps.Triage.DeleteFolder(ctx, f.ID)
+					return folderActionDoneMsg{action: "delete", name: f.DisplayName, folderID: f.ID, err: err}
+				}
+				m.engineActivity = "deleting folder…"
+				return m, cmd
+			}
+			m.engineActivity = "delete cancelled"
+			return m, nil
+		}
 		// Permanent delete confirmation (spec 07 §6.7): pendingPermanentDelete
 		// carries the focused message; y fires Triage.PermanentDelete.
 		if m.pendingPermanentDelete != nil && msg.Topic == "permanent_delete" {
@@ -620,6 +666,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadMessagesCmd(m.priorFolderID)
 		}
 		return m, nil
+
+	case folderActionDoneMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("folder %s: %w", msg.action, msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		switch msg.action {
+		case "new":
+			m.engineActivity = fmt.Sprintf("✓ created folder %q", msg.name)
+		case "rename":
+			m.engineActivity = fmt.Sprintf("✓ renamed folder to %q", msg.name)
+			// If we just renamed the currently-loaded folder, the
+			// list pane keeps working — folder ID stays the same.
+		case "delete":
+			m.engineActivity = fmt.Sprintf("✓ deleted folder %q", msg.name)
+			// If the user was viewing the deleted folder's messages,
+			// pop them off — the FK cascade just removed all of
+			// them locally.
+			if m.list.FolderID == msg.folderID {
+				m.list.SetMessages(nil)
+				m.viewer.SetMessage(store.Message{})
+				m.viewer.current = nil
+			}
+		}
+		// Reload the sidebar in all three cases.
+		return m, m.loadFoldersCmd()
 
 	case undoDoneMsg:
 		if msg.err != nil {
@@ -743,6 +816,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateHelp(msg)
 	case CategoryInputMode:
 		return m.updateCategoryInput(msg)
+	case FolderNameInputMode:
+		return m.updateFolderNameInput(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -1388,6 +1463,21 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.folders.Down()
 	case key.Matches(msg, m.keymap.Expand):
 		m.folders.ToggleExpand()
+	case key.Matches(msg, m.keymap.NewFolder):
+		f, _ := m.folders.Selected()
+		return m.startFolderNameInput("new", "", f.ID)
+	case key.Matches(msg, m.keymap.RenameFolder):
+		f, ok := m.folders.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startFolderNameInput("rename", f.ID, "")
+	case key.Matches(msg, m.keymap.DeleteFolder):
+		f, ok := m.folders.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startFolderDelete(f)
 	case key.Matches(msg, m.keymap.Open), key.Matches(msg, m.keymap.Right):
 		// Saved-search row: run its pattern via the existing filter
 		// machinery. Selection auto-focuses the list pane (parity
@@ -1566,6 +1656,127 @@ func (m Model) runUndo() (tea.Model, tea.Cmd) {
 		return undoDoneMsg{undone: undone, folderID: folderID, err: err}
 	}
 	return m, cmd
+}
+
+// startFolderNameInput opens the spec 18 name modal for `N`
+// (create) or `R` (rename). For rename, folderID identifies the
+// target and the buffer pre-seeds with the current name. For new,
+// parentID is the parent folder (empty = top-level) and the
+// buffer is empty.
+func (m Model) startFolderNameInput(action, folderID, parentID string) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("folder: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	m.pendingFolderAction = action
+	m.pendingFolderID = folderID
+	m.pendingFolderParent = parentID
+	switch action {
+	case "rename":
+		// Pre-seed buffer with current name so the user edits in place.
+		if f, ok := m.folders.Selected(); ok && f.ID == folderID {
+			m.folderNameBuf = f.DisplayName
+		}
+	default:
+		m.folderNameBuf = ""
+	}
+	m.mode = FolderNameInputMode
+	return m, nil
+}
+
+// updateFolderNameInput handles the spec 18 name modal — typing,
+// Enter, Esc.
+func (m Model) updateFolderNameInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		m.mode = NormalMode
+		m.pendingFolderAction = ""
+		m.pendingFolderID = ""
+		m.pendingFolderParent = ""
+		m.folderNameBuf = ""
+		m.engineActivity = "folder action cancelled"
+		return m, nil
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.folderNameBuf)
+		if name == "" {
+			m.mode = NormalMode
+			m.pendingFolderAction = ""
+			m.pendingFolderID = ""
+			m.pendingFolderParent = ""
+			m.engineActivity = "folder name required"
+			return m, nil
+		}
+		action := m.pendingFolderAction
+		fid := m.pendingFolderID
+		parent := m.pendingFolderParent
+		m.mode = NormalMode
+		m.pendingFolderAction = ""
+		m.pendingFolderID = ""
+		m.pendingFolderParent = ""
+		m.folderNameBuf = ""
+		var accountID int64
+		if m.deps.Account != nil {
+			accountID = m.deps.Account.ID
+		}
+		switch action {
+		case "new":
+			cmd := func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				res, err := m.deps.Triage.CreateFolder(ctx, accountID, parent, name)
+				return folderActionDoneMsg{action: "new", name: name, created: res, err: err}
+			}
+			m.engineActivity = "creating folder…"
+			return m, cmd
+		case "rename":
+			cmd := func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				err := m.deps.Triage.RenameFolder(ctx, fid, name)
+				return folderActionDoneMsg{action: "rename", name: name, folderID: fid, err: err}
+			}
+			m.engineActivity = "renaming folder…"
+			return m, cmd
+		}
+		return m, nil
+	case tea.KeyBackspace:
+		if len(m.folderNameBuf) > 0 {
+			m.folderNameBuf = m.folderNameBuf[:len(m.folderNameBuf)-1]
+		}
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyRunes {
+		m.folderNameBuf += string(keyMsg.Runes)
+	}
+	return m, nil
+}
+
+// startFolderDelete opens the spec 18 delete-confirm modal.
+func (m Model) startFolderDelete(f store.Folder) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("folder: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	prompt := fmt.Sprintf("Delete folder %q? Children + messages cascade to Deleted Items server-side.\n\nUse Outlook's Deleted Items to recover.\n\n[y]es / [N]o", f.DisplayName)
+	m.pendingFolderDelete = &f
+	m.confirm = m.confirm.Ask(prompt, "delete_folder")
+	m.mode = ConfirmMode
+	return m, nil
+}
+
+// folderActionDoneMsg is the result of a folder create / rename /
+// delete dispatch. The handler in Update reloads the sidebar on
+// success, surfaces the error otherwise.
+type folderActionDoneMsg struct {
+	action   string
+	name     string
+	folderID string
+	created  CreatedFolder
+	err      error
 }
 
 // startCategoryInput opens the spec 07 §6.9 / §6.10 prompt. action
@@ -2045,6 +2256,25 @@ func (m Model) View() string {
 	}
 	if m.mode == HelpMode {
 		return m.help.View(m.theme, m.keymap, m.width, m.height)
+	}
+	if m.mode == FolderNameInputMode {
+		var title string
+		switch m.pendingFolderAction {
+		case "new":
+			if m.pendingFolderParent == "" {
+				title = "New folder (top-level)"
+			} else {
+				title = "New child folder"
+			}
+		case "rename":
+			title = "Rename folder"
+		default:
+			title = "Folder name"
+		}
+		body := title + "\n\n" + m.theme.HelpKey.Render("name:") + " " + m.folderNameBuf + "▎\n\n" +
+			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
+		box := m.theme.Modal.Render(body)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.mode == CategoryInputMode {
 		verb := m.pendingCategoryAction

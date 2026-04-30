@@ -257,6 +257,22 @@ func (t triageAdapter) RemoveCategory(ctx context.Context, accountID int64, mess
 	return t.exec.RemoveCategory(ctx, accountID, messageID, category)
 }
 
+func (t triageAdapter) CreateFolder(ctx context.Context, accountID int64, parentID, displayName string) (ui.CreatedFolder, error) {
+	res, err := t.exec.CreateFolder(ctx, accountID, parentID, displayName)
+	if err != nil {
+		return ui.CreatedFolder{}, err
+	}
+	return ui.CreatedFolder{ID: res.ID, DisplayName: res.DisplayName, ParentFolderID: res.ParentFolderID}, nil
+}
+
+func (t triageAdapter) RenameFolder(ctx context.Context, folderID, displayName string) error {
+	return t.exec.RenameFolder(ctx, folderID, displayName)
+}
+
+func (t triageAdapter) DeleteFolder(ctx context.Context, folderID string) error {
+	return t.exec.DeleteFolder(ctx, folderID)
+}
+
 func (t triageAdapter) Undo(ctx context.Context, accountID int64) (ui.UndoneAction, error) {
 	entry, err := t.exec.Undo(ctx, accountID)
 	if err != nil {

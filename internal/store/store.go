@@ -35,6 +35,7 @@ type Store interface {
 	GetFolderByWellKnown(ctx context.Context, accountID int64, name string) (*Folder, error)
 	UpsertFolder(ctx context.Context, f Folder) error
 	DeleteFolder(ctx context.Context, id string) error
+	UpdateFolderDisplayName(ctx context.Context, id, displayName string) error
 
 	// Messages
 	GetMessage(ctx context.Context, id string) (*Message, error)

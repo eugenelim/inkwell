@@ -84,3 +84,14 @@ func (s *store) DeleteFolder(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM folders WHERE id = ?", id)
 	return err
 }
+
+// UpdateFolderDisplayName mutates the display_name field on a single
+// folder row. Used by the spec 18 rename path so the sidebar
+// reflects the renamed folder before the next sync cycle. The
+// folder ID stays the same — Graph keeps it across renames.
+func (s *store) UpdateFolderDisplayName(ctx context.Context, id, displayName string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE folders SET display_name = ? WHERE id = ?",
+		displayName, id)
+	return err
+}

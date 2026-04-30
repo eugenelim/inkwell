@@ -555,6 +555,45 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestNewFolderE2E is the spec 18 visible-delta test (CLAUDE.md
+// §5.4): pressing N in the folders pane paints the name modal;
+// typing + Enter dispatches; status bar shows the create result.
+func TestNewFolderE2E(t *testing.T) {
+	m, _ := newE2EModel(t)
+	stub := &e2eTriageStub{}
+	m.deps.Triage = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus folders pane, press N.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("N")})
+
+	// Visible delta: name input modal appears.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "New folder") || contains(s, "New child folder")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Type a name + Enter.
+	for _, r := range "Vendors" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Visible delta: status shows the success message.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "created folder")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // TestPermanentDeleteOpensConfirmModalWithIrreversibleWarning is
 // the spec 07 §6.7 e2e visible-delta test: pressing D paints a
 // confirm modal that prominently names the irreversibility,
@@ -659,6 +698,11 @@ func (s *e2eTriageStub) AddCategory(_ context.Context, _ int64, _, _ string) err
 func (s *e2eTriageStub) RemoveCategory(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
+func (s *e2eTriageStub) CreateFolder(_ context.Context, _ int64, parentID, name string) (CreatedFolder, error) {
+	return CreatedFolder{ID: "f-new", DisplayName: name, ParentFolderID: parentID}, nil
+}
+func (s *e2eTriageStub) RenameFolder(context.Context, string, string) error { return nil }
+func (s *e2eTriageStub) DeleteFolder(context.Context, string) error         { return nil }
 func (s *e2eTriageStub) Undo(_ context.Context, _ int64) (UndoneAction, error) {
 	atomicAdd(&s.undoCalls, 1)
 	return UndoneAction{Label: s.label, MessageIDs: []string{"m-1"}}, nil

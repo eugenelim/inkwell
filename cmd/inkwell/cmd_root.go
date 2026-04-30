@@ -40,6 +40,7 @@ func newRootCmd() *cobra.Command {
 	// Spec 14 — non-interactive subcommands. Each opens the local DB
 	// + a Graph client (no TUI).
 	cmd.AddCommand(newFoldersCmd(rc))
+	cmd.AddCommand(newFolderCmd(rc))
 	cmd.AddCommand(newMessagesCmd(rc))
 	cmd.AddCommand(newSyncCmd(rc))
 	cmd.AddCommand(newFilterCmd(rc))

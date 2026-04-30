@@ -101,6 +101,14 @@ type KeyMap struct {
 	// Unsubscribe (spec 16). Capital U so it never collides with j/k
 	// movement or single-letter triage keys.
 	Unsubscribe key.Binding
+
+	// Folder management (spec 18, sidebar pane only). `N` / `R` /
+	// `X` are capitals so they never collide with movement (j/k/h/l)
+	// or any list/viewer triage verb. `X` matches the `D` permanent-
+	// delete naming pattern: capital = destructive variant.
+	NewFolder    key.Binding
+	RenameFolder key.Binding
+	DeleteFolder key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -147,6 +155,10 @@ func DefaultKeyMap() KeyMap {
 		ApplyToFiltered: key.NewBinding(key.WithKeys(";")),
 
 		Unsubscribe: key.NewBinding(key.WithKeys("U")),
+
+		NewFolder:    key.NewBinding(key.WithKeys("N")),
+		RenameFolder: key.NewBinding(key.WithKeys("R")),
+		DeleteFolder: key.NewBinding(key.WithKeys("X")),
 	}
 }
 

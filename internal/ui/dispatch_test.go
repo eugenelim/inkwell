@@ -530,6 +530,11 @@ func (s stubTriageDelete) AddCategory(context.Context, int64, string, string) er
 func (s stubTriageDelete) RemoveCategory(context.Context, int64, string, string) error {
 	return nil
 }
+func (s stubTriageDelete) CreateFolder(_ context.Context, _ int64, _, _ string) (CreatedFolder, error) {
+	return CreatedFolder{}, nil
+}
+func (s stubTriageDelete) RenameFolder(context.Context, string, string) error { return nil }
+func (s stubTriageDelete) DeleteFolder(context.Context, string) error         { return nil }
 func (s stubTriageDelete) Undo(context.Context, int64) (UndoneAction, error) {
 	return UndoneAction{}, UndoEmpty
 }
@@ -551,6 +556,11 @@ func (s stubTriageFlag) AddCategory(context.Context, int64, string, string) erro
 func (s stubTriageFlag) RemoveCategory(context.Context, int64, string, string) error {
 	return nil
 }
+func (s stubTriageFlag) CreateFolder(_ context.Context, _ int64, _, _ string) (CreatedFolder, error) {
+	return CreatedFolder{}, nil
+}
+func (s stubTriageFlag) RenameFolder(context.Context, string, string) error { return nil }
+func (s stubTriageFlag) DeleteFolder(context.Context, string) error         { return nil }
 func (s stubTriageFlag) Undo(context.Context, int64) (UndoneAction, error) {
 	return UndoneAction{}, UndoEmpty
 }
@@ -826,9 +836,10 @@ func (s *stubUnsubService) OneClickPOST(_ context.Context, url string) error {
 // satisfy the spec-07-§11 surface. Records calls so dispatch tests
 // can assert which path fired.
 type stubTriageWithUndo struct {
-	undoCalls   int
-	undoneLabel string
-	undoErr     error
+	undoCalls        int
+	undoneLabel      string
+	undoErr          error
+	lastFolderAction string
 }
 
 func (s *stubTriageWithUndo) MarkRead(_ context.Context, _ int64, _ string) error {
@@ -851,6 +862,18 @@ func (s *stubTriageWithUndo) AddCategory(_ context.Context, _ int64, _, _ string
 	return nil
 }
 func (s *stubTriageWithUndo) RemoveCategory(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
+func (s *stubTriageWithUndo) CreateFolder(_ context.Context, _ int64, parentID, name string) (CreatedFolder, error) {
+	s.lastFolderAction = "new:" + parentID + ":" + name
+	return CreatedFolder{ID: "f-new", DisplayName: name, ParentFolderID: parentID}, nil
+}
+func (s *stubTriageWithUndo) RenameFolder(_ context.Context, folderID, name string) error {
+	s.lastFolderAction = "rename:" + folderID + ":" + name
+	return nil
+}
+func (s *stubTriageWithUndo) DeleteFolder(_ context.Context, folderID string) error {
+	s.lastFolderAction = "delete:" + folderID
 	return nil
 }
 func (s *stubTriageWithUndo) Undo(_ context.Context, _ int64) (UndoneAction, error) {
@@ -979,6 +1002,115 @@ func TestCategoryInputCancelsOnEsc(t *testing.T) {
 	require.Empty(t, m.categoryBuf)
 	require.Empty(t, m.pendingCategoryAction)
 	require.Contains(t, m.engineActivity, "cancelled")
+}
+
+// TestNewFolderOpensNameInputMode is the spec 18 §5.1 invariant:
+// pressing N in the folders pane transitions to FolderNameInputMode
+// with action="new".
+func TestNewFolderOpensNameInputMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	// Focus folders pane first.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("N")})
+	m = m2.(Model)
+	require.Equal(t, FolderNameInputMode, m.mode)
+	require.Equal(t, "new", m.pendingFolderAction)
+	require.Empty(t, m.folderNameBuf)
+}
+
+// TestNewFolderEnterDispatchesCreate types a name + Enter and
+// asserts CreateFolder fired.
+func TestNewFolderEnterDispatchesCreate(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("N")})
+	m = m2.(Model)
+	for _, r := range "Vendors" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "Enter must dispatch the create Cmd")
+	require.Equal(t, NormalMode, m.mode)
+	require.Contains(t, m.engineActivity, "creating")
+	// Drive the Cmd inline.
+	_ = cmd()
+	require.Contains(t, stub.lastFolderAction, "new:")
+	require.Contains(t, stub.lastFolderAction, "Vendors")
+}
+
+// TestRenameFolderSeedsBufferAndDispatches drives R + edit + Enter.
+func TestRenameFolderSeedsBufferAndDispatches(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = m2.(Model)
+	require.Equal(t, FolderNameInputMode, m.mode)
+	require.Equal(t, "rename", m.pendingFolderAction)
+	// Buffer must pre-seed with the focused folder's current name.
+	require.NotEmpty(t, m.folderNameBuf, "rename must pre-seed the buffer")
+
+	// Replace the buffer.
+	m.folderNameBuf = "RenamedInbox"
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	_ = cmd()
+	require.Contains(t, stub.lastFolderAction, "rename:")
+	require.Contains(t, stub.lastFolderAction, "RenamedInbox")
+}
+
+// TestDeleteFolderOpensConfirmModal verifies the spec 18 §5.2
+// destructive-confirm gate.
+func TestDeleteFolderOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+	require.Equal(t, "delete_folder", m.confirm.Topic)
+	require.Contains(t, m.confirm.Message, "Delete folder")
+	require.Contains(t, m.confirm.Message, "Deleted Items")
+	require.NotNil(t, m.pendingFolderDelete)
+}
+
+// TestDeleteFolderConfirmYesFiresDispatch drives X → y → DeleteFolder.
+func TestDeleteFolderConfirmYesFiresDispatch(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	m = m2.(Model)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	m2, cmd = m.Update(cmd()) // ConfirmResultMsg
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	_ = cmd()
+	require.Contains(t, stub.lastFolderAction, "delete:")
 }
 
 // TestRefreshCommandWakesEngine drives `:refresh` and asserts the
