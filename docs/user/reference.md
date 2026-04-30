@@ -90,6 +90,9 @@ pull more from Graph.
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `u`       | Undo the most recent triage action                            |
+| `o`       | Open the URL picker (lists every URL the renderer extracted)  |
+| `y`       | Yank a URL to the clipboard (single URL → fast path; multi → picker) |
+| `z`       | Toggle fullscreen body (hide folders + list panes for drag-select) |
 
 **Compact headers** (default): only From / Date / Subject + first 3
 recipients with "+ N more". On a 50-attendee thread, the body
@@ -101,14 +104,30 @@ and in the trailing `Links:` block — is wrapped in OSC 8 hyperlink
 escapes. Modern terminals (iTerm2, kitty, alacritty, foot, wezterm,
 recent gnome-terminal / Konsole) make these directly clickable
 (Cmd-click on macOS, Ctrl-click on Linux). Older terminals (Apple
-Terminal.app) fall back to plain text — use the numbered `1`–`9`
-keys to open links instead.
+Terminal.app) fall back to plain text.
 
-If your terminal doesn't support OSC 8 and you need to copy a long
-URL, hold **Option** (macOS) or **Shift** (Linux) while drag-
-selecting to limit the selection to the viewer pane region only.
-Without the modifier, terminal selection is rectangular and spans
-across panes.
+**URL picker (`o`)**: lists every URL the renderer pulled out of
+the body. `j` / `k` move the cursor; `Enter` or `o` opens the
+selected URL in your default browser; `y` copies it to the
+clipboard; `Esc` / `q` close. This is the workflow that handles
+URLs that wrap across rows (terminal click can't pick those up) and
+disambiguates short anchor texts that share the same hostname.
+
+**Yank URL (`y`)**: when the message has exactly one URL, `y` in
+the viewer copies it directly. With more than one, `y` opens the
+picker first so you can choose. Copy is delivered via OSC 52
+(works over SSH on iTerm2 / WezTerm / Kitty / Ghostty / foot /
+Alacritty / Windows Terminal / recent VTE) and, on macOS,
+additionally via `pbcopy` so Apple Terminal users still get the
+local clipboard. tmux users need `set -g set-clipboard on` for
+OSC 52 passthrough.
+
+**Fullscreen body (`z`)**: hides the folders + list panes so the
+viewer body uses the full terminal width. Use this when you need
+terminal-native multi-line drag-select to copy a paragraph — the
+side-by-side three-pane layout normally breaks rectangular
+selection across pane borders. Press `z` again (or `Esc` / `q`) to
+return.
 
 **Reply flow** (`r`): inkwell writes a tempfile pre-populated with
 To / Cc / Subject + a quoted-body skeleton, then opens it in your

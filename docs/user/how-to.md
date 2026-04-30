@@ -224,6 +224,49 @@ error in the status bar.
 
 Reply-all and forward (`R` / `f` in the viewer) are coming in v0.12.
 
+## Copy a URL from a message
+
+Open the message in the viewer pane (Enter from the list). Then:
+
+- **Single URL** — press `y`. The URL is on your clipboard.
+- **Multiple URLs** — press `o` to open the URL picker. Use `j` /
+  `k` to move the cursor; `y` copies the highlighted URL; `Enter`
+  or `o` opens it in your default browser; `Esc` / `q` close.
+
+Inkwell delivers the copy via OSC 52 — the standard terminal
+clipboard protocol — so it works over SSH on iTerm2, WezTerm,
+Kitty, Ghostty, foot, Alacritty, Windows Terminal, and recent
+GNOME Terminal / Konsole. On macOS, inkwell additionally pipes
+through `pbcopy` so Apple Terminal users (which doesn't support
+OSC 52) still get the local clipboard.
+
+If you're inside tmux, enable OSC 52 passthrough once:
+
+```sh
+echo 'set -g set-clipboard on' >> ~/.tmux.conf
+```
+
+## Select multiple lines of body text to copy
+
+Terminals do their own click-drag selection in a rectangular
+shape. The three-pane layout means a normal drag spills across
+pane borders — selection captures the folder list and message
+list as well as the body. To select cleanly across multiple body
+rows:
+
+1. Open the message (Enter from the list).
+2. In the viewer pane, press `z` — folders + list panes
+   disappear, the body uses the full terminal width.
+3. Click-drag the text you want. (On macOS, hold `Option` while
+   dragging if you want to bypass tmux/screen mouse interception
+   too.)
+4. Cmd-C / Ctrl-Shift-C copies the selected text via the
+   terminal, the same as anywhere else.
+5. Press `z` (or `Esc`) to return to the three-pane view.
+
+This is the same workflow neomutt's `pager.full` mode and aerc's
+fullscreen view ship for the same reason.
+
 ## Read a thread with many attendees
 
 Open a message in the viewer pane. By default the headers row shows

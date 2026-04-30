@@ -589,6 +589,9 @@ type ViewerModel struct {
 	bodyState   int // mirrors render.BodyState; kept as int to avoid import cycle
 	showFullHdr bool
 	scrollY     int // body line offset for j/k scroll
+	// links is the numbered URL table the renderer extracted.
+	// Spec 05 §10 + the v0.15.x URL-picker work key off this.
+	links []BodyLink
 }
 
 // NewViewer returns an empty viewer.
@@ -607,6 +610,17 @@ func (m *ViewerModel) SetMessage(msg store.Message) {
 func (m *ViewerModel) SetBody(text string, state int) {
 	m.body = text
 	m.bodyState = state
+}
+
+// SetLinks records the renderer's extracted URL table. The URL
+// picker overlay reads from here.
+func (m *ViewerModel) SetLinks(links []BodyLink) {
+	m.links = links
+}
+
+// Links returns the most recent extracted URL table (may be nil).
+func (m ViewerModel) Links() []BodyLink {
+	return m.links
 }
 
 // ScrollDown advances the body viewport by one line.
