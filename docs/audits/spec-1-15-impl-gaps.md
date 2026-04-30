@@ -67,7 +67,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Spec §6.5 / §17 `ui.transient_status_ttl` (default 5s) — not in defaults (`config/defaults.go:32-37`). Transient status messages are set but never auto-clear with a TTL goroutine.
 - Design drifts:
   - Spec §5 keymap declares `MarkRead/MarkUnread` and pane scoping rules. `keys.go:85-86` implements them. But spec 07 §12 promises pane-scoped meaning for `f` (list = flag, viewer = forward) and `r` (list = read, viewer = reply). The viewer `r` is wired (`app.go:1287-1295`), but `f` in the viewer fires `ToggleFlag` (`app.go:1266`) — there is no Forward action wired anywhere.
-  - Spec §6.4 lists 13 commands in the dispatcher. After v0.13.x adds `:help` / `:?` (PR 2), missing: `refresh`, `folder`, `search`, `open`, `save`, `rule`, `backfill`. **Seven of fifteen commands have no handler — closed by PR 5.**
+  - Spec §6.4 lists 13 commands in the dispatcher. After v0.13.x: `:help` / `:?` shipped in PR 2; `:refresh` / `:folder` / `:open` / `:backfill` / `:search` shipped in PR 5. **Two of fifteen commands have no handler:** `:save` (saved-search promotion — depends on spec 11) and `:rule` (saved-search CRUD — depends on spec 11). Tracked under PR 5b alongside the spec 11 implementation.
   - `ui.confirm_destructive_default` from spec §17 — not in `config/defaults.go`. Confirm modal in `app.go:791-805` always defaults the cursor to "No" unconditionally.
   - `ui.min_terminal_cols` / `ui.min_terminal_rows` from §17 — absent.
   - `ui.unread_indicator`, `ui.flag_indicator`, `ui.attachment_indicator` from §17 — absent in defaults; rendering hardcodes glyphs in `panes.go`.
@@ -337,7 +337,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
 | 02   | partial | 4 | Maintenance / `Vacuum` / body LRU eviction never invoked at runtime (§8) |
 | 03   | partial | 4 | Priority queue for body fetches (§11) absent; quickStart/pullSince don't see tombstones (deviation tracked) |
-| 04   | partial | 7 | 7 of 15 `:` commands unimplemented (PR 5); `[bindings]` + `?` help closed in v0.13.x |
+| 04   | partial | 5 | `:save` + `:rule` block on spec 11; other gaps remain (transient_status_ttl, min_terminal, full lifecycle teardown) |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
 | 07   | partial | 7 | `D`/`m`/`c`/`C` unbound; permanent-delete absent (undo closed in v0.13.x) |
@@ -364,7 +364,7 @@ Ranked by what blocks a v0.X release.
 
 4. ~~**Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)**~~ **Closed by PR 4a (v0.13.x).** See `docs/plans/spec-07.md` iter 3. Categories (`c`/`C`) and move-with-folder-picker (`m`) tracked under PR 4b.
 
-5. **7 of 15 `:` commands unimplemented (spec 04 §6.4)** — `:refresh`, `:folder`, `:search`, `:open`, `:save`, `:rule`, `:backfill` all return "unknown command". (`:help` closed by PR 2.) Each is referenced in user docs and other specs (spec 03 `:backfill`, spec 11 `:rule save`). Blocks v0.4.x discoverability and v0.11.x saved-search promotion.
+5. ~~**7 of 15 `:` commands unimplemented (spec 04 §6.4)**~~ Five closed by PR 5 (v0.13.x): `:refresh`, `:folder`, `:open`, `:backfill`, `:search`. The remaining two (`:save`, `:rule`) depend on spec 11's saved-search Manager; tracked under PR 5b alongside the spec 11 implementation. See `docs/plans/spec-04.md` iter 10.
 
 6. **Calendar schema not migrated (spec 12 §3)** — migration 002 is `meeting_message_type`, not the calendar tables. Calendar is fetched live from Graph each time `:cal` opens; no offline support; no delta sync. Blocks v0.10.x calendar feature when offline / when sync engine should refresh in background.
 

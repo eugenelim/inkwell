@@ -908,6 +908,99 @@ func TestPermanentDeleteConfirmNoSkips(t *testing.T) {
 	require.Equal(t, "permanent delete cancelled", m.engineActivity)
 }
 
+// TestRefreshCommandWakesEngine drives `:refresh` and asserts the
+// engine activity reads "syncing…" without surfacing an error.
+// Spec 04 §6.4.
+func TestRefreshCommandWakesEngine(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "refresh" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, "syncing…", m.engineActivity)
+	require.Nil(t, m.lastError)
+}
+
+// TestFolderCommandJumpsListPane drives `:folder Archive` and asserts
+// the list pane's FolderID swaps + focus moves to the list.
+func TestFolderCommandJumpsListPane(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.GreaterOrEqual(t, len(m.folders.items), 1)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "folder Archive" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, ":folder must return loadMessagesCmd")
+	require.Equal(t, "f-archive", m.list.FolderID)
+	require.Equal(t, ListPane, m.focused)
+	require.Nil(t, m.lastError)
+}
+
+// TestFolderCommandUnknownNameSurfacesError covers the typo path.
+func TestFolderCommandUnknownNameSurfacesError(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "folder Nonexistent" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "Nonexistent")
+}
+
+// TestBackfillCommandRefusesFilterView ensures `:backfill` while a
+// filter is active produces a friendly error rather than racing
+// against the sentinel folder ID.
+func TestBackfillCommandRefusesFilterView(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.list.FolderID = "filter:~B *foo*"
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "backfill" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "filter view")
+}
+
+// TestSearchCommandSeedsQueryAndRuns drives `:search foo` and
+// asserts searchActive flips + the searchQuery is captured.
+func TestSearchCommandSeedsQueryAndRuns(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "search forecast" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, ":search must return runSearchCmd")
+	require.True(t, m.searchActive)
+	require.Equal(t, "forecast", m.searchQuery)
+	require.Equal(t, ListPane, m.focused)
+}
+
 // TestHelpKeyOpensOverlay is the spec-04-§12 dispatch invariant:
 // pressing `?` from normal mode transitions to HelpMode. The
 // overlay is read-only; visible-delta is in app_e2e_test.go.
