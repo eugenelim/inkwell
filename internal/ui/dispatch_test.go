@@ -2404,6 +2404,42 @@ func TestIsStaleIDErrorRecognisesGraph404Variants(t *testing.T) {
 	}
 }
 
+// TestTriageDoneInSearchModeReRunsSearch is the v0.15.x
+// regression: pressing `d` on a `/<query>` result fired
+// triageDoneMsg with folderID = "search:<query>" (the list pane
+// sentinel). The handler matched it against m.list.FolderID and
+// fired loadMessagesCmd("search:<query>") — which returned zero
+// rows because the sentinel has no real folder backing. Every
+// search result visibly disappeared. Fix: when searchActive,
+// re-run runSearchCmd instead.
+func TestTriageDoneInSearchModeReRunsSearch(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Establish the search-active state directly (sidesteps the
+	// async runSearchCmd which would race with the test).
+	m.searchActive = true
+	m.searchQuery = "ABC"
+	m.list.FolderID = searchFolderID("ABC")
+	m.priorFolderID = "f-inbox"
+
+	m2, cmd := m.Update(triageDoneMsg{
+		name:      "soft_delete",
+		folderID:  m.list.FolderID,
+		msgID:     "m-1",
+		postFocus: ListPane,
+	})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "search-mode triage must return a re-search Cmd")
+	// The Cmd is runSearchCmd — exercising it produces a
+	// MessagesLoadedMsg keyed to the sentinel folder ID, NOT a
+	// loadMessagesCmd that would return zero rows.
+	out := cmd()
+	loaded, ok := out.(MessagesLoadedMsg)
+	require.True(t, ok, "search-mode triage Cmd must produce MessagesLoadedMsg, got %T", out)
+	require.Equal(t, searchFolderID("ABC"), loaded.FolderID,
+		"refreshed list must stay keyed to the search sentinel")
+	require.Contains(t, m.engineActivity, "soft_delete", "status hint must reflect the action")
+}
+
 // TestUnfilterFallsBackToInboxWhenPriorEmpty confirms the v0.15.x
 // regression where running `:filter` before any folder load (so
 // priorFolderID was captured as "") then `:unfilter` was a stuck

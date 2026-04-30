@@ -845,6 +845,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", msg.name)
 			return m, m.runFilterCmd(m.filterPattern)
 		}
+		// Same shape for search: m.list.FolderID is the sentinel
+		// "search:<query>" which has no real folder backing. Without
+		// this branch the v0.13 filter bug rerun for search mode —
+		// loadMessagesCmd("search:ABC") returned zero, every result
+		// vanished after `d`, and the deleted message reappeared in
+		// the next /<query> because the FTS path didn't exclude
+		// trash. This bug had two halves; the FTS exclusion in
+		// store.Search is the other.
+		if m.searchActive {
+			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", msg.name)
+			return m, m.runSearchCmd(m.searchQuery)
+		}
 		if msg.folderID != "" && msg.folderID == m.list.FolderID {
 			return m, m.loadMessagesCmd(msg.folderID)
 		}
