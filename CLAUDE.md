@@ -381,6 +381,17 @@ Copy from ARCH §16 into every PR description:
 - [ ] **Spec 17 CI gates green** — gosec, Semgrep, govulncheck.
       New `// #nosec` annotations carry a one-line WHY comment
       (no blanket suppression). Local `make sec` clean.
+- [ ] **Docs consistency sweep.** Every PR is a chance to keep
+      user-facing docs (`docs/user/reference.md`, `how-to.md`,
+      `tutorial.md`, `explanation.md`) and project docs
+      (`docs/PRD.md`, `docs/ARCH.md`, `docs/CONFIG.md`,
+      `docs/ROADMAP.md`, the relevant `docs/specs/NN-*.md`, the
+      relevant `docs/plans/spec-NN.md`) in sync with the code
+      that just shipped. If the PR adds a keybinding the
+      reference must list it; if it changes a config default the
+      CONFIG.md row must reflect it; if it ticks a DoD bullet
+      the spec's status line must reflect it. Don't ship a
+      drift — fix it in the same PR.
 
 ---
 
