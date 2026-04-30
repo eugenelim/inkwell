@@ -1553,10 +1553,18 @@ func TestListLoadMoreStopsWhenCacheExhausted(t *testing.T) {
 	require.False(t, m.list.ShouldLoadMore(),
 		"exhausted cache must not trigger load-more")
 
-	// Press j repeatedly — none should return a load-more Cmd.
+	// First j at the wall fires the wall-sync Backfill Cmd (kicks
+	// Graph for older messages); subsequent j's are debounced by
+	// wallSyncRequested. Neither path fires the local-store
+	// load-more Cmd — that's the regression this test pins.
 	for i := 0; i < 5; i++ {
-		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-		require.Nil(t, cmd, "iteration %d: load-more must stay quiet on exhausted cache", i)
+		m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = m2.(Model)
+		if i == 0 {
+			require.NotNil(t, cmd, "first j at the wall must kick a Backfill Cmd")
+			continue
+		}
+		require.Nil(t, cmd, "iteration %d: post-wall-sync presses must stay quiet", i)
 	}
 }
 
@@ -2371,6 +2379,156 @@ func TestDispatchViewerZEntersFullscreenAndExits(t *testing.T) {
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
 	m = m2.(Model)
 	require.Equal(t, NormalMode, m.mode)
+}
+
+// TestViewerBodyPreservesOSC8Hyperlinks asserts the rendered viewer
+// pane retains the renderer's OSC 8 escape sequences end-to-end.
+// Without this, lipgloss width / height truncation could silently
+// strip the escapes and Cmd-click would stop working in iTerm2 /
+// kitty / wezterm — exactly what users reported on v0.15.0
+// ("can't click links"). The test is byte-level: it asserts the
+// raw \x1b]8;; / \x1b\\ delimiters survive the View() pipeline.
+func TestViewerBodyPreservesOSC8Hyperlinks(t *testing.T) {
+	v := NewViewer()
+	msg := store.Message{ID: "x", Subject: "test"}
+	v.SetMessage(msg)
+	// Body that the renderer would have produced — OSC 8 wrap
+	// around a URL.
+	url := "https://example.invalid/click-me"
+	wrapped := "\x1b]8;;" + url + "\x1b\\" + url + "\x1b]8;;\x1b\\"
+	v.SetBody("See: "+wrapped+"\n", 0)
+
+	out := v.View(DefaultTheme(), 80, 20, true)
+	require.Contains(t, out, "\x1b]8;;"+url+"\x1b\\",
+		"OSC 8 opening escape must survive lipgloss render")
+	require.Contains(t, out, url+"\x1b]8;;\x1b\\",
+		"OSC 8 closing escape must survive lipgloss render")
+}
+
+// TestDispatchListPageDownJumpsCursor confirms PgDn moves the list
+// cursor multiple rows. Without a handler, PgDn was a silent no-op
+// (real-tenant regression v0.15.0).
+func TestDispatchListPageDownJumpsCursor(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Inflate the seeded list so PgDn can actually jump.
+	for i := 0; i < 30; i++ {
+		require.NoError(t, m.deps.Store.UpsertMessage(context.Background(), store.Message{
+			ID:          "p-" + strconvI(i),
+			AccountID:   m.deps.Account.ID,
+			FolderID:    "f-inbox",
+			Subject:     "filler " + strconvI(i),
+			FromAddress: "x@example.invalid",
+			ReceivedAt:  time.Now().Add(-time.Duration(i) * time.Minute),
+		}))
+	}
+	cmd := m.loadMessagesCmd("f-inbox")
+	m2, _ := m.Update(cmd())
+	m = m2.(Model)
+	require.GreaterOrEqual(t, len(m.list.messages), 20)
+	// SetMessages preserves the cursor's prior message-ID; reset
+	// to row 0 explicitly so the PgDn delta is unambiguous.
+	m.list.cursor = 0
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = m2.(Model)
+	require.Greater(t, m.list.cursor, 0, "PgDn must advance cursor")
+	require.LessOrEqual(t, m.list.cursor, len(m.list.messages)-1)
+}
+
+// TestDispatchListEndJumpsToLastMessage pins End behaviour: cursor
+// snaps to the last loaded message.
+func TestDispatchListEndJumpsToLastMessage(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.GreaterOrEqual(t, len(m.list.messages), 2)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = m2.(Model)
+	require.Equal(t, len(m.list.messages)-1, m.list.cursor)
+}
+
+// TestDispatchListHomeJumpsToFirst pins Home: cursor snaps to row 0
+// even from deep in the list.
+func TestDispatchListHomeJumpsToFirst(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.GreaterOrEqual(t, len(m.list.messages), 2)
+	m.list.cursor = len(m.list.messages) - 1
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m = m2.(Model)
+	require.Equal(t, 0, m.list.cursor)
+}
+
+// TestDispatchViewerPageDownAdvancesScroll confirms PgDn in the
+// viewer scrolls the body by viewerPageStep lines.
+func TestDispatchViewerPageDownAdvancesScroll(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	before := m.viewer.scrollY
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = m2.(Model)
+	require.Equal(t, before+viewerPageStep, m.viewer.scrollY)
+
+	// PgUp returns toward the top, clamped at 0.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = m2.(Model)
+	require.Equal(t, before, m.viewer.scrollY)
+}
+
+// TestDispatchExpandOnLeafFolderPaintsHint confirms pressing `o`
+// on a folder with no synced children paints a status hint instead
+// of staying visually silent (real-tenant regression v0.15.0 where
+// users on inboxes whose nested children weren't yet synced
+// thought Expand was broken).
+func TestDispatchExpandOnLeafFolderPaintsHint(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Focus folders pane.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	// The seed has Inbox + Archive — both top-level, no children
+	// in the local store. Pressing `o` on either is a no-op
+	// expand but should paint the hint.
+	m.engineActivity = ""
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Contains(t, m.engineActivity, "no subfolders")
+}
+
+// TestBackfillDoneMsgErrorSurfaces confirms a failed Backfill
+// transitions the activity hint OFF "loading older messages…" and
+// pushes the error into m.lastError. Real-tenant regression
+// v0.15.0: the previous fire-and-forget goroutine swallowed every
+// error so users were stuck on the activity hint forever.
+func TestBackfillDoneMsgErrorSurfaces(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.engineActivity = "loading older messages…"
+	m.list.MarkWallSyncRequested()
+
+	m2, _ := m.Update(backfillDoneMsg{
+		FolderID: m.list.FolderID,
+		Err:      errors.New("graph: 503 Service Unavailable"),
+	})
+	m = m2.(Model)
+	require.NotNil(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "503")
+	require.Empty(t, m.engineActivity, "activity must clear so user isn't stuck")
+	require.False(t, m.list.wallSyncRequested,
+		"debounce must clear on error so retry is possible")
+}
+
+// TestBackfillDoneMsgSuccessIsSilent confirms a successful Backfill
+// doesn't touch the error or activity surface (the FolderSyncedEvent
+// that follows handles the refresh).
+func TestBackfillDoneMsgSuccessIsSilent(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.engineActivity = "loading older messages…"
+	m2, _ := m.Update(backfillDoneMsg{FolderID: m.list.FolderID, Err: nil})
+	m = m2.(Model)
+	require.Nil(t, m.lastError)
+	require.Equal(t, "loading older messages…", m.engineActivity,
+		"on success, activity stays until FolderSyncedEvent updates it")
 }
 
 // TestURLPickerEmptyShowsHelpfulModal confirms an `o` press on a

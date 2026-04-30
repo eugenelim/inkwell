@@ -47,6 +47,10 @@ pattern via the filter machinery.
 | --------- | ------------------------------------------------------------- |
 | `j` / `↓` | Cursor down (auto-paginates near the bottom)                  |
 | `k` / `↑` | Cursor up                                                     |
+| `PgDn` / `Ctrl+D` | Jump cursor 20 rows down (kicks Backfill at the wall) |
+| `PgUp` / `Ctrl+U` | Jump cursor 20 rows up                                |
+| `Home` / `g`      | Jump to first message                                  |
+| `End` / `G`       | Jump to last loaded message (kicks Backfill at the wall) |
 | `Enter`   | Open message in viewer (focus → viewer)                       |
 | `r`       | Mark read                                                     |
 | `R`       | Mark unread                                                   |
@@ -78,6 +82,10 @@ pull more from Graph.
 | --------- | ------------------------------------------------------------- |
 | `j` / `↓` | Scroll body down                                              |
 | `k` / `↑` | Scroll body up                                                |
+| `PgDn` / `Ctrl+D` | Scroll body down ~10 lines                            |
+| `PgUp` / `Ctrl+U` | Scroll body up ~10 lines                              |
+| `Home` / `g`      | Jump to top of body                                    |
+| `End` / `G`       | Jump to bottom of body                                 |
 | `h` / `←` | Back to messages pane                                         |
 | `H`       | Toggle compact / full headers (To/Cc/Bcc expansion)           |
 | `r`       | Reply (opens `$INKWELL_EDITOR` / `$EDITOR` / nano with a draft skeleton) |

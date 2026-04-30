@@ -502,6 +502,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastError = msg.Err
 		return m, nil
 
+	case backfillDoneMsg:
+		// Success: the engine emits FolderSyncedEvent; that handler
+		// refreshes the list. No work here. Failure: surface the
+		// error in the status bar AND clear the activity hint so
+		// the user isn't stuck on "loading older messages…". Also
+		// clear wallSyncRequested so a subsequent retry can fire.
+		if msg.Err != nil {
+			m.lastError = fmt.Errorf("backfill: %w", msg.Err)
+			m.engineActivity = ""
+			if msg.FolderID == m.list.FolderID {
+				m.list.ClearWallSyncRequested()
+			}
+		}
+		return m, nil
+
 	case calendarFetchedMsg:
 		if msg.Err != nil {
 			m.calendar.SetError(msg.Err)
@@ -1323,8 +1338,7 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		until := m.list.OldestReceivedAt()
 		m.engineActivity = "backfilling older messages…"
-		go func() { _ = m.deps.Engine.Backfill(context.Background(), folderID, until) }()
-		return m, nil
+		return m, m.kickBackfillCmd(folderID, until)
 	case "search":
 		// `:search <query>` enters search mode pre-populated with
 		// the query string and runs it. Spec 04 §6.4. Mirrors `/`
@@ -1547,8 +1561,24 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.folders.Up()
 	case key.Matches(msg, m.keymap.Down):
 		m.folders.Down()
+	case key.Matches(msg, m.keymap.PageUp):
+		m.folders.PageUp()
+	case key.Matches(msg, m.keymap.PageDown):
+		m.folders.PageDown()
+	case key.Matches(msg, m.keymap.Home):
+		m.folders.JumpTop()
+	case key.Matches(msg, m.keymap.End):
+		m.folders.JumpBottom()
 	case key.Matches(msg, m.keymap.Expand):
-		m.folders.ToggleExpand()
+		if !m.folders.ToggleExpand() {
+			// Leaf folder or saved-search row — paint a hint so the
+			// keypress isn't visually silent. The "no children
+			// synced locally" wording is intentional: the folder
+			// MAY have children on the server (Graph
+			// /me/mailFolders is non-recursive in v0.x) — don't
+			// claim the user's mailbox is structured incorrectly.
+			m.engineActivity = "no subfolders to expand here"
+		}
 	case key.Matches(msg, m.keymap.NewFolder):
 		f, _ := m.folders.Selected()
 		return m.startFolderNameInput("new", "", f.ID)
@@ -1617,6 +1647,35 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keymap.Up):
 		m.list.Up()
+	case key.Matches(msg, m.keymap.PageUp):
+		m.list.PageUp()
+	case key.Matches(msg, m.keymap.PageDown):
+		m.list.PageDown()
+		// Re-run the smart pre-fetch / wall-sync flow so a PgDn that
+		// lands the cursor near the bottom triggers the same
+		// pagination + Backfill kick a sequence of j-presses would.
+		if !m.searchActive && m.list.ShouldLoadMore() {
+			m.list.MarkLoading()
+			return m, m.loadMessagesCmd(m.list.FolderID)
+		}
+		if !m.searchActive && m.list.ShouldKickWallSync() && m.deps.Engine != nil {
+			folderID := m.list.FolderID
+			until := m.list.OldestReceivedAt()
+			m.list.MarkWallSyncRequested()
+			m.engineActivity = "loading older messages…"
+			return m, m.kickBackfillCmd(folderID, until)
+		}
+	case key.Matches(msg, m.keymap.Home):
+		m.list.JumpTop()
+	case key.Matches(msg, m.keymap.End):
+		m.list.JumpBottom()
+		if !m.searchActive && m.list.ShouldKickWallSync() && m.deps.Engine != nil {
+			folderID := m.list.FolderID
+			until := m.list.OldestReceivedAt()
+			m.list.MarkWallSyncRequested()
+			m.engineActivity = "loading older messages…"
+			return m, m.kickBackfillCmd(folderID, until)
+		}
 	case key.Matches(msg, m.keymap.Down):
 		m.list.Down()
 		// Smart pre-fetch: when the cursor approaches the end of the
@@ -1642,7 +1701,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			until := m.list.OldestReceivedAt()
 			m.list.MarkWallSyncRequested()
 			m.engineActivity = "loading older messages…"
-			go func() { _ = m.deps.Engine.Backfill(context.Background(), folderID, until) }()
+			return m, m.kickBackfillCmd(folderID, until)
 		}
 	case key.Matches(msg, m.keymap.Open):
 		sel, ok := m.list.Selected()
@@ -2144,6 +2203,14 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer.ScrollDown()
 	case key.Matches(msg, m.keymap.Up):
 		m.viewer.ScrollUp()
+	case key.Matches(msg, m.keymap.PageDown):
+		m.viewer.PageDown()
+	case key.Matches(msg, m.keymap.PageUp):
+		m.viewer.PageUp()
+	case key.Matches(msg, m.keymap.Home):
+		m.viewer.JumpTop()
+	case key.Matches(msg, m.keymap.End):
+		m.viewer.JumpBottom()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "H":
 		// Capital H toggles compact ↔ full headers (mutt convention).
 		// Compact is the default; full expands To/Cc/Bcc.
@@ -2248,6 +2315,34 @@ func (m Model) yankURL(url string) (tea.Model, tea.Cmd) {
 }
 
 // Commands
+
+// backfillDoneMsg arrives when a wall-sync Backfill returns. nil
+// Err is success (the FolderSyncedEvent that follows refreshes the
+// list). Non-nil Err surfaces in the status bar so the user is no
+// longer staring at "loading older messages…" indefinitely. Real-
+// tenant regression v0.15.0: the previous fire-and-forget goroutine
+// silently swallowed every error path.
+type backfillDoneMsg struct {
+	FolderID string
+	Err      error
+}
+
+// kickBackfillCmd fires Engine.Backfill on its own goroutine via
+// tea.Cmd and routes the outcome through Update so a network /
+// auth / throttle failure becomes a visible error instead of a
+// stuck activity message.
+func (m Model) kickBackfillCmd(folderID string, until time.Time) tea.Cmd {
+	if m.deps.Engine == nil {
+		return nil
+	}
+	engine := m.deps.Engine
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := engine.Backfill(ctx, folderID, until)
+		return backfillDoneMsg{FolderID: folderID, Err: err}
+	}
+}
 
 func (m Model) loadFoldersCmd() tea.Cmd {
 	return func() tea.Msg {
