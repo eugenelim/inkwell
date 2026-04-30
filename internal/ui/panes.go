@@ -103,25 +103,32 @@ func (m *FoldersModel) rebuild() {
 }
 
 // ToggleExpand flips the expansion state of the folder under the
-// cursor. No-op if the folder has no children.
-func (m *FoldersModel) ToggleExpand() {
+// cursor. Returns true if the folder had children and the state
+// flipped; false on no-op (cursor on a leaf folder, saved-search
+// row, or out of bounds). The caller paints a status hint on
+// false so the keypress isn't visually silent — real-tenant
+// regression v0.15.0 where users pressed `o` on top-level
+// folders that had children on the server but only top-level
+// folders had been synced locally (Graph /me/mailFolders is
+// non-recursive).
+func (m *FoldersModel) ToggleExpand() bool {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
-		return
+		return false
 	}
 	cur := m.items[m.cursor]
 	if !cur.hasKids {
-		return
+		return false
 	}
 	id := cur.f.ID
 	m.expanded[id] = !m.expanded[id]
 	m.rebuild()
-	// Keep the cursor on the same folder after rebuild.
 	for i, it := range m.items {
 		if it.f.ID == id {
 			m.cursor = i
 			break
 		}
 	}
+	return true
 }
 
 // flattenFolderTree returns folders in the order they should appear in
@@ -228,6 +235,49 @@ func (m *FoldersModel) Up() {
 // Down moves the cursor toward the bottom, skipping headers.
 func (m *FoldersModel) Down() {
 	for i := m.cursor + 1; i < len(m.items); i++ {
+		if !m.items[i].isSavedHeader {
+			m.cursor = i
+			return
+		}
+	}
+}
+
+// PageUp / PageDown jump the cursor by foldersPageStep rows
+// (skipping non-selectable rows). Home / End jump to the first /
+// last selectable folder.
+const foldersPageStep = 10
+
+func (m *FoldersModel) PageUp() {
+	for n := 0; n < foldersPageStep; n++ {
+		prev := m.cursor
+		m.Up()
+		if m.cursor == prev {
+			return
+		}
+	}
+}
+
+func (m *FoldersModel) PageDown() {
+	for n := 0; n < foldersPageStep; n++ {
+		prev := m.cursor
+		m.Down()
+		if m.cursor == prev {
+			return
+		}
+	}
+}
+
+func (m *FoldersModel) JumpTop() {
+	for i := 0; i < len(m.items); i++ {
+		if !m.items[i].isSavedHeader {
+			m.cursor = i
+			return
+		}
+	}
+}
+
+func (m *FoldersModel) JumpBottom() {
+	for i := len(m.items) - 1; i >= 0; i-- {
 		if !m.items[i].isSavedHeader {
 			m.cursor = i
 			return
@@ -505,6 +555,12 @@ func (m ListModel) GraphExhausted() bool { return m.graphExhausted }
 // MarkWallSyncRequested arms the wall-sync debounce flag.
 func (m *ListModel) MarkWallSyncRequested() { m.wallSyncRequested = true }
 
+// ClearWallSyncRequested releases the debounce flag. Called by the
+// backfillDoneMsg handler on error so the user can retry by pressing
+// j again instead of being permanently stuck after a transient
+// network failure.
+func (m *ListModel) ClearWallSyncRequested() { m.wallSyncRequested = false }
+
 // ResetLimit collapses the load limit back to the initial page and
 // clears the exhausted flags (used when the user switches folders —
 // the new folder's cache state is unknown).
@@ -526,6 +582,47 @@ func (m *ListModel) Up() {
 func (m *ListModel) Down() {
 	if m.cursor+1 < len(m.messages) {
 		m.cursor++
+	}
+}
+
+// listPageStep is the cursor jump distance for PgUp / PgDn in the
+// list pane. ~20 rows is one screen on a typical 30-row terminal
+// minus chrome — a meaningful skip without overshooting the user's
+// mental position.
+const listPageStep = 20
+
+// PageDown jumps the cursor `listPageStep` rows toward the bottom,
+// clamped at the last message. Used by PgDn / Ctrl+D in the list
+// pane. Pre-fetch + wall-sync flow the same as a single Down() —
+// the dispatch in dispatchList re-checks ShouldLoadMore /
+// ShouldKickWallSync after the jump.
+func (m *ListModel) PageDown() {
+	target := m.cursor + listPageStep
+	if target >= len(m.messages) {
+		target = len(m.messages) - 1
+	}
+	if target < 0 {
+		target = 0
+	}
+	m.cursor = target
+}
+
+// PageUp jumps the cursor `listPageStep` rows toward the top,
+// clamped at row 0.
+func (m *ListModel) PageUp() {
+	target := m.cursor - listPageStep
+	if target < 0 {
+		target = 0
+	}
+	m.cursor = target
+}
+
+// JumpTop / JumpBottom move the cursor to the first / last
+// message. Used by Home / End / g / G.
+func (m *ListModel) JumpTop() { m.cursor = 0 }
+func (m *ListModel) JumpBottom() {
+	if len(m.messages) > 0 {
+		m.cursor = len(m.messages) - 1
 	}
 }
 
@@ -632,6 +729,35 @@ func (m *ViewerModel) ScrollDown() {
 func (m *ViewerModel) ScrollUp() {
 	if m.scrollY > 0 {
 		m.scrollY--
+	}
+}
+
+// viewerPageStep is the body-scroll jump distance for PgUp / PgDn
+// in the viewer pane. Half a screen is the mutt / less convention —
+// keeps a few lines of context at the new cursor position.
+const viewerPageStep = 10
+
+// PageDown / PageUp jump the body viewport by viewerPageStep lines.
+// PageUp clamps at 0; PageDown lets the existing render-clip logic
+// in View() handle past-EOF gracefully (drawn as empty rows, no
+// crash).
+func (m *ViewerModel) PageDown() { m.scrollY += viewerPageStep }
+func (m *ViewerModel) PageUp() {
+	m.scrollY -= viewerPageStep
+	if m.scrollY < 0 {
+		m.scrollY = 0
+	}
+}
+
+// JumpTop / JumpBottom reset / advance the body viewport.
+// JumpBottom counts newlines in the current body; View() further
+// clamps so we always paint a non-empty trailing slice (otherwise
+// the user sees a blank pane and thinks the binding is broken).
+func (m *ViewerModel) JumpTop() { m.scrollY = 0 }
+func (m *ViewerModel) JumpBottom() {
+	m.scrollY = strings.Count(m.body, "\n")
+	if m.scrollY < 0 {
+		m.scrollY = 0
 	}
 }
 
