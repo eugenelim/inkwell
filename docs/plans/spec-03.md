@@ -1,7 +1,9 @@
 # Spec 03 — Sync Engine + Graph Client
 
 ## Status
-done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
+done (CI scope). ThrottledEvent + AuthRequiredEvent emission
+shipped v0.13.x (PR 3 of audit-drain). Full-tenant integration
+test still deferred per CLAUDE.md §5.5.
 
 ## DoD checklist (mirrored from spec)
 - [x] Graph HTTP client with auth → throttle → logging transport stack.
@@ -23,6 +25,45 @@ done (CI scope) — full-tenant integration test deferred per CLAUDE.md §5.5.
 - [ ] **Deferred (manual):** real-tenant 90-day backfill + repeated delta cycles + `:backfill <date>` foreground command.
 
 ## Iteration log
+
+### Iter 8 — 2026-04-30 (event emission, PR 3 of audit-drain)
+- Slice: spec 03 §3 invariants — ThrottledEvent never emitted +
+  AuthRequiredEvent never emitted (UI handlers were dead code).
+- Files modified:
+  - `internal/sync/engine.go` — `Engine` interface gains
+    `OnThrottle(retryAfter)`; `engine.OnThrottle` emits
+    `ThrottledEvent`. New `emitCycleFailure(err)` helper
+    classifies via `graph.IsAuth` and emits either
+    `AuthRequiredEvent` or `SyncFailedEvent`. The two existing
+    cycle-error sites in `loop()` route through the new helper.
+  - `cmd/inkwell/cmd_run.go` — graph.Client constructed with
+    an `OnThrottle` closure that captures the engine pointer;
+    once the engine is built (a few lines below), the closure
+    forwards 429 retries. The chicken-and-egg was the simplest
+    place to land this without restructuring construction.
+- Tests:
+  - `engine_test.go` — three new cases:
+    1. `TestEngineForwardsThrottleAsEvent` — direct OnThrottle
+       call surfaces as ThrottledEvent on the channel.
+    2. `TestEngineGraphClientIntegrationEmitsThrottle` — full
+       wired path: 429 → graph.Client → closure → engine
+       OnThrottle → ThrottledEvent. Mirrors cmd_run.go's
+       wiring exactly.
+    3. `TestEngineEmitsAuthRequiredOn401` — runCycle on a 401-
+       returning server emits AuthRequiredEvent (not the
+       generic SyncFailedEvent).
+- Decisions:
+  - Engine interface gains a method (`OnThrottle`); the UI's
+    narrower Engine interface (in `internal/ui/app.go`) doesn't
+    need it because the UI only consumes events. Test stubs
+    that satisfy the narrower interface didn't need updates.
+  - The closure-capture pattern in cmd_run.go intentionally
+    handles the case where graph.Client is built before the
+    engine — the only alternative was a setter on graph.Client
+    that mutates `onThrottle` post-construction, which would
+    expose the field publicly for no other reason.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
 
 ### Iter 1 — 2026-04-27
 - Slice: graph/{errors,client,types,folders,delta,messages}.go + tests.

@@ -101,6 +101,9 @@ type Engine interface {
 	// which prevents the cycle storms seen when callers go through
 	// SyncAll concurrently with the loop's own timer.
 	Wake()
+	// OnThrottle is the hook the graph client calls on 429. The
+	// engine forwards as a ThrottledEvent. Spec 03 §3.
+	OnThrottle(retryAfter time.Duration)
 }
 
 // ActionDrainer is the seam between sync and the action executor (spec
@@ -219,6 +222,24 @@ func New(gc *graph.Client, st store.Store, drain ActionDrainer, opts Options) (E
 // Notifications returns the read-side of the event channel.
 func (e *engine) Notifications() <-chan Event { return e.events }
 
+// OnThrottle is the hook the graph client calls when a request had
+// to wait on a 429. The engine forwards the retry-after duration to
+// consumers as a ThrottledEvent so the UI status bar can paint
+// "throttled, retrying in Xs". Spec 03 §3 invariant.
+//
+// Wiring (cmd_run.go): the graph client is constructed before the
+// engine; pass a closure that captures the engine pointer:
+//
+//	var eng isync.Engine
+//	gc, _ := graph.NewClient(a, graph.Options{
+//	    OnThrottle: func(d time.Duration) { if eng != nil { eng.OnThrottle(d) } },
+//	    ...
+//	})
+//	eng, _ = isync.New(gc, st, exec, opts)
+func (e *engine) OnThrottle(retryAfter time.Duration) {
+	e.emit(ThrottledEvent{RetryAfter: retryAfter})
+}
+
 // SetActive switches between foreground (true, 30s) and background
 // (false, 5min) cadence. Idempotent.
 func (e *engine) SetActive(active bool) {
@@ -307,7 +328,7 @@ func (e *engine) loop(ctx context.Context) {
 	e.logger.Info("engine: loop starting; running first cycle immediately")
 	if err := e.runCycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		e.logger.Error("engine: first cycle failed", slog.String("err", err.Error()))
-		e.emit(SyncFailedEvent{At: time.Now(), Err: err})
+		e.emitCycleFailure(err)
 	}
 
 	timer := time.NewTimer(e.interval())
@@ -329,10 +350,24 @@ func (e *engine) loop(ctx context.Context) {
 		}
 		if err := e.runCycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			e.logger.Error("engine: cycle failed", slog.String("err", err.Error()))
-			e.emit(SyncFailedEvent{At: time.Now(), Err: err})
+			e.emitCycleFailure(err)
 		}
 		timer.Reset(e.interval())
 	}
+}
+
+// emitCycleFailure classifies a cycle-level error and emits the
+// right event. Auth-shaped errors (401 after token refresh also
+// failed) get an AuthRequiredEvent so the UI can transition to the
+// sign-in modal; everything else is a SyncFailedEvent. Spec 03 §3
+// invariant — without this, the UI's `case isync.AuthRequiredEvent`
+// handler is dead code (audit row spec 03 §3).
+func (e *engine) emitCycleFailure(err error) {
+	if graph.IsAuth(err) {
+		e.emit(AuthRequiredEvent{At: time.Now()})
+		return
+	}
+	e.emit(SyncFailedEvent{At: time.Now(), Err: err})
 }
 
 // minSyncInterval floors the active interval. Any config value below

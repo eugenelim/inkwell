@@ -98,11 +98,20 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return fmt.Errorf("load account: %w (run `inkwell signin`)", err)
 	}
 
-	// Graph client (logger required for redaction).
+	// Graph client (logger required for redaction). The OnThrottle
+	// hook is a closure that captures `engine` by reference — once
+	// the engine is constructed (a few lines below), the closure
+	// forwards 429 retries as ThrottledEvent. Spec 03 §3.
+	var engine isync.Engine
 	gc, err := graph.NewClient(a, graph.Options{
 		Logger:        logger,
 		MaxConcurrent: cfg.Sync.MaxConcurrent,
 		MaxRetries:    cfg.Sync.MaxRetries,
+		OnThrottle: func(d time.Duration) {
+			if engine != nil {
+				engine.OnThrottle(d)
+			}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("graph client: %w", err)
@@ -114,7 +123,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	exec := action.New(st, gc, logger)
 
 	// Sync engine
-	engine, err := isync.New(gc, st, exec, isync.Options{
+	engine, err = isync.New(gc, st, exec, isync.Options{
 		AccountID:          acc.ID,
 		Logger:             logger,
 		ForegroundInterval: cfg.Sync.ForegroundInterval,

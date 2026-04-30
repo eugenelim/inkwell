@@ -42,9 +42,9 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Status overall: partial — diverged from delta-driven design
 - Implementation gaps:
   - DoD bullet "Initial backfill of a 5,000-message Inbox completes in <2 minutes" — there is no tombstone-aware delta path during backfill. `sync/delta.go:25-40` documents that quickStart and pullSince do **not** receive `@removed` markers, so server-side deletions/moves never propagate. `followDeltaPage` exists (`delta.go:131`) but is unreachable from a fresh install (`syncFolder` always picks quickStart for new folders, `delta.go:54`).
-  - Spec §3 declares `Engine.Notifications()` emits a `ThrottledEvent`. `engine.go:64` defines the type and `client.go:84` accepts an `OnThrottle` callback, but nothing in the chain forwards it to `engine.events`. `ThrottledEvent` is never emitted to consumers; the UI's `case isync.ThrottledEvent` (`ui/app.go:1371`) is dead code.
+  - ~~Spec §3 declares `Engine.Notifications()` emits a `ThrottledEvent`~~ **Closed by PR 3 (v0.13.x).** `Engine.OnThrottle(d)` is now part of the interface; `cmd_run.go` wires graph.Options.OnThrottle as a closure that forwards into the engine; the engine emits ThrottledEvent. Verified by integration test `TestEngineGraphClientIntegrationEmitsThrottle`.
   - DoD bullet "Engine survives 24-hour unattended run with no goroutine leaks" — the panic recovery is in `engine.go:241` but `consumeSyncEventsCmd` (`ui/app.go:1351`) reads `<-m.deps.Engine.Notifications()` without a Done/cancel signal. On engine `Stop`, the events channel never closes, so the UI goroutine blocks forever.
-  - Spec §3 lists `ResetDelta(ctx, folderID string)` and `Backfill(ctx, folderID, until)`. Both are implemented (`engine.go:289,294`). Spec §3 also requires `SyncFailedEvent`, `AuthRequiredEvent` — both exist. But `AuthRequiredEvent` is never emitted: the auth transport (`graph/client.go:148`) calls `auth.Invalidate()` on 401 and retries, but no path emits AuthRequiredEvent if the retry also fails. `ui/app.go:1373` `case isync.AuthRequiredEvent` is dead.
+  - Spec §3 lists `ResetDelta(ctx, folderID string)` and `Backfill(ctx, folderID, until)`. Both are implemented. ~~`AuthRequiredEvent` is never emitted~~ **Closed by PR 3 (v0.13.x).** `engine.emitCycleFailure(err)` classifies via `graph.IsAuth` and emits AuthRequiredEvent on auth-shaped errors; the loop's two cycle-error sites route through it. Verified by `TestEngineEmitsAuthRequiredOn401`.
 - Design drifts:
   - Spec §6 ("Delta sync per folder") says first-launch goes through `/me/mailFolders/{id}/messages/delta?$top=50`. Implementation chose `/messages?$top=50&$orderby=receivedDateTime desc` non-delta endpoint instead (`delta.go:46-56`), with explicit doc comments explaining why (Graph delta doesn't honour `$orderby`). This is a documented deviation: spec §5.2 says "Why not `/messages/delta`?" and revises to non-delta. The code matches the revised intent. **However spec §6.2 still describes "Identifying additions vs updates" in terms of delta tombstones** — that section never triggers in production because `pullSince` and `quickStart` don't see tombstones (`delta.go:40-41`). The spec text and code are out of phase by one revision.
   - Spec §11 promises a "small priority queue feeding into the semaphore" so on-demand body fetches jump the queue. `graph/client.go:177` is a plain semaphore — no priority queue, no `internal/graph/scheduler.go`. Body fetches share fairly with backfill traffic.
@@ -336,7 +336,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 |------|--------|-----------|------------------|
 | 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
 | 02   | partial | 4 | Maintenance / `Vacuum` / body LRU eviction never invoked at runtime (§8) |
-| 03   | partial | 6 | `ThrottledEvent` / `AuthRequiredEvent` never emitted; UI handlers are dead code |
+| 03   | partial | 4 | Priority queue for body fetches (§11) absent; quickStart/pullSince don't see tombstones (deviation tracked) |
 | 04   | partial | 7 | 7 of 15 `:` commands unimplemented (PR 5); `[bindings]` + `?` help closed in v0.13.x |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
@@ -360,7 +360,7 @@ Ranked by what blocks a v0.X release.
 
 2. ~~**`[bindings]` config silently ignored (spec 04 §17)**~~ **Closed by PR 2 (v0.13.x).** `?` help overlay (§12) and `:help` command (§6.4) closed in the same PR. See `docs/plans/spec-04.md` iter 9.
 
-3. **`ThrottledEvent` / `AuthRequiredEvent` never emitted (spec 03 §3)** — `graph.OnThrottle` is called but never forwarded to engine events. UI's `case isync.ThrottledEvent` and `case isync.AuthRequiredEvent` are dead. Blocks v0.3.x reliability story (users see throttling silently degrade sync without explanation; revoked tokens silently break the app until restart).
+3. ~~**`ThrottledEvent` / `AuthRequiredEvent` never emitted (spec 03 §3)**~~ **Closed by PR 3 (v0.13.x).** Engine.OnThrottle hook + emitCycleFailure classifier; integration tests cover both paths. See `docs/plans/spec-03.md` iter 8.
 
 4. **Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)** — keybinding declared but unbound; no Graph helper, no executor branch, no confirmation modal. Blocks v0.7.x because the spec promises a destructive verb and `D` is in the user-facing keymap (`renderHelpBar` lists "d delete" but no `D`).
 
