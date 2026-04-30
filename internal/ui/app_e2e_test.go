@@ -653,6 +653,12 @@ func (s *e2eTriageStub) Archive(_ context.Context, _ int64, _ string) error    {
 func (s *e2eTriageStub) PermanentDelete(_ context.Context, _ int64, _ string) error {
 	return nil
 }
+func (s *e2eTriageStub) AddCategory(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
+func (s *e2eTriageStub) RemoveCategory(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
 func (s *e2eTriageStub) Undo(_ context.Context, _ int64) (UndoneAction, error) {
 	atomicAdd(&s.undoCalls, 1)
 	return UndoneAction{Label: s.label, MessageIDs: []string{"m-1"}}, nil

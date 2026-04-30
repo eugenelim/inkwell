@@ -21,6 +21,51 @@ move-with-picker remain deferred (drain-plan PR 4).
 
 ## Iteration log
 
+### Iter 4 — 2026-04-30 (categories, PR 4b of audit-drain)
+- Slice: spec 07 §6.9 / §6.10 — add_category / remove_category
+  end-to-end. Move-with-folder-picker carved out as PR 4c
+  (needs a real folder picker UI, beyond this PR's scope).
+- Files modified:
+  - `internal/action/types.go`: applyLocal handles
+    add/remove (appends/drops via case-insensitive dedup);
+    rollbackLocal restores the snapshot's category list;
+    dispatch reads the post-apply local row + PATCHes the
+    full categories array (Graph contract — no append /
+    remove primitive).
+  - `internal/action/executor.go`: AddCategory + RemoveCategory
+    methods (mirror MarkRead shape; reject empty category).
+  - `internal/action/inverse.go`: already handled add↔remove
+    pair from PR 1; no change.
+  - `internal/ui/messages.go`: new CategoryInputMode constant.
+  - `internal/ui/app.go`: pendingCategoryAction +
+    pendingCategoryMsg + categoryBuf model fields;
+    startCategoryInput opens the prompt; updateCategoryInput
+    handles typing / Enter / Esc; render branch in View();
+    `c` / `C` handlers in dispatchList + dispatchViewer.
+  - `cmd/inkwell/cmd_run.go`: triageAdapter passes through.
+- Tests:
+  - executor_test: AddCategory appends + PATCHes the full
+    list + pushes RemoveCategory inverse; case-insensitive
+    dedup; RemoveCategory drops the named entry.
+  - dispatch_test: `c` opens CategoryInputMode with
+    action="add"; typing + Enter dispatches; Esc cancels.
+- Decisions:
+  - Category prompt is a typed-input modal (Enter / Esc)
+    rather than a chord (`c X` would conflict with the bulk
+    `;X` chord pattern). Spec 07 §6.9 left the UX open;
+    typed-input is what aerc and mutt do.
+  - PATCH carries the full post-apply list rather than a
+    delta because Graph requires it. The dispatch path
+    re-reads the local row after applyLocal so the payload
+    matches the optimistic state exactly.
+  - Inverse already handles the symmetric pair from PR 1;
+    no inverse work needed in this PR.
+  - `m` (move-with-folder-picker) deferred to PR 4c — the
+    folder picker is a non-trivial filterable list with its
+    own keybindings, beyond this PR's scope.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
+
 ### Iter 3 — 2026-04-30 (permanent_delete, PR 4a of audit-drain)
 - Slice: spec 07 §6.7 — `D` keybind + confirm modal + Graph
   helper + executor branch + Inverse non-reversible.

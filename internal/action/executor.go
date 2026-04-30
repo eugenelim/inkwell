@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/eugenelim/inkwell/internal/graph"
@@ -78,6 +79,37 @@ func (e *Executor) ToggleFlag(ctx context.Context, accountID int64, messageID st
 		AccountID:  accountID,
 		Type:       t,
 		MessageIDs: []string{messageID},
+	})
+}
+
+// AddCategory tags the message with the supplied category name.
+// Categories are case-insensitive for dedup (Outlook semantics);
+// supplying an existing one is a no-op locally and a redundant
+// PATCH server-side. Spec 07 §6.9.
+func (e *Executor) AddCategory(ctx context.Context, accountID int64, messageID, category string) error {
+	if strings.TrimSpace(category) == "" {
+		return fmt.Errorf("add_category: category required")
+	}
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       store.ActionAddCategory,
+		MessageIDs: []string{messageID},
+		Params:     map[string]any{"category": category},
+	})
+}
+
+// RemoveCategory untags the message. Spec 07 §6.10.
+func (e *Executor) RemoveCategory(ctx context.Context, accountID int64, messageID, category string) error {
+	if strings.TrimSpace(category) == "" {
+		return fmt.Errorf("remove_category: category required")
+	}
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       store.ActionRemoveCategory,
+		MessageIDs: []string{messageID},
+		Params:     map[string]any{"category": category},
 	})
 }
 

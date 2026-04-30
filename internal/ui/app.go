@@ -58,6 +58,11 @@ type TriageExecutor interface {
 	// confirm modal; pressing `D` without confirmation is the
 	// primary footgun this method exists to handle.
 	PermanentDelete(ctx context.Context, accountID int64, messageID string) error
+	// AddCategory / RemoveCategory tag and untag a message with a
+	// category name (spec 07 §6.9 / §6.10). Case-insensitive dedup
+	// per Outlook semantics.
+	AddCategory(ctx context.Context, accountID int64, messageID, category string) error
+	RemoveCategory(ctx context.Context, accountID int64, messageID, category string) error
 	// Undo pops the most recent UndoEntry and applies the inverse
 	// action. Returns a UndoneAction describing what just got rolled
 	// back so the UI can paint a status message ("undid: deleted").
@@ -313,6 +318,14 @@ type Model struct {
 	// PermanentDelete (irreversible — Inverse returns ok=false so
 	// the action doesn't push to the undo stack).
 	pendingPermanentDelete *store.Message
+
+	// Category input (spec 07 §6.9 / §6.10). When CategoryInputMode
+	// is active, pendingCategoryAction holds "add" or "remove" and
+	// pendingCategoryMsg holds the focused message; the user types
+	// the category name and Enter dispatches the action.
+	pendingCategoryAction string // "add" | "remove"
+	pendingCategoryMsg    *store.Message
+	categoryBuf           string
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -728,6 +741,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateComposeConfirm(msg)
 	case HelpMode:
 		return m.updateHelp(msg)
+	case CategoryInputMode:
+		return m.updateCategoryInput(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -1512,6 +1527,18 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startUnsubscribe(sel.ID)
+	case key.Matches(msg, m.keymap.AddCategory):
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startCategoryInput("add", sel)
+	case key.Matches(msg, m.keymap.RemoveCategory):
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startCategoryInput("remove", sel)
 	case key.Matches(msg, m.keymap.Undo):
 		return m.runUndo()
 	}
@@ -1539,6 +1566,73 @@ func (m Model) runUndo() (tea.Model, tea.Cmd) {
 		return undoDoneMsg{undone: undone, folderID: folderID, err: err}
 	}
 	return m, cmd
+}
+
+// startCategoryInput opens the spec 07 §6.9 / §6.10 prompt. action
+// is "add" or "remove"; src is the focused message. The user types
+// the category name; Enter dispatches; Esc cancels.
+func (m Model) startCategoryInput(action string, src store.Message) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("category: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	m.pendingCategoryAction = action
+	m.pendingCategoryMsg = &src
+	m.categoryBuf = ""
+	m.mode = CategoryInputMode
+	return m, nil
+}
+
+// updateCategoryInput handles input for the spec 07 category
+// prompt. Type the name + Enter to dispatch; Esc cancels.
+func (m Model) updateCategoryInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		m.mode = NormalMode
+		m.pendingCategoryAction = ""
+		m.pendingCategoryMsg = nil
+		m.categoryBuf = ""
+		m.engineActivity = "category input cancelled"
+		return m, nil
+	case tea.KeyEnter:
+		cat := strings.TrimSpace(m.categoryBuf)
+		if cat == "" {
+			m.mode = NormalMode
+			m.pendingCategoryAction = ""
+			m.pendingCategoryMsg = nil
+			return m, nil
+		}
+		action := m.pendingCategoryAction
+		src := *m.pendingCategoryMsg
+		m.mode = NormalMode
+		m.pendingCategoryAction = ""
+		m.pendingCategoryMsg = nil
+		m.categoryBuf = ""
+		switch action {
+		case "add":
+			return m.runTriage("add_category", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
+				return m.deps.Triage.AddCategory(ctx, accID, s.ID, cat)
+			})
+		case "remove":
+			return m.runTriage("remove_category", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
+				return m.deps.Triage.RemoveCategory(ctx, accID, s.ID, cat)
+			})
+		}
+		return m, nil
+	case tea.KeyBackspace:
+		if len(m.categoryBuf) > 0 {
+			m.categoryBuf = m.categoryBuf[:len(m.categoryBuf)-1]
+		}
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyRunes {
+		m.categoryBuf += string(keyMsg.Runes)
+	}
+	return m, nil
 }
 
 // startPermanentDelete opens the spec 07 §6.7 confirm modal. The
@@ -1791,6 +1885,14 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.viewer.current; cur != nil {
 			return m.startUnsubscribe(cur.ID)
 		}
+	case key.Matches(msg, m.keymap.AddCategory):
+		if cur := m.viewer.current; cur != nil {
+			return m.startCategoryInput("add", *cur)
+		}
+	case key.Matches(msg, m.keymap.RemoveCategory):
+		if cur := m.viewer.current; cur != nil {
+			return m.startCategoryInput("remove", *cur)
+		}
 	case key.Matches(msg, m.keymap.Undo):
 		return m.runUndo()
 	}
@@ -1943,6 +2045,17 @@ func (m Model) View() string {
 	}
 	if m.mode == HelpMode {
 		return m.help.View(m.theme, m.keymap, m.width, m.height)
+	}
+	if m.mode == CategoryInputMode {
+		verb := m.pendingCategoryAction
+		if verb == "" {
+			verb = "set"
+		}
+		title := strings.Title(verb) + " category"
+		body := title + "\n\n" + m.theme.HelpKey.Render(verb+":") + " " + m.categoryBuf + "▎\n\n" +
+			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
+		box := m.theme.Modal.Render(body)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{

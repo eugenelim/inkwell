@@ -249,6 +249,14 @@ func (t triageAdapter) PermanentDelete(ctx context.Context, accountID int64, mes
 	return t.exec.PermanentDelete(ctx, accountID, messageID)
 }
 
+func (t triageAdapter) AddCategory(ctx context.Context, accountID int64, messageID, category string) error {
+	return t.exec.AddCategory(ctx, accountID, messageID, category)
+}
+
+func (t triageAdapter) RemoveCategory(ctx context.Context, accountID int64, messageID, category string) error {
+	return t.exec.RemoveCategory(ctx, accountID, messageID, category)
+}
+
 func (t triageAdapter) Undo(ctx context.Context, accountID int64) (ui.UndoneAction, error) {
 	entry, err := t.exec.Undo(ctx, accountID)
 	if err != nil {

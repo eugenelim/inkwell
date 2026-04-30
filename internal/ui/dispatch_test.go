@@ -524,6 +524,12 @@ func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error
 }
 func (s stubTriageDelete) Archive(context.Context, int64, string) error         { return nil }
 func (s stubTriageDelete) PermanentDelete(context.Context, int64, string) error { return nil }
+func (s stubTriageDelete) AddCategory(context.Context, int64, string, string) error {
+	return nil
+}
+func (s stubTriageDelete) RemoveCategory(context.Context, int64, string, string) error {
+	return nil
+}
 func (s stubTriageDelete) Undo(context.Context, int64) (UndoneAction, error) {
 	return UndoneAction{}, UndoEmpty
 }
@@ -539,6 +545,12 @@ func (s stubTriageFlag) ToggleFlag(_ context.Context, _ int64, _ string, _ bool)
 func (s stubTriageFlag) SoftDelete(context.Context, int64, string) error      { return nil }
 func (s stubTriageFlag) Archive(context.Context, int64, string) error         { return nil }
 func (s stubTriageFlag) PermanentDelete(context.Context, int64, string) error { return nil }
+func (s stubTriageFlag) AddCategory(context.Context, int64, string, string) error {
+	return nil
+}
+func (s stubTriageFlag) RemoveCategory(context.Context, int64, string, string) error {
+	return nil
+}
 func (s stubTriageFlag) Undo(context.Context, int64) (UndoneAction, error) {
 	return UndoneAction{}, UndoEmpty
 }
@@ -835,6 +847,12 @@ func (s *stubTriageWithUndo) Archive(_ context.Context, _ int64, _ string) error
 func (s *stubTriageWithUndo) PermanentDelete(_ context.Context, _ int64, _ string) error {
 	return nil
 }
+func (s *stubTriageWithUndo) AddCategory(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
+func (s *stubTriageWithUndo) RemoveCategory(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
 func (s *stubTriageWithUndo) Undo(_ context.Context, _ int64) (UndoneAction, error) {
 	s.undoCalls++
 	if s.undoErr != nil {
@@ -906,6 +924,61 @@ func TestPermanentDeleteConfirmNoSkips(t *testing.T) {
 	m = m2.(Model)
 	require.Nil(t, m.pendingPermanentDelete, "n must clear pendingPermanentDelete")
 	require.Equal(t, "permanent delete cancelled", m.engineActivity)
+}
+
+// TestAddCategoryOpensCategoryInputMode drives `c` on the list pane
+// and asserts CategoryInputMode opens with action="add". Spec 07
+// §6.9.
+func TestAddCategoryOpensCategoryInputMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+	require.Equal(t, CategoryInputMode, m.mode)
+	require.Equal(t, "add", m.pendingCategoryAction)
+	require.NotNil(t, m.pendingCategoryMsg)
+}
+
+// TestCategoryInputDispatchesAddOnEnter types "Q4" + Enter and
+// asserts the dispatch path fires.
+func TestCategoryInputDispatchesAddOnEnter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	// Enter category-input mode via `c`.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+
+	// Type "Q4" + Enter.
+	for _, r := range "Q4" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	require.Equal(t, "Q4", m.categoryBuf)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "Enter must dispatch runTriage Cmd")
+	require.Equal(t, NormalMode, m.mode)
+	require.Empty(t, m.pendingCategoryAction)
+}
+
+// TestCategoryInputCancelsOnEsc verifies the Esc path: empty buf
+// after exit + a "cancelled" status nudge.
+func TestCategoryInputCancelsOnEsc(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Q")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Empty(t, m.categoryBuf)
+	require.Empty(t, m.pendingCategoryAction)
+	require.Contains(t, m.engineActivity, "cancelled")
 }
 
 // TestRefreshCommandWakesEngine drives `:refresh` and asserts the

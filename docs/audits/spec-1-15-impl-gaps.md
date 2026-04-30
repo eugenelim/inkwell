@@ -131,7 +131,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation gaps:
   - DoD "All 13 action types in §3 implemented" — `executor.go:23-30` exposes only MarkRead, MarkUnread, Flag, Unflag, SoftDelete, Archive, Move. **Missing:** `permanent_delete`, `add_category`, `remove_category`, `move`-with-arbitrary-folder picker. The four draft types (`create_draft`, `create_draft_reply`, `create_draft_reply_all`, `create_draft_forward`) are not in the queued-action surface — only `CreateDraftReply` exists as a one-off non-queued path (`draft.go:26`).
   - ~~Permanent delete unimplemented~~ **Closed by PR 4a (v0.13.x).** `graph.PermanentDelete` helper, `Executor.PermanentDelete`, applyLocal/rollback/dispatch branches, and the `D` keybind with confirm modal all shipped. Inverse returns ok=false so undo doesn't try to restore a tenant-deleted message. Categories (`c`/`C`) and move-with-folder-picker (`m`) deferred to PR 4b.
-  - Categories: `ActionAddCategory` and `ActionRemoveCategory` are typed (`store/types.go:115-116`) but not handled in `applyLocal` or `dispatch`. The `c`/`C` keybindings (`keys.go:91-92`) have no dispatchList entry.
+  - ~~Categories unimplemented~~ **Closed by PR 4b (v0.13.x).** applyLocal + dispatch + Inverse all handle add/remove; PATCH carries the full post-state list (Graph contract); case-insensitive dedup matches Outlook semantics. UI prompt mode opens via `c` / `C`; Enter dispatches; Esc cancels.
   - Move-with-folder-picker (spec §12.1): `m` keybinding is declared (`keys.go:91`) with no handler in `dispatchList`. No folder-picker modal exists in `internal/ui/`.
   - ~~DoD "Optimistic UI, rollback, undo, replay all verified" — **undo is unimplemented**.~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse on success, `u` wired in list + viewer dispatch, e2e visible-delta verifies the status bar paints `↶ undid: <label>`. See `docs/plans/spec-07.md` iteration log.
   - Replay (`ReplayPending`) — not present in `executor.go`. `Drain` (`executor.go:180`) re-dispatches Pending/InFlight on each cycle but with no rollback semantics and no startup explicit replay path. Spec §10 contract is partially satisfied by Drain piggybacking on the sync loop.
@@ -340,7 +340,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 04   | partial | 5 | `:save` + `:rule` block on spec 11; other gaps remain (transient_status_ttl, min_terminal, full lifecycle teardown) |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
-| 07   | partial | 7 | `D`/`m`/`c`/`C` unbound; permanent-delete absent (undo closed in v0.13.x) |
+| 07   | partial | 5 | `m` (move-with-picker) unbound; D / categories closed v0.13.x |
 | 08   | partial | 5 | No Compile/Execute API, no server evaluators, no strategy selection |
 | 09   | partial | 6 | No concurrent batch fan-out; no per-sub-request 429 retry; no composite undo |
 | 10   | partial | 9 | No preview screen; no progress modal; only 4 of 10 `;` verbs wired |
