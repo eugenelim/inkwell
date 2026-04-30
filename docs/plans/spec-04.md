@@ -1,7 +1,9 @@
 # Spec 04 — TUI Shell
 
 ## Status
-done (CI scope) — visual polish + viewer body filling deferred to spec 05; manual TUI smoke deferred per CLAUDE.md §5.5.
+done (CI scope). [bindings] config wiring + ? help overlay shipped
+v0.13.x (PR 2 of audit-drain). Visual polish + viewer body filling
+remain deferred to spec 05; manual TUI smoke per CLAUDE.md §5.5.
 
 ## DoD checklist
 - [x] App launches; three panes render (folders / list / viewer-stub).
@@ -23,6 +25,56 @@ done (CI scope) — visual polish + viewer body filling deferred to spec 05; man
 - [ ] **Deferred to spec 07:** triage actions wired to the keymap (the bindings exist; the dispatchers are stubs).
 
 ## Iteration log
+
+### Iter 9 — 2026-04-30 (bindings + help overlay, PR 2 of audit-drain)
+- Slice: spec 04 §17 invariant ([bindings] silently ignored —
+  closed) + §12 full help overlay + §6.4 :help command.
+- Files added/modified:
+  - `internal/ui/keys.go` — `BindingOverrides` consumer-site
+    struct; `ApplyBindingOverrides(KeyMap, BindingOverrides)
+    (KeyMap, error)` with duplicate-binding detection;
+    `findDuplicateBinding`. Removed unused `UndoStack` field.
+  - `internal/ui/help.go` (new) — `HelpModel` + `buildHelpSections`
+    with 4 sections (Pane focus / Triage / Filter / Modes).
+    Stateless model pulls keys off the live KeyMap so user
+    overrides surface immediately.
+  - `internal/ui/messages.go` — added `HelpMode` constant.
+  - `internal/ui/app.go` — `Deps.Bindings`; `New` returns
+    `(Model, error)` so duplicate-binding errors fail-fast at
+    startup; `?` keybind handler in updateNormal; `:help` /
+    `:?` command in dispatchCommand; `updateHelp` handler;
+    HelpModel render branch in View().
+  - `internal/config/config.go` — TOML decode now uses
+    `MetaData.Undecoded()` to reject unknown keys with a typed
+    error (spec 04 §17). `BindingsConfig` lost UndoStack, gained
+    Unsubscribe (matches KeyMap surface).
+  - `internal/config/defaults.go` — same drift fix.
+  - `cmd/inkwell/cmd_run.go` — handles ui.New's new error;
+    `bindingsToOverrides` translates config → ui types so the
+    UI doesn't import internal/config (CLAUDE.md §2).
+- Tests:
+  - `keys_test.go` (new): empty-overrides-keep-defaults,
+    field-replacement, duplicate-rejection, pane-scoped-allowed.
+  - `dispatch_test.go`: `?` opens HelpMode; `:help` parity.
+  - `app_e2e_test.go`: visible-delta — `?` paints all 4 section
+    headers + the Esc-close hint; Esc returns to the three-pane
+    layout with the focus marker visible.
+  - `config_test.go`: unknown-key produces a typed error naming
+    the offending TOML key; valid override round-trips.
+- Decisions:
+  - Duplicate detection skips movement keys (j/k/h/l) and the
+    pane-scoped-shared keys (mark_read which doubles as reply
+    in the viewer). Both are by-design legitimate sharing.
+  - `New` now returns `(Model, error)` instead of just `Model`.
+    Could have stored the error on the model and surfaced it on
+    first paint, but fail-fast at startup gives the user a much
+    clearer "your config is wrong" experience and avoids any
+    risk of starting up with a half-broken keymap.
+  - HelpModel is stateless — all data comes from the live
+    KeyMap. This means user overrides AND future binding
+    additions surface in the overlay automatically.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
 
 ### Iter 1 — 2026-04-27
 - Slice: keymap, theme, types (Pane / Mode / messages), root Model, Update with mode dispatch, sub-models for folders / list / viewer-stub / command / status / signin / confirm.

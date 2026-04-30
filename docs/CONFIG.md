@@ -353,12 +353,18 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `move` | `"m"` | |
 | `add_category` | `"c"` | |
 | `remove_category` | `"C"` | |
-| `undo` | `"u"` | |
-| `undo_stack` | `"U"` | Show undo overlay. |
+| `undo` | `"u"` | Pop the last triage from the undo stack. |
 | `filter` | `"F"` | Bulk filter mode. |
+| `clear_filter` | `"esc"` | Clear active filter. |
 | `apply_to_filtered` | `";"` | Mutt-style tag-prefix. |
+| `unsubscribe` | `"U"` | RFC 8058 one-click / mailto / browser flow. Spec 16. |
+| `help` | `"?"` | Open the help overlay (every binding). |
 
 **Pane-scoped bindings** (e.g., `r`, `R`, `f`) have different actions in list vs. viewer panes by design — see spec 04 §5 and spec 07 §12. Overriding them via this section changes the binding in BOTH panes; per-pane override is not supported in v1.
+
+**Unknown keys are a startup error.** A typo like `mark_red = "r"` (instead of `mark_read`) produces `config <path>: unknown key(s): bindings.mark_red` at startup. Spec 04 §17 invariant — without this gate, the typo would silently no-op and the user couldn't tell why their override didn't take.
+
+**Duplicate bindings are also a startup error.** If two distinct actions resolve to the same key (e.g. `delete = "x"` and `archive = "x"`), `ui.New` returns `bindings: key "x" bound to multiple actions` and the binary refuses to start. Pane-scoped sharing (e.g. `r` for mark-read in list and reply in viewer) is still allowed because both resolve to the same `mark_read` field.
 
 I changed `refresh` from `"R"` (which conflicted with mark_unread) to `"ctrl+r"`. The original "Conflicts with `mark_unread` resolved by pane" was clever but causes user confusion; `ctrl+r` is unambiguous.
 

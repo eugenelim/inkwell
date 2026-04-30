@@ -65,10 +65,10 @@ func Defaults() *Config {
 			AddCategory:     "c",
 			RemoveCategory:  "C",
 			Undo:            "u",
-			UndoStack:       "U",
 			Filter:          "F",
 			ClearFilter:     "esc",
 			ApplyToFiltered: ";",
+			Unsubscribe:     "U",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders: false,

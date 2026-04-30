@@ -46,6 +46,42 @@ max_concurrent = 6
 	require.Equal(t, 500, cfg.Cache.BodyCacheMaxCount, "default preserved when key absent")
 }
 
+// TestLoadRejectsUnknownKey is the spec 04 §17 invariant: a typo
+// in [bindings] (or anywhere else) must surface at startup with a
+// typed error naming the offending key. Without this gate, the
+// user's override silently no-ops and they can't tell why their
+// rebinding didn't take.
+func TestLoadRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[bindings]
+mark_red = "x"
+`))
+	_, err := Load(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown key")
+	require.Contains(t, err.Error(), "mark_red")
+}
+
+// TestLoadAcceptsValidBindingsOverride is the happy-path
+// counterpart to TestLoadRejectsUnknownKey.
+func TestLoadAcceptsValidBindingsOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[bindings]
+delete = "x"
+unsubscribe = "U"
+`))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "x", cfg.Bindings.Delete)
+	require.Equal(t, "U", cfg.Bindings.Unsubscribe)
+	// Untouched keys keep their defaults.
+	require.Equal(t, "r", cfg.Bindings.MarkRead)
+}
+
 func TestValidateRejectsMaxConcurrentOutOfRange(t *testing.T) {
 	c := Defaults()
 	c.Sync.MaxConcurrent = 99

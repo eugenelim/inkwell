@@ -288,7 +288,7 @@ config surface.
 | PR | Spec(s) | Status | Branch | Audit rows closed | Plan file updated |
 |----|---------|--------|--------|-------------------|-------------------|
 | 1  | 07      | shipped (v0.13.x) | main | spec 07 §11 undo + §7.1 inverse | docs/plans/spec-07.md iter 2 |
-| 2  | 04      | not-started | — | — | — |
+| 2  | 04      | shipped (v0.13.x) | main | spec 04 §17 [bindings] + §12 help overlay + §6.4 :help | docs/plans/spec-04.md iter 9 |
 | 3  | 03      | not-started | — | — | — |
 | 4  | 07      | not-started | — | — | — |
 | 5  | 04 (+11)| not-started | — | — | — |

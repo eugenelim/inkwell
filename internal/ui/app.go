@@ -108,6 +108,12 @@ type Deps struct {
 	// selecting one runs its pattern via the same machinery as
 	// `:filter` (spec 10).
 	SavedSearches []SavedSearch
+	// Bindings carries the user's [bindings] overrides decoded from
+	// config. Empty fields leave the default in place. Spec 04 §17:
+	// unknown keys cause a startup error in config.Load (the TOML
+	// undecoded-keys gate); duplicate bindings cause a startup
+	// error from ui.New (caller should fail-fast).
+	Bindings BindingOverrides
 	// Calendar fetches today's events for the `:cal` modal (spec 12).
 	// Optional — when nil, `:cal` shows a friendly "calendar not wired"
 	// message instead of crashing.
@@ -253,6 +259,7 @@ type Model struct {
 	confirm  ConfirmModel
 	calendar CalendarModel
 	oof      OOFModel
+	help     HelpModel
 
 	focused Pane
 	mode    Mode
@@ -297,9 +304,15 @@ type Model struct {
 	pendingUnsubMessageID string
 }
 
-// New constructs the root model. After construction, callers run
+// New constructs the root model. Returns a typed error if the
+// supplied [bindings] overrides produce a duplicate binding (spec
+// 04 §17 invariant); the caller fails-fast at startup so the user
+// gets a clear "your config is wrong" message rather than a
+// silently broken keymap.
+//
+// After successful construction, callers run
 // `tea.NewProgram(model).Run()`.
-func New(deps Deps) Model {
+func New(deps Deps) (Model, error) {
 	if deps.Logger == nil {
 		// Required for redaction discipline; fail loudly rather than
 		// silently using slog.Default.
@@ -322,12 +335,16 @@ func New(deps Deps) Model {
 	if len(deps.SavedSearches) > 0 {
 		folders.SetSavedSearches(deps.SavedSearches)
 	}
+	keymap, err := ApplyBindingOverrides(DefaultKeyMap(), deps.Bindings)
+	if err != nil {
+		return Model{}, fmt.Errorf("ui: %w", err)
+	}
 	return Model{
 		deps:       deps,
 		paneWidths: DefaultPaneWidths(),
 		focused:    ListPane,
 		mode:       NormalMode,
-		keymap:     DefaultKeyMap(),
+		keymap:     keymap,
 		theme:      theme,
 		folders:    folders,
 		list:       NewList(),
@@ -338,7 +355,8 @@ func New(deps Deps) Model {
 		confirm:    NewConfirm(),
 		calendar:   NewCalendar(),
 		oof:        NewOOF(),
-	}
+		help:       NewHelp(),
+	}, nil
 }
 
 // Init kicks off folder loading and sync-event consumption.
@@ -674,9 +692,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOOF(msg)
 	case ComposeConfirmMode:
 		return m.updateComposeConfirm(msg)
+	case HelpMode:
+		return m.updateHelp(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateHelp handles input while the help overlay is open. Esc / q
+// close it; everything else is a no-op (the overlay is read-only).
+func (m Model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch strings.ToLower(keyMsg.String()) {
+	case "esc", "q", "?":
+		m.mode = NormalMode
+	}
+	return m, nil
 }
 
 // updateComposeConfirm handles the post-edit confirm pane. After the
@@ -785,6 +819,10 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case key.Matches(keyMsg, m.keymap.Cmd):
 		m.mode = CommandMode
 		m.cmd.Activate()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Help):
+		// Spec 04 §12 full overlay. Esc/q/? close.
+		m.mode = HelpMode
 		return m, nil
 	case key.Matches(keyMsg, m.keymap.Search):
 		m.mode = SearchMode
@@ -1008,6 +1046,12 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startUnsubscribe(msgID)
+	case "help", "?":
+		// Spec 04 §6.4 / §12: full overlay listing every binding,
+		// grouped by section. Stateless model — pulls keys off the
+		// current keymap so user overrides surface immediately.
+		m.mode = HelpMode
+		return m, nil
 	case "ooo", "outofoffice", "oof":
 		if m.deps.Mailbox == nil {
 			m.lastError = fmt.Errorf("ooo: not wired (CLI mode or unsigned)")
@@ -1737,6 +1781,9 @@ func (m Model) View() string {
 	}
 	if m.mode == ComposeConfirmMode {
 		return m.renderComposeConfirm()
+	}
+	if m.mode == HelpMode {
+		return m.help.View(m.theme, m.keymap, m.width, m.height)
 	}
 
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{

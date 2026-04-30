@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -110,10 +111,10 @@ type BindingsConfig struct {
 	AddCategory     string `toml:"add_category"`
 	RemoveCategory  string `toml:"remove_category"`
 	Undo            string `toml:"undo"`
-	UndoStack       string `toml:"undo_stack"`
 	Filter          string `toml:"filter"`
 	ClearFilter     string `toml:"clear_filter"`
 	ApplyToFiltered string `toml:"apply_to_filtered"`
+	Unsubscribe     string `toml:"unsubscribe"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).
@@ -145,8 +146,22 @@ func Load(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
-	if _, err := toml.Decode(string(data), cfg); err != nil {
+	md, err := toml.Decode(string(data), cfg)
+	if err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	// Spec 04 §17: unknown keys in [bindings] (or anywhere) are a
+	// startup error. Without this gate a typo like `mark_red = "r"`
+	// would silently no-op — the binding stays default and the user
+	// can't tell why their override didn't take. Surface as a typed
+	// error with the offending key path so the user can fix the
+	// TOML in seconds.
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		names := make([]string, 0, len(undecoded))
+		for _, k := range undecoded {
+			names = append(names, k.String())
+		}
+		return nil, fmt.Errorf("config %s: unknown key(s): %s", path, strings.Join(names, ", "))
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate config %s: %w", path, err)

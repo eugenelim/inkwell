@@ -73,7 +73,7 @@ func newDispatchTestModel(t *testing.T) Model {
 	acc, err := st.GetAccount(context.Background())
 	require.NoError(t, err)
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
-	m := New(Deps{
+	m, err := New(Deps{
 		Auth:     dispatchTestAuth{},
 		Store:    st,
 		Engine:   newDispatchTestEngine(),
@@ -81,6 +81,7 @@ func newDispatchTestModel(t *testing.T) Model {
 		Logger:   logger,
 		Account:  acc,
 	})
+	require.NoError(t, err)
 	// Establish dimensions so rendering is well-defined.
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
@@ -798,6 +799,39 @@ func (s *stubTriageWithUndo) Undo(_ context.Context, _ int64) (UndoneAction, err
 		return UndoneAction{}, s.undoErr
 	}
 	return UndoneAction{Label: s.undoneLabel, MessageIDs: []string{"m-1"}}, nil
+}
+
+// TestHelpKeyOpensOverlay is the spec-04-§12 dispatch invariant:
+// pressing `?` from normal mode transitions to HelpMode. The
+// overlay is read-only; visible-delta is in app_e2e_test.go.
+func TestHelpKeyOpensOverlay(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.Equal(t, NormalMode, m.mode)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	m = m2.(Model)
+	require.Equal(t, HelpMode, m.mode, "? must transition to HelpMode")
+
+	// Esc closes.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode, "Esc must close help overlay")
+}
+
+// TestHelpCommandOpensOverlay is the parity test: `:help` drives
+// the same flow as `?`.
+func TestHelpCommandOpensOverlay(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "help" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, HelpMode, m.mode)
 }
 
 // TestUndoKeyDispatchesUndoCmd is the spec-07-§11 dispatch invariant:
