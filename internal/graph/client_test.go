@@ -294,3 +294,110 @@ func TestErrorClassification(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateFolderTopLevel covers the spec 18 §4 happy path:
+// POST /me/mailFolders with the displayName body.
+func TestCreateFolderTopLevel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/me/mailFolders", r.URL.Path)
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "Vendors", body["displayName"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"f-new","displayName":"Vendors","parentFolderId":""}`)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	got, err := c.CreateFolder(context.Background(), "", "Vendors")
+	require.NoError(t, err)
+	require.Equal(t, "f-new", got.ID)
+	require.Equal(t, "Vendors", got.DisplayName)
+}
+
+// TestCreateFolderNested verifies the parentID branch hits the
+// childFolders sub-path.
+func TestCreateFolderNested(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/me/mailFolders/f-parent/childFolders", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"f-child","displayName":"2026","parentFolderId":"f-parent"}`)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	got, err := c.CreateFolder(context.Background(), "f-parent", "2026")
+	require.NoError(t, err)
+	require.Equal(t, "f-parent", got.ParentFolderID)
+}
+
+// TestRenameFolderPATCHesDisplayName covers the rename path.
+func TestRenameFolderPATCHesDisplayName(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		require.Equal(t, "/me/mailFolders/f-1", r.URL.Path)
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		seen = body["displayName"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	require.NoError(t, c.RenameFolder(context.Background(), "f-1", "Renamed"))
+	require.Equal(t, "Renamed", seen)
+}
+
+// TestRenameFolderRejectedOnWellKnown is the spec 18 §7 invariant:
+// Graph 403s rename of system folders; we surface unchanged.
+func TestRenameFolderRejectedOnWellKnown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":{"code":"ErrorAccessDenied","message":"cannot rename system folder"}}`)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	err = c.RenameFolder(context.Background(), "inbox", "NotAllowed")
+	require.Error(t, err)
+}
+
+// TestDeleteFolderTreatsNotFoundAsSuccess covers the CLAUDE.md §3
+// idempotency invariant: 404 on delete is success (folder already
+// gone matches the user's intent).
+func TestDeleteFolderTreatsNotFoundAsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	require.NoError(t, c.DeleteFolder(context.Background(), "f-vanished"))
+}
+
+// TestDeleteFolder204Success verifies the canonical success path.
+func TestDeleteFolder204Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		require.Equal(t, "/me/mailFolders/f-1", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+	require.NoError(t, c.DeleteFolder(context.Background(), "f-1"))
+}

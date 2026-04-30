@@ -36,16 +36,16 @@ func Defaults() *Config {
 			Theme:               "default",
 		},
 		Bindings: BindingsConfig{
-			Quit:            "q",
-			Help:            "?",
-			Cmd:             ":",
-			Search:          "/",
-			Refresh:         "ctrl+r",
-			FocusFolders:    "1",
-			FocusList:       "2",
-			FocusViewer:     "3",
-			NextPane:        "tab",
-			PrevPane:        "shift+tab",
+			Quit:         "q",
+			Help:         "?",
+			Cmd:          ":",
+			Search:       "/",
+			Refresh:      "ctrl+r",
+			FocusFolders: "1",
+			FocusList:    "2",
+			FocusViewer:  "3",
+			NextPane:     "tab",
+			PrevPane:     "shift+tab",
 			// Movement keys ship with both vi-style + arrow alternates
 			// (and PageUp/PageDown with both ctrl- + paging variants)
 			// so non-vim users aren't forced into hjkl. Comma-

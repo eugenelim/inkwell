@@ -33,6 +33,9 @@ recipes, see [`how-to.md`](how-to.md).
 | `Space`   | Same as `o`                                |
 | `Enter`   | Open folder (loads messages, focus → list) |
 | `l` / `→` | Same as `Enter`                            |
+| `N`       | Create a new folder under the focused one (empty selection → top-level) |
+| `R`       | Rename the focused folder (well-known folders refused server-side) |
+| `X`       | Delete the focused folder (with confirm; cascades to Deleted Items server-side) |
 
 Saved searches (configured in `[[saved_searches]]`) show under a
 "Saved Searches" section with a `☆` glyph. Enter on one runs its

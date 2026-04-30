@@ -99,6 +99,73 @@ func TestExecutorMarkReadMutatesLocalAndCallsGraph(t *testing.T) {
 	require.Len(t, pending, 0, "Done actions are not Pending")
 }
 
+// TestExecutorCreateFolderUpsertsLocally verifies the spec 18
+// happy path: graph CreateFolder is called with the right body,
+// the response is upserted into the local store so the sidebar
+// reflects the new folder before the next sync.
+func TestExecutorCreateFolderUpsertsLocally(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/mailFolders", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"f-vendors","displayName":"Vendors","parentFolderId":""}`)
+	})
+
+	res, err := exec.CreateFolder(context.Background(), accID, "", "Vendors")
+	require.NoError(t, err)
+	require.Equal(t, "f-vendors", res.ID)
+	require.Equal(t, "Vendors", res.DisplayName)
+
+	// Local upsert ran.
+	folders, err := st.ListFolders(context.Background(), accID)
+	require.NoError(t, err)
+	var found bool
+	for _, f := range folders {
+		if f.ID == "f-vendors" {
+			found = true
+			require.Equal(t, "Vendors", f.DisplayName)
+		}
+	}
+	require.True(t, found, "create_folder must upsert the new row locally")
+}
+
+// TestExecutorRenameFolderUpdatesLocally verifies the rename round-trip.
+func TestExecutorRenameFolderUpdatesLocally(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	// Seed a folder to rename.
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-old", AccountID: accID, DisplayName: "OldName",
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/mailFolders/f-old", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		w.WriteHeader(http.StatusOK)
+	})
+	require.NoError(t, exec.RenameFolder(context.Background(), "f-old", "NewName"))
+	folders, _ := st.ListFolders(context.Background(), accID)
+	for _, f := range folders {
+		if f.ID == "f-old" {
+			require.Equal(t, "NewName", f.DisplayName)
+		}
+	}
+}
+
+// TestExecutorDeleteFolderRemovesLocally verifies delete cascades.
+func TestExecutorDeleteFolderRemovesLocally(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-doomed", AccountID: accID, DisplayName: "Doomed",
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/mailFolders/f-doomed", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	require.NoError(t, exec.DeleteFolder(context.Background(), "f-doomed"))
+	folders, _ := st.ListFolders(context.Background(), accID)
+	for _, f := range folders {
+		require.NotEqual(t, "f-doomed", f.ID, "deleted folder must be gone from store")
+	}
+}
+
 // TestExecutorAddCategoryAppendsAndPatchesGraph verifies the spec
 // 07 §6.9 round trip: a new category is appended to the local row
 // (case-insensitive dedup), Graph receives a PATCH with the full
