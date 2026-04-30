@@ -16,6 +16,7 @@ import (
 
 	"github.com/eugenelim/inkwell/internal/action"
 	"github.com/eugenelim/inkwell/internal/auth"
+	"github.com/eugenelim/inkwell/internal/config"
 	"github.com/eugenelim/inkwell/internal/graph"
 	ilog "github.com/eugenelim/inkwell/internal/log"
 	"github.com/eugenelim/inkwell/internal/render"
@@ -149,7 +150,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	for _, s := range cfg.SavedSearches {
 		saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern})
 	}
-	model := ui.New(ui.Deps{
+	model, err := ui.New(ui.Deps{
 		Auth:          a,
 		Store:         st,
 		Engine:        engine,
@@ -164,7 +165,11 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Unsubscribe:   newUnsubAdapter(st, gc, version),
 		ThemeName:     cfg.UI.Theme,
 		SavedSearches: saved,
+		Bindings:      bindingsToOverrides(cfg.Bindings),
 	})
+	if err != nil {
+		return fmt.Errorf("tui init: %w", err)
+	}
 	prog := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := prog.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
@@ -323,6 +328,48 @@ func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEven
 		}
 	}
 	return out, nil
+}
+
+// bindingsToOverrides translates config.BindingsConfig (TOML-typed)
+// into the UI's consumer-side BindingOverrides shape. The two
+// structs are deliberately the same shape; this adapter exists so
+// the UI doesn't import internal/config (CLAUDE.md §2).
+func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
+	return ui.BindingOverrides{
+		Quit:            b.Quit,
+		Help:            b.Help,
+		Cmd:             b.Cmd,
+		Search:          b.Search,
+		Refresh:         b.Refresh,
+		FocusFolders:    b.FocusFolders,
+		FocusList:       b.FocusList,
+		FocusViewer:     b.FocusViewer,
+		NextPane:        b.NextPane,
+		PrevPane:        b.PrevPane,
+		Up:              b.Up,
+		Down:            b.Down,
+		Left:            b.Left,
+		Right:           b.Right,
+		PageUp:          b.PageUp,
+		PageDown:        b.PageDown,
+		Home:            b.Home,
+		End:             b.End,
+		Open:            b.Open,
+		MarkRead:        b.MarkRead,
+		MarkUnread:      b.MarkUnread,
+		ToggleFlag:      b.ToggleFlag,
+		Delete:          b.Delete,
+		PermanentDelete: b.PermanentDelete,
+		Archive:         b.Archive,
+		Move:            b.Move,
+		AddCategory:     b.AddCategory,
+		RemoveCategory:  b.RemoveCategory,
+		Undo:            b.Undo,
+		Filter:          b.Filter,
+		ClearFilter:     b.ClearFilter,
+		ApplyToFiltered: b.ApplyToFiltered,
+		Unsubscribe:     b.Unsubscribe,
+	}
 }
 
 func convertBatchResults(in []action.BatchResult) []ui.BulkResult {

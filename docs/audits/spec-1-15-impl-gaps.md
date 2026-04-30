@@ -8,7 +8,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 01 — Authentication (interactive browser + device code)
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/auth/`
+- Implementation: `internal/auth/`
 - Status overall: fully implemented
 - Implementation gaps:
   - DoD bullet "`inkwell whoami` works end-to-end" — `cmd/inkwell/cmd_root.go:38` registers `newWhoamiCmd(rc)` but no `cmd_whoami.go` file exists in `cmd/inkwell/`. The root command also references `newSignoutCmd(rc)` (`cmd_root.go:38`) with no corresponding file. The runners are presumably in `cmd_auth_runners.go` but the spec's three-command surface (`signin`/`signout`/`whoami`) has not been verified to compile / run end-to-end.
@@ -23,7 +23,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 02 — Local Cache Schema
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/store/`
+- Implementation: `internal/store/`
 - Status overall: partial (most surfaces present; maintenance + a few methods missing)
 - Implementation gaps:
   - DoD §10 / §8 maintenance job not implemented. There is no nightly task that runs `EvictBodies`, `DELETE FROM actions WHERE status='done' AND completed_at < now-7d`, `PRAGMA optimize`, or weekly `VACUUM`. `store.Vacuum` exists at `store.go:189` but is never invoked from anywhere in the tree.
@@ -38,7 +38,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 03 — Sync Engine
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/sync/` and `internal/graph/`
+- Implementation: `internal/sync/` and `internal/graph/`
 - Status overall: partial — diverged from delta-driven design
 - Implementation gaps:
   - DoD bullet "Initial backfill of a 5,000-message Inbox completes in <2 minutes" — there is no tombstone-aware delta path during backfill. `sync/delta.go:25-40` documents that quickStart and pullSince do **not** receive `@removed` markers, so server-side deletions/moves never propagate. `followDeltaPage` exists (`delta.go:131`) but is unreachable from a fresh install (`syncFolder` always picks quickStart for new folders, `delta.go:54`).
@@ -58,21 +58,21 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 04 — TUI Shell
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/ui/`
+- Implementation: `internal/ui/`
 - Status overall: partial
 - Implementation gaps:
-  - DoD bullet "Help screen lists all bindings" — `?` is in `keys.go:64` (Help binding) but `ui/app.go` has no `case key.Matches(_, m.keymap.Help):` handler. There is a static `renderHelpBar` (`app.go:1506`) showing pane-specific 6-7 hints, but no full overlay HelpModel as spec §12 requires.
+  - ~~DoD bullet "Help screen lists all bindings"~~ **Closed by PR 2 (v0.13.x).** New `internal/ui/help.go` renders a full `HelpModel` overlay grouped by section (Pane focus / Triage / Filter / Modes); `?` keybind + `:help` / `:?` command both open it. e2e visible-delta verifies all four section headers paint.
   - DoD bullet "`:quit`, `:q`, `Ctrl+C`, `q` all exit cleanly (engine stop, store close, no goroutine leaks)" — `dispatchCommand` quit (`app.go:817`) returns `tea.Quit` directly without calling `engine.Stop` or `store.Close`. Lifecycle teardown happens (presumably) in `cmd_run.go` but the spec wants the UI exit path to be the single shutdown gate.
   - Spec §13 minimum terminal: 80×24, with "terminal too small" message below. `relayout` (`app.go:1401`) clamps but never refuses to render.
   - Spec §6.5 / §17 `ui.transient_status_ttl` (default 5s) — not in defaults (`config/defaults.go:32-37`). Transient status messages are set but never auto-clear with a TTL goroutine.
 - Design drifts:
   - Spec §5 keymap declares `MarkRead/MarkUnread` and pane scoping rules. `keys.go:85-86` implements them. But spec 07 §12 promises pane-scoped meaning for `f` (list = flag, viewer = forward) and `r` (list = read, viewer = reply). The viewer `r` is wired (`app.go:1287-1295`), but `f` in the viewer fires `ToggleFlag` (`app.go:1266`) — there is no Forward action wired anywhere.
-  - Spec §6.4 lists 13 commands in the dispatcher: `quit`, `q`, `signin`, `signout`, `refresh`, `sync`, `folder`, `filter`, `search`, `open`, `save`, `rule`, `backfill`, `ooo`, `cal`, `help`. `dispatchCommand` (`app.go:810-862`) implements `quit`, `q`, `sync`, `signin`, `signout`, `filter`, `unfilter`, `cal/calendar`, `ooo`. Missing: `refresh`, `folder`, `search`, `open`, `save`, `rule`, `backfill`, `help`. Eight of fifteen commands have no handler.
+  - Spec §6.4 lists 13 commands in the dispatcher. After v0.13.x adds `:help` / `:?` (PR 2), missing: `refresh`, `folder`, `search`, `open`, `save`, `rule`, `backfill`. **Seven of fifteen commands have no handler — closed by PR 5.**
   - `ui.confirm_destructive_default` from spec §17 — not in `config/defaults.go`. Confirm modal in `app.go:791-805` always defaults the cursor to "No" unconditionally.
   - `ui.min_terminal_cols` / `ui.min_terminal_rows` from §17 — absent.
   - `ui.unread_indicator`, `ui.flag_indicator`, `ui.attachment_indicator` from §17 — absent in defaults; rendering hardcodes glyphs in `panes.go`.
 - Schema/config gaps:
-  - The whole `[bindings]` section is wired (`config/config.go:84`), but `BindingsConfig` is a struct of strings; nothing in the UI startup path translates these strings into `key.NewBinding(WithKeys(...))` overrides. `app.go:267` always uses `DefaultKeyMap()` and the user's TOML overrides are silently ignored. Spec §17 says "an unknown binding name in `[bindings]` is a startup error" — there's no validation.
+  - ~~The whole `[bindings]` section silently ignored~~ **Closed by PR 2 (v0.13.x).** `ApplyBindingOverrides` translates string overrides to `key.NewBinding`; `config.Load` rejects unknown TOML keys via `MetaData.Undecoded()` with a typed error naming the offender; duplicate bindings fail at `ui.New` with a typed error so the binary refuses to start with a broken keymap.
 - TODO-shaped spec language:
   - Spec §11 "Auto-detection from terminal can come post-v1 (Bubble Tea exposes `lipgloss.HasDarkBackground()`)." — explicit deferral.
 
@@ -80,7 +80,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 05 — Message Rendering
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/render/`
+- Implementation: `internal/render/`
 - Status overall: partial
 - Implementation gaps:
   - DoD "All viewer keybindings from §12 work" — only `j/k` scroll, `H` toggle headers, `r` reply, `f`/`a`/`d` triage are wired (`ui/app.go:1254-1303`). Missing in viewer dispatch: `o` (open in browser via webLink), `O` (open focused link), `e` (toggle quote expand), `Q` (toggle all quotes), `1`-`9` (open link [N]), `a`-`z` (save attachment), `Shift+A`-`Shift+Z` (open attachment), `[` `]` (prev/next message in conversation).
@@ -105,7 +105,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 06 — Hybrid Search
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/search/` is a stub (`doc.go` only)
+- Implementation: `internal/search/` is a stub (`doc.go` only)
 - Status overall: mostly-spec-only
 - Implementation gaps:
   - The entire `internal/search/` package is `// Package search implements hybrid local + server-side search. See spec 06.` and nothing else.
@@ -126,7 +126,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 07 — Single-Message Triage Actions
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/action/`
+- Implementation: `internal/action/`
 - Status overall: partial
 - Implementation gaps:
   - DoD "All 13 action types in §3 implemented" — `executor.go:23-30` exposes only MarkRead, MarkUnread, Flag, Unflag, SoftDelete, Archive, Move. **Missing:** `permanent_delete`, `add_category`, `remove_category`, `move`-with-arbitrary-folder picker. The four draft types (`create_draft`, `create_draft_reply`, `create_draft_reply_all`, `create_draft_forward`) are not in the queued-action surface — only `CreateDraftReply` exists as a one-off non-queued path (`draft.go:26`).
@@ -151,7 +151,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 08 — Pattern Language
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/pattern/`
+- Implementation: `internal/pattern/`
 - Status overall: partial
 - Implementation gaps:
   - DoD "All 18 operators from §3.1 implemented." Lexer/parser support most operators. The local SQL evaluator (`eval_local.go`) covers 14 operators. **Missing in execution:** `~h` is explicitly rejected (`eval_local.go:117` "header lookup is server-only") and there is no server-side evaluator for it.
@@ -169,7 +169,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 09 — $batch Execution Engine
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/graph/batch.go` + `internal/action/batch.go`
+- Implementation: `internal/graph/batch.go` + `internal/action/batch.go`
 - Status overall: partial
 - Implementation gaps:
   - DoD "Composite undo entry pushed for bulk operations; undo executes inverse bulk." Not implemented. `action/batch.go:106-186` does not push any undo entry.
@@ -189,7 +189,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 10 — Bulk Operations UX
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/ui/app.go` (no separate `internal/ui/filter.go`/`bulk.go`/`preview.go`/`progress.go`)
+- Implementation: `internal/ui/app.go` (no separate `internal/ui/filter.go`/`bulk.go`/`preview.go`/`progress.go`)
 - Status overall: partial
 - Implementation gaps:
   - DoD "Filter mode works for all spec-08 pattern strategies" — only LocalOnly works (because spec 08 only ships LocalOnly).
@@ -214,7 +214,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 11 — Saved Searches as Virtual Folders
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/savedsearch/` is a stub (`doc.go` only)
+- Implementation: `internal/savedsearch/` is a stub (`doc.go` only)
 - Status overall: mostly-spec-only
 - Implementation gaps:
   - `internal/savedsearch/savedsearch.go`, `store.go`, `evaluator.go`, `refresh.go` from spec §2 — none exist.
@@ -240,7 +240,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 12 — Calendar (Read-Only)
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/graph/calendar.go` + `ui/calendar.go`
+- Implementation: `internal/graph/calendar.go` + `ui/calendar.go`
 - Status overall: partial
 - Implementation gaps:
   - DoD "`events` and `event_attendees` tables created via migration `002`." Migration `002_meeting_message_type.sql` does NOT add these tables. **The whole calendar schema (§3) is missing.** No `events` table, no `event_attendees` table, no indexes (`idx_events_start`, `idx_events_account_start`, `idx_events_series`, `idx_attendees_event`). Calendar data is fetched live and not persisted.
@@ -263,7 +263,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 13 — Mailbox Settings
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/graph/mailbox.go` + `ui/oof.go`. `internal/settings/` is a stub.
+- Implementation: `internal/graph/mailbox.go` + `ui/oof.go`. `internal/settings/` is a stub.
 - Status overall: partial
 - Implementation gaps:
   - DoD "`:settings` modal renders all read fields." — no `:settings` command in `dispatchCommand`, no settings modal. Only `:ooo` is wired.
@@ -284,7 +284,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 14 — CLI Mode
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/cmd/inkwell/`. `internal/cli/` is a stub.
+- Implementation: `cmd/inkwell/`. `internal/cli/` is a stub.
 - Status overall: mostly-spec-only
 - Implementation gaps:
   - DoD "All subcommands from §6 implemented and tested." Implemented: `signin`, `signout`, `whoami` (registered `cmd_root.go:37-39`), `folders` (`cmd_folders.go`), `messages` (`cmd_messages.go`), `sync` (`cmd_sync.go`), `filter` (`cmd_filter.go`). **Missing:** `folder` (subscribe/unsubscribe/show/tree), `message` (show/read/unread/flag/unflag/move/delete/permanent-delete/attachments/save-attachment/reply/reply-all/forward), `rule` (list/show/save/edit/delete/eval/apply), `calendar` (today/week/agenda/show), `ooo` (on/off/set), `settings`, `export`, `daemon`, `backfill`. Roughly 70% of the spec's CLI surface is absent.
@@ -307,7 +307,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 15 — Compose / Reply (drafts only)
 
-- Implementation: `/Users/eu.gene.lim/Code/workspace-personal/inkwell/internal/compose/` + `action/draft.go` + UI compose flow
+- Implementation: `internal/compose/` + `action/draft.go` + UI compose flow
 - Status overall: partial
 - Implementation gaps:
   - DoD "Action executor (extending spec 07) handles the four new draft types with idempotent local apply + Graph dispatch + replay." Only `CreateDraftReply` is implemented (`action/draft.go:26-42`). Missing: `TypeCreateDraft` (new), `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft`. The action enum in `store/types.go:107-117` does not include any draft action types — drafts are dispatched out-of-band, **not** through the queued action surface. Spec §5 / §8 contract is violated: drafts are not in the action queue, not idempotent on replay, and not in the `actions` table.
@@ -337,7 +337,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
 | 02   | partial | 4 | Maintenance / `Vacuum` / body LRU eviction never invoked at runtime (§8) |
 | 03   | partial | 6 | `ThrottledEvent` / `AuthRequiredEvent` never emitted; UI handlers are dead code |
-| 04   | partial | 9 | 8 of 15 `:` commands unimplemented; `[bindings]` config silently ignored |
+| 04   | partial | 7 | 7 of 15 `:` commands unimplemented (PR 5); `[bindings]` + `?` help closed in v0.13.x |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
 | 07   | partial | 7 | `D`/`m`/`c`/`C` unbound; permanent-delete absent (undo closed in v0.13.x) |
@@ -358,13 +358,13 @@ Ranked by what blocks a v0.X release.
 
 1. ~~**Action queue undo unimplemented (spec 07 §11)**~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse, `u` wired in list + viewer, e2e visible-delta verifies the status bar paints. See `docs/plans/spec-07.md` for the iteration log.
 
-2. **`[bindings]` config silently ignored (spec 04 §17)** — `config.BindingsConfig` decodes user TOML but `ui.New` always uses `DefaultKeyMap()`. A user customising bindings sees no effect and gets no error. Blocks v0.4.x customisation promise; misleading documentation.
+2. ~~**`[bindings]` config silently ignored (spec 04 §17)**~~ **Closed by PR 2 (v0.13.x).** `?` help overlay (§12) and `:help` command (§6.4) closed in the same PR. See `docs/plans/spec-04.md` iter 9.
 
 3. **`ThrottledEvent` / `AuthRequiredEvent` never emitted (spec 03 §3)** — `graph.OnThrottle` is called but never forwarded to engine events. UI's `case isync.ThrottledEvent` and `case isync.AuthRequiredEvent` are dead. Blocks v0.3.x reliability story (users see throttling silently degrade sync without explanation; revoked tokens silently break the app until restart).
 
 4. **Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)** — keybinding declared but unbound; no Graph helper, no executor branch, no confirmation modal. Blocks v0.7.x because the spec promises a destructive verb and `D` is in the user-facing keymap (`renderHelpBar` lists "d delete" but no `D`).
 
-5. **8 of 15 `:` commands unimplemented (spec 04 §6.4)** — `:refresh`, `:folder`, `:search`, `:open`, `:save`, `:rule`, `:backfill`, `:help` all return "unknown command". Each is referenced in user docs and other specs (e.g., spec 03 `:backfill`, spec 11 `:rule save`). Blocks v0.4.x discoverability and v0.11.x saved-search promotion.
+5. **7 of 15 `:` commands unimplemented (spec 04 §6.4)** — `:refresh`, `:folder`, `:search`, `:open`, `:save`, `:rule`, `:backfill` all return "unknown command". (`:help` closed by PR 2.) Each is referenced in user docs and other specs (spec 03 `:backfill`, spec 11 `:rule save`). Blocks v0.4.x discoverability and v0.11.x saved-search promotion.
 
 6. **Calendar schema not migrated (spec 12 §3)** — migration 002 is `meeting_message_type`, not the calendar tables. Calendar is fetched live from Graph each time `:cal` opens; no offline support; no delta sync. Blocks v0.10.x calendar feature when offline / when sync engine should refresh in background.
 

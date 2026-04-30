@@ -86,14 +86,16 @@ func newE2EModel(t *testing.T) (Model, *fakeEngine) {
 	st, acc := openE2EStore(t)
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
 	eng := newFakeEngine()
-	return New(Deps{
+	m, err := New(Deps{
 		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
 		Store:    st,
 		Engine:   eng,
 		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: "hello world"}),
 		Logger:   logger,
 		Account:  acc,
-	}), eng
+	})
+	require.NoError(t, err)
+	return m, eng
 }
 
 func TestBootRendersThreePanesAndStatusBar(t *testing.T) {
@@ -262,7 +264,7 @@ func TestFoldersEnumeratedEventRendersSidebar(t *testing.T) {
 
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
 	eng := newFakeEngine()
-	m := New(Deps{
+	m, err := New(Deps{
 		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
 		Store:    st,
 		Engine:   eng,
@@ -270,6 +272,7 @@ func TestFoldersEnumeratedEventRendersSidebar(t *testing.T) {
 		Logger:   logger,
 		Account:  acc,
 	})
+	require.NoError(t, err)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
 	// First paint shows no folders (the store is empty).
@@ -313,7 +316,7 @@ func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
 	}))
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
 	eng := newFakeEngine()
-	m := New(Deps{
+	m, err := New(Deps{
 		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
 		Store:    st,
 		Engine:   eng,
@@ -321,6 +324,7 @@ func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
 		Logger:   logger,
 		Account:  acc,
 	})
+	require.NoError(t, err)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
@@ -486,7 +490,7 @@ func TestSubfoldersRenderWithIndentation(t *testing.T) {
 
 	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
 	eng := newFakeEngine()
-	m := New(Deps{
+	m, err := New(Deps{
 		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
 		Store:    st,
 		Engine:   eng,
@@ -494,6 +498,7 @@ func TestSubfoldersRenderWithIndentation(t *testing.T) {
 		Logger:   logger,
 		Account:  acc,
 	})
+	require.NoError(t, err)
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
 	// Inbox auto-expands → "Projects" visible (a child of Inbox).
@@ -544,6 +549,46 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 		s := string(out)
 		// Focus marker has moved to Messages and is gone from Folders.
 		return contains(s, "▌ Messages") && !contains(s, "▌ Folders")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestHelpOverlayShowsAllSections is the spec-04-§12 e2e visible-
+// delta test (CLAUDE.md §5.4): pressing `?` paints a modal that
+// includes every section header from buildHelpSections, plus the
+// Esc-to-close hint. Without this the user could press `?` and
+// see nothing — exactly the v0.2.6 regression class.
+func TestHelpOverlayShowsAllSections(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// All four section headers must render.
+		return contains(s, "Pane focus") &&
+			contains(s, "Triage") &&
+			contains(s, "Filter") &&
+			contains(s, "Modes") &&
+			contains(s, "Esc")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Esc closes; the three-pane layout returns.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// "▌ Messages" focus marker is the canonical normal-mode
+		// signal; the modal-only string "Esc / q  close" should be
+		// gone.
+		return contains(s, "▌ Messages") && !contains(s, "Esc / q  close")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

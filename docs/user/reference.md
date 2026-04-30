@@ -20,6 +20,7 @@ recipes, see [`how-to.md`](how-to.md).
 | `Ctrl+R`       | Force a sync cycle now                |
 | `:`            | Open command bar                      |
 | `/`            | Search (FTS over local cache)         |
+| `?`            | Open the help overlay (every binding) |
 | `Esc`          | Cancel mode / clear search            |
 
 ## Folders pane (when focused)
@@ -126,6 +127,7 @@ and don't currently mark-read. Use the list pane for that.
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
 | `:ooo` / `:outofoffice`       | Open the out-of-office modal (view + toggle on/off)             |
 | `:unsub` / `:unsubscribe`     | Unsubscribe from the focused message (same flow as `U` keybinding) |
+| `:help` / `:?`                | Open the help overlay (same as `?`)                              |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
 search across subject and body (`~B *<text>*`). `:filter [External]`
