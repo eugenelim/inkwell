@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,55 @@ func TestExecutorMarkReadMutatesLocalAndCallsGraph(t *testing.T) {
 	pending, err := st.PendingActions(context.Background())
 	require.NoError(t, err)
 	require.Len(t, pending, 0, "Done actions are not Pending")
+}
+
+// TestExecutorPermanentDeleteHitsGraphAndRemovesLocally is the spec
+// 07 §6.7 invariant: the executor calls POST
+// /me/messages/{id}/permanentDelete, the local row is removed, and
+// no undo entry is pushed (the action is intentionally
+// non-reversible).
+func TestExecutorPermanentDeleteHitsGraphAndRemovesLocally(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	var hits atomic.Int32
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1/permanentDelete", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		require.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	require.NoError(t, exec.PermanentDelete(context.Background(), accID, "m-1"))
+	require.Equal(t, int32(1), hits.Load(), "Graph permanentDelete must be called exactly once")
+
+	// Local row gone — GetMessage returns ErrNotFound.
+	_, err := st.GetMessage(context.Background(), "m-1")
+	require.ErrorIs(t, err, store.ErrNotFound,
+		"permanent_delete must remove the local row")
+
+	// No undo entry pushed (Inverse returns ok=false).
+	_, err = st.PeekUndo(context.Background())
+	require.ErrorIs(t, err, store.ErrNotFound,
+		"permanent_delete must NOT push to the undo stack — irreversible by design")
+}
+
+// TestExecutorPermanentDeleteRollsBackOnGraphFailure verifies the
+// snapshot-restore path: if Graph rejects the destructive call,
+// the local row gets re-inserted from the pre-action snapshot so
+// the user's view returns to consistency.
+func TestExecutorPermanentDeleteRollsBackOnGraphFailure(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1/permanentDelete", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":{"code":"Forbidden","message":"no"}}`)
+	})
+
+	err := exec.PermanentDelete(context.Background(), accID, "m-1")
+	require.Error(t, err)
+
+	// Local row restored.
+	got, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.NotNil(t, got, "rollback must re-insert the message after Graph failure")
+	require.Equal(t, "m-1", got.ID)
 }
 
 // TestExecutorMarkReadPushesUndoEntry is the spec 07 §11 invariant:

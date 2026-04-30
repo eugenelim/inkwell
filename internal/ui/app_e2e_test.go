@@ -555,6 +555,46 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestPermanentDeleteOpensConfirmModalWithIrreversibleWarning is
+// the spec 07 §6.7 e2e visible-delta test: pressing D paints a
+// confirm modal that prominently names the irreversibility,
+// includes the message subject + sender for a final sanity check,
+// and the y key cycles back to the list with the row gone.
+func TestPermanentDeleteOpensConfirmModalWithIrreversibleWarning(t *testing.T) {
+	m, _ := newE2EModel(t)
+	stub := &e2eTriageStub{}
+	m.deps.Triage = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus list, press D.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+
+	// Visible delta #1: confirm modal with the irreversibility warning.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "PERMANENT DELETE") &&
+			contains(s, "irreversible") &&
+			contains(s, "[y]es / [N]o")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Cancel — n must NOT fire PermanentDelete.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "permanent delete cancelled") && !contains(s, "[y]es / [N]o")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // TestHelpOverlayShowsAllSections is the spec-04-§12 e2e visible-
 // delta test (CLAUDE.md §5.4): pressing `?` paints a modal that
 // includes every section header from buildHelpSections, plus the
@@ -610,6 +650,9 @@ func (s *e2eTriageStub) ToggleFlag(_ context.Context, _ int64, _ string, _ bool)
 }
 func (s *e2eTriageStub) SoftDelete(_ context.Context, _ int64, _ string) error { return nil }
 func (s *e2eTriageStub) Archive(_ context.Context, _ int64, _ string) error    { return nil }
+func (s *e2eTriageStub) PermanentDelete(_ context.Context, _ int64, _ string) error {
+	return nil
+}
 func (s *e2eTriageStub) Undo(_ context.Context, _ int64) (UndoneAction, error) {
 	atomicAdd(&s.undoCalls, 1)
 	return UndoneAction{Label: s.label, MessageIDs: []string{"m-1"}}, nil

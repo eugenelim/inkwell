@@ -34,6 +34,10 @@ func applyLocal(ctx context.Context, st store.Store, a store.Action, pre *store.
 			return fmt.Errorf("apply local: move missing destination")
 		}
 		return st.UpdateMessageFields(ctx, id, store.MessageFields{FolderID: &dest})
+	case store.ActionPermanentDelete:
+		// Optimistic local delete; if Graph rejects, rollbackLocal
+		// re-inserts from the snapshot.
+		return st.DeleteMessage(ctx, id)
 	default:
 		return fmt.Errorf("apply local: unsupported action type %q", a.Type)
 	}
@@ -54,6 +58,10 @@ func rollbackLocal(ctx context.Context, st store.Store, a store.Action, pre *sto
 	case store.ActionSoftDelete, store.ActionMove:
 		fid := pre.FolderID
 		return st.UpdateMessageFields(ctx, pre.ID, store.MessageFields{FolderID: &fid})
+	case store.ActionPermanentDelete:
+		// Re-insert the snapshot so the user's view returns to the
+		// pre-action state when Graph rejects the destructive call.
+		return st.UpsertMessage(ctx, *pre)
 	}
 	return nil
 }
@@ -100,6 +108,11 @@ func (e *Executor) dispatch(ctx context.Context, a store.Action) error {
 			return nil
 		}
 		return err
+	case store.ActionPermanentDelete:
+		// Spec 07 §6.7: POST /me/messages/{id}/permanentDelete.
+		// Irreversible from the tenant; the UI must guard with a
+		// confirm modal before reaching this method.
+		return e.gc.PermanentDelete(ctx, id)
 	default:
 		return fmt.Errorf("dispatch: unsupported action type %q", a.Type)
 	}

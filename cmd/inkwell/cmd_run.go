@@ -242,6 +242,10 @@ func (t triageAdapter) Archive(ctx context.Context, accountID int64, messageID s
 	return t.exec.Archive(ctx, accountID, messageID)
 }
 
+func (t triageAdapter) PermanentDelete(ctx context.Context, accountID int64, messageID string) error {
+	return t.exec.PermanentDelete(ctx, accountID, messageID)
+}
+
 func (t triageAdapter) Undo(ctx context.Context, accountID int64) (ui.UndoneAction, error) {
 	entry, err := t.exec.Undo(ctx, accountID)
 	if err != nil {

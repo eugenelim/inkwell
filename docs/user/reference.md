@@ -49,6 +49,7 @@ pattern via the filter machinery.
 | `R`       | Mark unread                                                   |
 | `f`       | Toggle flag                                                   |
 | `d`       | Soft-delete (move to Deleted Items)                           |
+| `D`       | Permanent delete (with confirm; bypasses Deleted Items; **NOT undoable**) |
 | `a`       | Archive (move to Archive folder)                              |
 | `;`       | Begin bulk chord (only when a filter is active)               |
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
@@ -78,6 +79,7 @@ pull more from Graph.
 | `s`       | Open the most-recently-saved draft in Outlook (after `r` saves) |
 | `f`       | Toggle flag (focus stays — flag, keep reading)                |
 | `d`       | Soft-delete (focus pops back to list)                         |
+| `D`       | Permanent delete (with confirm; **NOT undoable**)             |
 | `a`       | Archive (focus pops back to list)                             |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `u`       | Undo the most recent triage action                            |
