@@ -9,7 +9,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 ## Spec 01 — Authentication (interactive browser + device code)
 
 - Implementation: `internal/auth/`
-- Status overall: fully implemented
+- Status overall: partial — sign-in flows ship; AADSTS classification + clock-skew detection + CLI PromptFn missing.
 - Implementation gaps:
   - DoD bullet "`inkwell whoami` works end-to-end" — `cmd/inkwell/cmd_root.go:38` registers `newWhoamiCmd(rc)` but no `cmd_whoami.go` file exists in `cmd/inkwell/`. The root command also references `newSignoutCmd(rc)` (`cmd_root.go:38`) with no corresponding file. The runners are presumably in `cmd_auth_runners.go` but the spec's three-command surface (`signin`/`signout`/`whoami`) has not been verified to compile / run end-to-end.
   - Spec §11 lists "Conditional Access requires a compliant / managed device" with a guarded user-facing message. `internal/auth/auth.go:296,300` only wraps MSAL errors with `fmt.Errorf("interactive auth: %w", ...)`; there is no AADSTS code classification (`AADSTS530003`, `AADSTS65001`, etc.) and no friendly message rewriting. The spec table promises specific error text per scenario; the code passes the raw MSAL string through.
@@ -29,7 +29,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - ~~Maintenance job not implemented~~ **Closed by PR 11 (v0.13.x).** New `internal/sync/maintenance.go` runs in its own goroutine off the engine's main timer. Each pass: EvictBodies (config caps), SweepDoneActions (config retention), optional Vacuum (off by default). Negative MaintenanceInterval is the test-only disable sentinel.
   - `internal/store/saved_searches.go` has no `delete-by-name` helper despite `Manager.Delete` consuming an ID per spec 11. Existing `DeleteSavedSearch(id)` is correct; flagging because spec 11 §3 wants name-based lookup which requires another method spec 11 doesn't get either way.
 - Design drifts:
-  - `EvictBodies` signature drift: spec §5 declares `EvictBodies(ctx context.Context) error` (caller-less budget) but `internal/store/store.go:57` exposes `EvictBodies(ctx, maxCount, maxBytes) (evicted int, err error)`. Acceptable refinement, but no caller anywhere passes the cache config caps from `[cache]` in `internal/config/defaults.go:17-22` into a periodic task. The eviction code is dead at runtime.
+  - ~~`EvictBodies` signature drift; eviction code dead at runtime~~ **Closed by PR 11 (v0.13.x).** The new `internal/sync/maintenance.go` periodically calls `EvictBodies` with the configured `BodyCacheMaxCount` / `BodyCacheMaxBytes` caps. The signature stays as-is (caller passes caps explicitly); production wiring now lives.
 - Schema/config gaps:
   - `flag_due_at` and `flag_completed_at` columns exist in `001_initial.sql:54-55` but spec 07's `flag` action with `due_date` parameter (§3 / §6.3) writes the param and never persists it. `MessageFields` (`store/types.go:206`) has no `FlagDueAt` field, so flag-with-due is structurally impossible.
 - TODO-shaped spec language: none.
@@ -67,7 +67,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Spec §6.5 / §17 `ui.transient_status_ttl` (default 5s) — not in defaults (`config/defaults.go:32-37`). Transient status messages are set but never auto-clear with a TTL goroutine.
 - Design drifts:
   - Spec §5 keymap declares `MarkRead/MarkUnread` and pane scoping rules. `keys.go:85-86` implements them. But spec 07 §12 promises pane-scoped meaning for `f` (list = flag, viewer = forward) and `r` (list = read, viewer = reply). The viewer `r` is wired (`app.go:1287-1295`), but `f` in the viewer fires `ToggleFlag` (`app.go:1266`) — there is no Forward action wired anywhere.
-  - Spec §6.4 lists 13 commands in the dispatcher. After v0.13.x: `:help` / `:?` shipped in PR 2; `:refresh` / `:folder` / `:open` / `:backfill` / `:search` shipped in PR 5. **Two of fifteen commands have no handler:** `:save` (saved-search promotion — depends on spec 11) and `:rule` (saved-search CRUD — depends on spec 11). Tracked under PR 5b alongside the spec 11 implementation.
+  - ~~Spec §6.4 lists 13 commands in the dispatcher (5 missing).~~ **Mostly closed.** `:help` / `:?` shipped in PR 2 (v0.13.x); `:refresh` / `:folder` / `:open` / `:backfill` / `:search` shipped in PR 5 (v0.13.x). **Two of fifteen commands remain:** `:save` (saved-search promotion) and `:rule` (saved-search CRUD) — both depend on spec 11's saved-search Manager. Tracked under PR 5b alongside the spec 11 implementation.
   - `ui.confirm_destructive_default` from spec §17 — not in `config/defaults.go`. Confirm modal in `app.go:791-805` always defaults the cursor to "No" unconditionally.
   - `ui.min_terminal_cols` / `ui.min_terminal_rows` from §17 — absent.
   - `ui.unread_indicator`, `ui.flag_indicator`, `ui.attachment_indicator` from §17 — absent in defaults; rendering hardcodes glyphs in `panes.go`.
@@ -287,7 +287,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation: `cmd/inkwell/`. `internal/cli/` is a stub.
 - Status overall: mostly-spec-only
 - Implementation gaps:
-  - DoD "All subcommands from §6 implemented and tested." Implemented: `signin`, `signout`, `whoami` (registered `cmd_root.go:37-39`), `folders` (`cmd_folders.go`), `messages` (`cmd_messages.go`), `sync` (`cmd_sync.go`), `filter` (`cmd_filter.go`). **Missing:** `folder` (subscribe/unsubscribe/show/tree), `message` (show/read/unread/flag/unflag/move/delete/permanent-delete/attachments/save-attachment/reply/reply-all/forward), `rule` (list/show/save/edit/delete/eval/apply), `calendar` (today/week/agenda/show), `ooo` (on/off/set), `settings`, `export`, `daemon`, `backfill`. Roughly 70% of the spec's CLI surface is absent.
+  - DoD "All subcommands from §6 implemented and tested." Implemented: `signin`, `signout`, `whoami`, `folders` (list), `messages`, `sync`, `filter`. Spec 18 (v0.15.x) added `folder new/rename/delete` (mailbox modification). **Still missing:** `folder subscribe/unsubscribe/show/tree` (mailbox subscription management — different from create/rename/delete), `message` (show/read/unread/flag/unflag/move/delete/permanent-delete/attachments/save-attachment/reply/reply-all/forward), `rule` (list/show/save/edit/delete/eval/apply — depends on spec 11), `calendar` (today/week/agenda/show — depends on spec 12 PR 6b), `ooo` (on/off/set — depends on spec 13 expansion), `settings`, `export`, `daemon`, `backfill`. ~60% of the spec's CLI surface still absent.
   - DoD "Text and JSON output for every command." `cmd_filter.go:58-64` supports `--output json`; `cmd_messages.go` likely similar but `cmd_folders.go` / `cmd_sync.go` need verification. The promised JSONSchema fixture per command (§12) is not in the repo.
   - DoD "Exit codes match §5.3." There is no exit-code mapping anywhere in `cmd/inkwell/`. All errors return `1` via `main.go:11`.
   - DoD "Pipeline-friendly output (line-delimited JSON, no enclosing array for streams)." `cmd_filter.go:59-64` emits `{"matched": n, "messages": [...]}`, an enclosing array. Spec §5.2 wants line-delimited.
@@ -332,23 +332,35 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Summary table
 
-| Spec | Status | Gap count | Highest-risk gap |
-|------|--------|-----------|------------------|
-| 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
-| 02   | partial | 3 | maintenance loop closed in v0.13.x; remaining gaps are §9 integration tests + bench-vs-100k drift |
-| 03   | partial | 4 | Priority queue for body fetches (§11) absent; quickStart/pullSince don't see tombstones (deviation tracked) |
-| 04   | partial | 5 | `:save` + `:rule` block on spec 11; transient_status_ttl, min_terminal, full lifecycle teardown remain. [triage]/[bulk]/[calendar] config sections shipped v0.13.x. |
-| 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
-| 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
-| 07   | partial | 5 | `m` (move-with-picker) unbound; D / categories closed v0.13.x |
-| 08   | partial | 5 | No Compile/Execute API, no server evaluators, no strategy selection |
-| 09   | partial | 6 | No concurrent batch fan-out; no per-sub-request 429 retry; no composite undo |
-| 10   | partial | 9 | No preview screen; no progress modal; only 4 of 10 `;` verbs wired |
-| 11   | mostly-spec-only | 9 | Whole `Manager` API absent; saved-search counts/refresh/CRUD unimplemented |
-| 12   | partial | 7 | events table + persistence shipped v0.13.x; sync engine pass / window slide / detail modal / pane layout still pending |
-| 13   | partial | 8 | Only enable/disable toggle; no schedule/audience/messages editing; no `:settings` |
-| 14   | mostly-spec-only | 10 | ~70% of CLI surface missing (rule/calendar/ooo/settings/message/export/daemon) |
-| 15   | partial | 8 | Drafts bypass the action queue; no `compose_sessions` migration; reply-only |
+**Counting note.** Numbers below are the count of distinct
+remaining bullets in the per-spec sections (Implementation gaps +
+Design drifts + Schema/config gaps; "TODO-shaped" entries are
+informational deferrals and excluded). The "Closed since v0.12.0"
+column tags the audit-drain PRs that struck out their bullets
+inline. Refresh after every audit-drain PR.
+
+| Spec | Status | Open | Closed since v0.12.0 | Highest-risk remaining |
+|------|--------|------|----------------------|------------------------|
+| 01   | partial | 4 | — | AADSTS code classification + clock-skew detection + CLI PromptFn missing |
+| 02   | partial | 2 | maintenance loop (PR 11), EvictBodies wiring (PR 11) | flag_due_at not in MessageFields; saved-search delete-by-name (depends on spec 11) |
+| 03   | partial | 5 | ThrottledEvent + AuthRequiredEvent emission (PR 3) | tombstone-aware delta; engine-Stop UI goroutine leak; priority queue absent |
+| 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |
+| 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
+| 06   | mostly-spec-only | 10 | — | whole `internal/search/` is a doc stub; one-shot `store.Search` masquerades as the spec's streaming Searcher |
+| 07   | partial | 10 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1) | move-with-folder-picker; replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
+| 08   | partial | 7 | — | no Compile/Execute API; no server `$filter` / `$search` evaluators; no strategy selection |
+| 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |
+| 10   | partial | ~14 | bulk-config skeleton (PR 12) | no preview screen; no progress modal; 6 of 10 `;` verbs unbound; `F` keybind unhandled |
+| 11   | mostly-spec-only | 12 | — | whole `Manager` API absent; live counts / TOML mirror / `:rule` / seed defaults all unimplemented |
+| 12   | partial | 10 | events table + persistence + cache-first reads (PR 6a) | sync-engine third state; midnight window slide; detail modal; pane-vs-modal layout |
+| 13   | partial | 10 | — | OOF read-only beyond enable/disable; no schedule/audience editing; no `:settings`; no time-zone source of truth |
+| 14   | mostly-spec-only | 11 | spec 18 added `folder new/rename/delete` (overlap, not closure) | ~60% of CLI surface absent (rule/calendar/ooo/settings/message subverbs/export/daemon/backfill); exit-code map missing; line-delimited JSON not honoured |
+| 15   | partial | 12 | — | drafts bypass action queue; no `compose_sessions` migration; reply-only (no R/F/m); no Graph delete on discard |
+
+**Drained-since-v0.12.0 totals:** 12 audit bullets struck out
+across 5 specs (02 + 03 + 04 + 07 + 12). Six of the original
+top-10 leverage gaps are closed; see the next section for which
+ones.
 
 ---
 
