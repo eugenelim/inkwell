@@ -248,6 +248,88 @@ func TestSyncFolderEnumerationPersistsArchiveChildren(t *testing.T) {
 		"Archive's grandchild preserves the parent chain")
 }
 
+// TestSyncFolderEnumerationHandlesNestedFolderCalledInbox is the
+// v0.16.0 real-tenant regression: a user with a nested folder
+// literally named "Inbox" (very common — old-mail archives, year-
+// indexed organisation, shared-mailbox mounts) hit
+// `UNIQUE constraint failed: folders.account_id,
+// folders.well_known_name` on first sync. RT-1 switched to
+// /me/mailFolders/delta which returns nested children; the legacy
+// `inferWellKnownName(displayName)` heuristic fired on the child
+// "Inbox" too, conflicting with the real top-level one.
+//
+// Fix: only apply the heuristic to top-level folders (parent is
+// empty after the NULL-out). Children keep wellKnownName empty
+// when Graph didn't set one.
+func TestSyncFolderEnumerationHandlesNestedFolderCalledInbox(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				// Real top-level Inbox with wellKnownName populated by Graph.
+				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+				// User-created folder coincidentally named "Inbox" inside Archive —
+				// the heuristic would otherwise infer wellKnownName="inbox" and
+				// conflict with the real one.
+				{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive", ParentFolderID: "msgfolderroot"},
+				{ID: "f-archive-inbox", DisplayName: "Inbox", ParentFolderID: "f-archive"},
+				// Another collision: user has a folder called "Sent Items"
+				// inside their Archive.
+				{ID: "f-archive-sent", DisplayName: "Sent Items", ParentFolderID: "f-archive"},
+			},
+		})
+	})
+
+	// Without the fix, this errors with the unique-constraint failure.
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()),
+		"sync must NOT error when a child folder shares a display name with a well-known one")
+
+	got, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+
+	byID := map[string]store.Folder{}
+	for _, f := range got {
+		byID[f.ID] = f
+	}
+	require.Equal(t, "inbox", byID["f-inbox"].WellKnownName,
+		"real Inbox keeps its wellKnownName")
+	require.Empty(t, byID["f-archive-inbox"].WellKnownName,
+		"nested 'Inbox' folder has no inferred wellKnownName (would conflict)")
+	require.Empty(t, byID["f-archive-sent"].WellKnownName,
+		"nested 'Sent Items' folder has no inferred wellKnownName")
+}
+
+// TestSyncFolderEnumerationDedupesGraphReturnedWellKnownClash is
+// the defensive secondary: even if Graph itself returns two
+// folders with the same wellKnownName (unlikely but possible for
+// shared-mailbox mounts, search folders, etc.), the sync layer
+// must not error out on the unique-index conflict. The first
+// folder with a given wellKnownName wins; later rows in the same
+// response keep their own ID but get wellKnownName cleared.
+func TestSyncFolderEnumerationDedupesGraphReturnedWellKnownClash(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				{ID: "f-inbox-1", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+				// Pathological case: Graph returns a second folder also
+				// claiming to be the inbox. Sync must not crash.
+				{ID: "f-inbox-2", DisplayName: "Inbox (shared)", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+			},
+		})
+	})
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
+	got, _ := st.ListFolders(context.Background(), acc)
+	require.Len(t, got, 2)
+	byID := map[string]store.Folder{}
+	for _, f := range got {
+		byID[f.ID] = f
+	}
+	require.Equal(t, "inbox", byID["f-inbox-1"].WellKnownName, "first wins")
+	require.Empty(t, byID["f-inbox-2"].WellKnownName, "second has wellKnownName cleared")
+}
+
 // TestSyncFolderEnumerationSkipsRemovedDeltaEntries guards the
 // future-incremental path: when a persisted delta token leads to
 // a delta page that includes @removed markers (server-side
