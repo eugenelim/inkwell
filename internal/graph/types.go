@@ -86,9 +86,21 @@ type FolderListResponse struct {
 }
 
 // EnvelopeSelectFields is the locked $select for envelope sync (spec §5.2).
+//
+// `meetingMessageType` was previously included here (spec 16 v0.13.0)
+// to drive the canonical 📅 indicator. Microsoft Graph rejected the
+// field on `/me/mailFolders/{folderID}/messages?$select=...` with
+// `RequestBroker--ParseUri: Could not find a property named
+// 'meetingMessageType' on type 'Microsoft.OutlookServices.Message'` —
+// the property only exists on the `microsoft.graph.eventMessage`
+// derived type, not on the polymorphic Message base. Calls to that
+// endpoint (every Backfill / wall-sync) failed completely on real
+// tenants. Removed; the list pane falls back to the subject-prefix
+// heuristic in `isLikelyMeeting` for invite detection. A future
+// release can re-introduce it via `$select=microsoft.graph.event
+// Message/meetingMessageType` casting if desired.
 const EnvelopeSelectFields = "id,internetMessageId,conversationId,conversationIndex," +
 	"subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients," +
 	"receivedDateTime,sentDateTime," +
 	"isRead,isDraft,flag,importance,inferenceClassification," +
-	"hasAttachments,categories,webLink,parentFolderId,lastModifiedDateTime," +
-	"meetingMessageType"
+	"hasAttachments,categories,webLink,parentFolderId,lastModifiedDateTime"
