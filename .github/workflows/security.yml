@@ -28,7 +28,7 @@ jobs:
   gosec:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
@@ -62,7 +62,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: run semgrep
         run: |
           semgrep \
@@ -84,7 +84,7 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
@@ -101,7 +101,7 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Full history so gitleaks scans every commit, not just HEAD.
           # Without fetch-depth=0, the action only sees a shallow
@@ -127,7 +127,7 @@ jobs:
     if: github.event_name == 'pull_request'
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
