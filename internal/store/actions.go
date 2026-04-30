@@ -57,6 +57,21 @@ func (s *store) PendingActions(ctx context.Context) ([]Action, error) {
 	return out, rows.Err()
 }
 
+// SweepDoneActions deletes Done / Failed actions whose completed_at
+// is before the supplied timestamp. Used by the maintenance loop
+// (spec 02 §8) to keep the actions table from growing unbounded.
+// Returns the number of rows deleted for telemetry / logging.
+func (s *store) SweepDoneActions(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM actions WHERE status IN ('done','failed') AND completed_at IS NOT NULL AND completed_at < ?",
+		before.Unix())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // UpdateActionStatus moves an action through its lifecycle.
 func (s *store) UpdateActionStatus(ctx context.Context, id string, status ActionStatus, reason string) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
