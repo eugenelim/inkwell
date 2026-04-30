@@ -21,6 +21,52 @@ move-with-picker remain deferred (drain-plan PR 4).
 
 ## Iteration log
 
+### Iter 3 — 2026-04-30 (permanent_delete, PR 4a of audit-drain)
+- Slice: spec 07 §6.7 — `D` keybind + confirm modal + Graph
+  helper + executor branch + Inverse non-reversible.
+- Files modified:
+  - `internal/graph/triage.go` — new `PermanentDelete(ctx, id)`
+    helper. POST /me/messages/{id}/permanentDelete; 404 treated
+    as success (idempotency); 204 No Content is canonical.
+  - `internal/action/executor.go` — `PermanentDelete(ctx, accID,
+    id)` method (mirrors SoftDelete shape).
+  - `internal/action/types.go` — applyLocal does
+    `st.DeleteMessage(id)` for ActionPermanentDelete; rollback
+    re-inserts from snapshot via UpsertMessage; dispatch calls
+    the new graph helper.
+  - `internal/ui/app.go` — `pendingPermanentDelete *store.Message`
+    on the model; new `startPermanentDelete(src)` opens the
+    confirm modal with the irreversibility warning + subject +
+    sender; ConfirmResultMsg branch fires runTriage on y; D
+    handler in dispatchList + dispatchViewer.
+  - cmd_run.go triageAdapter wires through.
+- Tests:
+  - `executor_test.go`: hits-Graph + removes-locally + no-undo;
+    rollback-on-Graph-failure restores from snapshot.
+  - `dispatch_test.go`: opens-confirm-modal; y fires; n cancels.
+  - `app_e2e_test.go`: visible-delta — modal carries
+    "PERMANENT DELETE" + "irreversible"; n shows
+    "permanent delete cancelled".
+- Decisions:
+  - The Inverse `permanent_delete → ok=false` invariant means
+    the executor's run() path doesn't push to the undo stack on
+    success, so pressing `u` after a confirmed D produces
+    "nothing to undo" rather than a deceptive restore attempt.
+    Matched test in inverse_test.go iter 2.
+  - Modal copy intentionally puts "PERMANENT DELETE" in caps and
+    "irreversible" twice (once in the verb, once in the body).
+    Heuristic: if the user breezes past these visual cues they
+    probably meant to do it.
+  - Confirm flow re-uses pendingPermanentDelete + ConfirmResultMsg
+    pattern from spec 16 unsubscribe — the precedent for
+    storing per-action context in a typed pointer field rather
+    than overloading pendingBulk.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
+
+  **Deferred to PR 4b:** add_category / remove_category
+  (needs picker), move-with-folder-picker (`m`).
+
 ### Iter 2 — 2026-04-30 (undo, PR 1 of audit-drain)
 - Slice: `internal/action/inverse.go` (Inverse function + reversibility table); `Executor.run` pushes inverse on success; `Executor.Undo` pops + applies; `store.Action.SkipUndo` bool prevents recursion; UI exposes Undo via `TriageExecutor`; `triageAdapter` in `cmd_run.go` translates `store.UndoEntry → ui.UndoneAction` + `store.ErrNotFound → ui.UndoEmpty`.
 - Tests:

@@ -53,6 +53,11 @@ type TriageExecutor interface {
 	ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error
 	SoftDelete(ctx context.Context, accountID int64, messageID string) error
 	Archive(ctx context.Context, accountID int64, messageID string) error
+	// PermanentDelete removes the message from the tenant entirely
+	// (spec 07 §6.7). Irreversible — caller MUST guard with the
+	// confirm modal; pressing `D` without confirmation is the
+	// primary footgun this method exists to handle.
+	PermanentDelete(ctx context.Context, accountID int64, messageID string) error
 	// Undo pops the most recent UndoEntry and applies the inverse
 	// action. Returns a UndoneAction describing what just got rolled
 	// back so the UI can paint a status message ("undid: deleted").
@@ -302,6 +307,12 @@ type Model struct {
 	// or the user cancels.
 	pendingUnsub          *UnsubscribeAction
 	pendingUnsubMessageID string
+
+	// Permanent delete (spec 07 §6.7). pendingPermanentDelete holds
+	// the focused message while the confirm modal is open; y fires
+	// PermanentDelete (irreversible — Inverse returns ok=false so
+	// the action doesn't push to the undo stack).
+	pendingPermanentDelete *store.Message
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -529,6 +540,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Confirm {
 				return m, m.runBulkCmd(action)
 			}
+		}
+		// Permanent delete confirmation (spec 07 §6.7): pendingPermanentDelete
+		// carries the focused message; y fires Triage.PermanentDelete.
+		if m.pendingPermanentDelete != nil && msg.Topic == "permanent_delete" {
+			src := *m.pendingPermanentDelete
+			m.pendingPermanentDelete = nil
+			if msg.Confirm {
+				return m.runTriage("permanent_delete", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
+					return m.deps.Triage.PermanentDelete(ctx, accID, s.ID)
+				})
+			}
+			m.engineActivity = "permanent delete cancelled"
+			return m, nil
 		}
 		// Unsubscribe confirmation (spec 16): pendingUnsub carries the
 		// resolved action; y fires execution, n drops it.
@@ -1387,6 +1411,12 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runTriage("soft_delete", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
 			return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
 		})
+	case key.Matches(msg, m.keymap.PermanentDelete):
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startPermanentDelete(sel)
 	case key.Matches(msg, m.keymap.Archive):
 		sel, ok := m.list.Selected()
 		if !ok {
@@ -1428,6 +1458,40 @@ func (m Model) runUndo() (tea.Model, tea.Cmd) {
 		return undoDoneMsg{undone: undone, folderID: folderID, err: err}
 	}
 	return m, cmd
+}
+
+// startPermanentDelete opens the spec 07 §6.7 confirm modal. The
+// modal copy explicitly names the irreversibility so the user
+// can't claim "I didn't realise"; the y key fires
+// `Triage.PermanentDelete`. n / Esc cancels.
+func (m Model) startPermanentDelete(src store.Message) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("permanent_delete: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	subj := src.Subject
+	if subj == "" {
+		subj = "(no subject)"
+	}
+	prompt := fmt.Sprintf(
+		"PERMANENT DELETE — irreversible.\n\nMessage: %q from %s\n\nThis bypasses Deleted Items. The message is gone from your tenant.\n\n[y]es / [N]o",
+		truncateForModal(subj, 60),
+		src.FromAddress,
+	)
+	m.pendingPermanentDelete = &src
+	m.confirm = m.confirm.Ask(prompt, "permanent_delete")
+	m.mode = ConfirmMode
+	return m, nil
+}
+
+// truncateForModal cuts a string for inline display in a confirm
+// modal. Subjects can be hundreds of characters; the modal would
+// blow past the screen width without trimming.
+func truncateForModal(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
 
 // startUnsubscribe begins the spec 16 U flow for a message id. If
@@ -1615,6 +1679,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.runTriage("soft_delete", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
 				return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
 			})
+		}
+	case key.Matches(msg, m.keymap.PermanentDelete):
+		if cur := m.viewer.current; cur != nil {
+			return m.startPermanentDelete(*cur)
 		}
 	case key.Matches(msg, m.keymap.Archive):
 		if cur := m.viewer.current; cur != nil {

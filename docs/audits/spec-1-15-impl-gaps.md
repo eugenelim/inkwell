@@ -130,7 +130,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Status overall: partial
 - Implementation gaps:
   - DoD "All 13 action types in §3 implemented" — `executor.go:23-30` exposes only MarkRead, MarkUnread, Flag, Unflag, SoftDelete, Archive, Move. **Missing:** `permanent_delete`, `add_category`, `remove_category`, `move`-with-arbitrary-folder picker. The four draft types (`create_draft`, `create_draft_reply`, `create_draft_reply_all`, `create_draft_forward`) are not in the queued-action surface — only `CreateDraftReply` exists as a one-off non-queued path (`draft.go:26`).
-  - Permanent delete: there is no `Executor.PermanentDelete` and no `graph.PermanentDelete` helper. `apply_local.go:40-41` returns `unsupported action type` for `ActionPermanentDelete`. The `D` keybinding is unbound in `app.go:1170-1186` — spec §12 expects confirmation + `permanentDelete` but only `d` (soft-delete) is wired.
+  - ~~Permanent delete unimplemented~~ **Closed by PR 4a (v0.13.x).** `graph.PermanentDelete` helper, `Executor.PermanentDelete`, applyLocal/rollback/dispatch branches, and the `D` keybind with confirm modal all shipped. Inverse returns ok=false so undo doesn't try to restore a tenant-deleted message. Categories (`c`/`C`) and move-with-folder-picker (`m`) deferred to PR 4b.
   - Categories: `ActionAddCategory` and `ActionRemoveCategory` are typed (`store/types.go:115-116`) but not handled in `applyLocal` or `dispatch`. The `c`/`C` keybindings (`keys.go:91-92`) have no dispatchList entry.
   - Move-with-folder-picker (spec §12.1): `m` keybinding is declared (`keys.go:91`) with no handler in `dispatchList`. No folder-picker modal exists in `internal/ui/`.
   - ~~DoD "Optimistic UI, rollback, undo, replay all verified" — **undo is unimplemented**.~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse on success, `u` wired in list + viewer dispatch, e2e visible-delta verifies the status bar paints `↶ undid: <label>`. See `docs/plans/spec-07.md` iteration log.
@@ -362,7 +362,7 @@ Ranked by what blocks a v0.X release.
 
 3. ~~**`ThrottledEvent` / `AuthRequiredEvent` never emitted (spec 03 §3)**~~ **Closed by PR 3 (v0.13.x).** Engine.OnThrottle hook + emitCycleFailure classifier; integration tests cover both paths. See `docs/plans/spec-03.md` iter 8.
 
-4. **Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)** — keybinding declared but unbound; no Graph helper, no executor branch, no confirmation modal. Blocks v0.7.x because the spec promises a destructive verb and `D` is in the user-facing keymap (`renderHelpBar` lists "d delete" but no `D`).
+4. ~~**Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)**~~ **Closed by PR 4a (v0.13.x).** See `docs/plans/spec-07.md` iter 3. Categories (`c`/`C`) and move-with-folder-picker (`m`) tracked under PR 4b.
 
 5. **7 of 15 `:` commands unimplemented (spec 04 §6.4)** — `:refresh`, `:folder`, `:search`, `:open`, `:save`, `:rule`, `:backfill` all return "unknown command". (`:help` closed by PR 2.) Each is referenced in user docs and other specs (spec 03 `:backfill`, spec 11 `:rule save`). Blocks v0.4.x discoverability and v0.11.x saved-search promotion.
 

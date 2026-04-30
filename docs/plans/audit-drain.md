@@ -290,7 +290,8 @@ config surface.
 | 1  | 07      | shipped (v0.13.x) | main | spec 07 §11 undo + §7.1 inverse | docs/plans/spec-07.md iter 2 |
 | 2  | 04      | shipped (v0.13.x) | main | spec 04 §17 [bindings] + §12 help overlay + §6.4 :help | docs/plans/spec-04.md iter 9 |
 | 3  | 03      | shipped (v0.13.x) | main | spec 03 §3 ThrottledEvent + AuthRequiredEvent | docs/plans/spec-03.md iter 8 |
-| 4  | 07      | not-started | — | — | — |
+| 4a | 07      | shipped (v0.13.x) | main | spec 07 §6.7 permanent_delete | docs/plans/spec-07.md iter 3 |
+| 4b | 07      | not-started (categories + move-with-picker) | — | — | — |
 | 5  | 04 (+11)| not-started | — | — | — |
 | 6  | 12      | not-started | — | — | — |
 | 7  | 15      | not-started | — | — | — |

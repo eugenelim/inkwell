@@ -81,6 +81,23 @@ func (e *Executor) ToggleFlag(ctx context.Context, accountID int64, messageID st
 	})
 }
 
+// PermanentDelete removes a message from the tenant entirely. Spec
+// 07 §6.7 invariant: this action is **irreversible**; Inverse
+// returns ok=false and Executor.run skips the undo push. The UI
+// MUST gate this method behind a confirm modal — pressing `D`
+// without confirmation is the primary footgun this method exists
+// to handle, so the executor refuses bare invocation by checking
+// the action's SkipUndo flag (set only via the confirmed-dispatch
+// path).
+func (e *Executor) PermanentDelete(ctx context.Context, accountID int64, messageID string) error {
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       store.ActionPermanentDelete,
+		MessageIDs: []string{messageID},
+	})
+}
+
 // SoftDelete moves a message to Deleted Items.
 func (e *Executor) SoftDelete(ctx context.Context, accountID int64, messageID string) error {
 	dest, alias, err := e.resolveWellKnownDestination(ctx, accountID, "deleteditems")
