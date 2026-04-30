@@ -2381,6 +2381,49 @@ func TestDispatchViewerZEntersFullscreenAndExits(t *testing.T) {
 	require.Equal(t, NormalMode, m.mode)
 }
 
+// TestIsStaleIDErrorRecognisesGraph404Variants pins the matcher
+// for Graph "object not found" responses. These come back as text
+// strings inside BodyRenderedMsg so the matcher is what decides
+// whether to clean up the stale local row.
+func TestIsStaleIDErrorRecognisesGraph404Variants(t *testing.T) {
+	hits := []string{
+		"fetch error: graph: ErrorItemNotFound: The specified object was not found in the store.",
+		"fetch error: graph: 404 Not Found",
+		"render error: object not found",
+	}
+	for _, s := range hits {
+		require.True(t, isStaleIDError(s), "expected stale-id match for %q", s)
+	}
+	misses := []string{
+		"render error: html parse failure",
+		"fetch error: graph: 503 Service Unavailable",
+		"",
+	}
+	for _, s := range misses {
+		require.False(t, isStaleIDError(s), "expected non-match for %q", s)
+	}
+}
+
+// TestUnfilterFallsBackToInboxWhenPriorEmpty confirms the v0.15.x
+// regression where running `:filter` before any folder load (so
+// priorFolderID was captured as "") then `:unfilter` was a stuck
+// no-op. With the inbox available in the folders pane, unfilter
+// must land the list there.
+func TestUnfilterFallsBackToInboxWhenPriorEmpty(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Force the buggy state: filter active, prior empty.
+	m.filterActive = true
+	m.filterPattern = "~B *something*"
+	m.priorFolderID = ""
+	m.list.FolderID = "filter:" + m.filterPattern
+
+	m2, cmd := m.dispatchCommand("unfilter")
+	m = m2.(Model)
+	require.False(t, m.filterActive, "filter must clear")
+	require.Equal(t, "f-inbox", m.list.FolderID, "unfilter must fall back to Inbox")
+	require.NotNil(t, cmd, "unfilter must reload the inbox")
+}
+
 // TestViewerBodyPreservesOSC8Hyperlinks asserts the rendered viewer
 // pane retains the renderer's OSC 8 escape sequences end-to-end.
 // Without this, lipgloss width / height truncation could silently
