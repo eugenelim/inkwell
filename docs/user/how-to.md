@@ -197,42 +197,47 @@ land in a later iteration).
 
 Open a message in the viewer (Enter). Press `r`.
 
-inkwell suspends the TUI and opens your editor on a tempfile
-pre-populated with:
+The compose pane opens, pre-filled:
 
 ```
-To: bob@vendor.com
-Cc:
-Subject: Re: Q4 forecast
+  To:       bob@vendor.com
+  Cc:
+  Subject:  Re: Q4 forecast
 
+▶ Body:
+  <cursor>
 
-On Mon 2026-04-29 14:32, Bob <bob@vendor.com> wrote:
-> Hey team, see attached.
-> …
+  On Mon 2026-04-29 14:32, Bob <bob@vendor.com> wrote:
+  > Hey team, see attached.
+  > …
+
+  Ctrl+S / Esc save  ·  Ctrl+D discard  ·  Tab cycle field
 ```
 
-Edit the body. Save and exit. inkwell parses the file, creates the
-draft on the server (`Mail.ReadWrite`), and shows `✓ draft saved ·
-press s to open in Outlook` in the status bar.
+Type your reply. The `▶` marks the focused field; `Tab` cycles
+between Body / To / Cc / Subject if you need to fix any header.
+When you're done, press `Ctrl+S` (or `Esc` — they do the same
+thing). inkwell creates the draft on the server (`Mail.ReadWrite`)
+and shows `✓ draft saved · press s to open in Outlook` in the
+status bar.
 
-Press `s` to open the draft in your browser / Outlook desktop, where
-you finalise send. inkwell does not send mail — see
-[explanation](explanation.md#why-no-send).
+Press `s` (in Normal mode) to open the draft in your browser /
+Outlook desktop, where you finalise send. inkwell does not send
+mail — see [explanation](explanation.md#why-no-send).
 
-**Editor selection** order:
-1. `INKWELL_EDITOR` env var (per-app override; e.g. `INKWELL_EDITOR=vim`)
-2. `EDITOR` env var
-3. `nano` as a portable fallback
+**Discard a draft**: press `Ctrl+D` while in compose. No Graph
+round-trip; form state is dropped.
 
-**Discard a draft**: blank out the body in the editor and save (or
-exit without saving). The empty file produces `ErrEmpty` and the
-draft is dropped — no Graph round-trip.
+**Cleared the `To:` line by accident?** Save still works —
+inkwell falls back to the original sender's address (you pressed
+Reply, the original sender is the implicit recipient). For new
+messages or forwards where there's no source to fall back on, an
+empty `To:` produces an actionable error and your draft stays in
+the form so you can correct and retry.
 
-**No recipients**: if you delete the `To:` line, the parse returns
-`no recipients` and inkwell skips the round-trip with a friendly
-error in the status bar.
-
-Reply-all and forward (`R` / `f` in the viewer) are coming in v0.12.
+Reply-all and forward (`R` / `f` in the viewer) and new message
+(`m`) land in a follow-up. `Ctrl+E` to drop the body into
+`$EDITOR` for vim/emacs power users is also a follow-up.
 
 ## Copy a URL from a message
 

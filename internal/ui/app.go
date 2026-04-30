@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/pattern"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -330,6 +329,7 @@ type Model struct {
 	urlPicker      URLPickerModel
 	folderPicker   FolderPickerModel
 	calendarDetail CalendarDetailModel
+	compose        ComposeModel
 	yanker         *yanker
 
 	focused Pane
@@ -364,8 +364,6 @@ type Model struct {
 	// so the viewer-pane `s` shortcut can open it in Outlook. Cleared
 	// when the user starts another compose flow or moves on.
 	lastDraftWebLink string
-	composeTempfile  string // path of the in-flight tempfile, if any
-	composeSourceID  string // source message id for the in-flight reply
 
 	// Unsubscribe (spec 16). pendingUnsub holds the resolved action
 	// while the confirm modal is open; the y/n result fires the
@@ -464,6 +462,7 @@ func New(deps Deps) (Model, error) {
 		urlPicker:      NewURLPicker(),
 		folderPicker:   NewFolderPicker(),
 		calendarDetail: NewCalendarDetail(),
+		compose:        NewCompose(),
 		yanker:         newYanker(stdoutOSC52Writer),
 	}, nil
 }
@@ -625,57 +624,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case composeStartedMsg:
-		if msg.err != nil {
-			m.lastError = fmt.Errorf("compose: %w", msg.err)
-			return m, nil
-		}
-		// Skeleton + tempfile + editor cmd ready — suspend the TUI
-		// and run the editor.
-		m.composeTempfile = msg.tempfile
-		m.composeSourceID = msg.sourceID
-		m.engineActivity = "editing draft…"
-		return m, runEditorCmd(msg.tempfile, msg.sourceID, msg.editor)
-
-	case composeEditedMsg:
-		// Editor exited. Don't save yet — pop a confirm pane so the
-		// user can choose Save / Re-edit / Discard. Solves two
-		// real-tenant complaints: (a) no visible "Save Draft" hint
-		// during the flow; (b) editor's :q!-style exits saved the
-		// draft anyway, contrary to user expectation.
-		if msg.err != nil {
-			// exec error before the editor even started.
-			m.lastError = fmt.Errorf("compose: %w", msg.err)
-			m.engineActivity = ""
-			return m, nil
-		}
-		m.composeTempfile = msg.tempfile
-		m.composeSourceID = msg.sourceID
-		m.engineActivity = ""
-		m.mode = ComposeConfirmMode
-		return m, nil
-
 	case draftSavedMsg:
-		m.composeTempfile = ""
-		m.composeSourceID = ""
 		m.engineActivity = ""
 		if msg.err != nil {
-			// Pretty-printed errors for the parse-time discard cases.
-			// Anything else is a Graph round-trip failure; surface the
-			// preserved tempfile path so the user can recover.
-			switch {
-			case errors.Is(msg.err, compose.ErrEmpty):
-				m.lastError = nil
-				m.engineActivity = "draft was empty — discarded"
-			case errors.Is(msg.err, compose.ErrNoRecipients):
-				m.lastError = fmt.Errorf("draft: %w", msg.err)
-			default:
-				if msg.tempfile != "" {
-					m.lastError = fmt.Errorf("draft: %w (preserved at %s)", msg.err, msg.tempfile)
-				} else {
-					m.lastError = fmt.Errorf("draft: %w", msg.err)
-				}
-			}
+			// Spec 15 v2: the in-modal flow validates inputs before
+			// dispatch (recipient recovery, etc.), so the only path
+			// that reaches here with err set is a Graph round-trip
+			// failure. Form state lives in m.compose; the user can
+			// retry without losing their work.
+			m.lastError = fmt.Errorf("draft: %w", msg.err)
 			m.lastDraftWebLink = msg.webLink // may be set on partial-failure (createReply ok, body PATCH failed)
 			return m, nil
 		}
@@ -936,8 +893,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCalendar(msg)
 	case OOFMode:
 		return m.updateOOF(msg)
-	case ComposeConfirmMode:
-		return m.updateComposeConfirm(msg)
+	case ComposeMode:
+		return m.updateCompose(msg)
 	case HelpMode:
 		return m.updateHelp(msg)
 	case CategoryInputMode:
@@ -1038,68 +995,67 @@ func (m Model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateComposeConfirm handles the post-edit confirm pane. After the
-// user's editor exits, the reply flow lands here so they can pick:
-//
-//	s — save the draft (parse → POST createReply → PATCH body)
-//	e — re-open the editor (back to ExecProcess on the same tempfile)
-//	d — discard (delete the tempfile, no Graph round-trip)
-//
-// This fixes the v0.11.0 confusion where editor `:q!` saved the draft
-// regardless and there was no visible hint about which key did what.
-func (m Model) updateComposeConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
+// startCompose enters the spec 15 v2 in-modal compose pane,
+// pre-filled with a reply skeleton for the supplied source
+// message. Replaces the legacy startReplyCmd which dispatched
+// $EDITOR via tea.ExecProcess; the in-modal flow keeps inkwell's
+// UI on screen so save / discard live in the persistent footer
+// (resolves the user-reported "select Exit command first"
+// friction).
+func (m Model) startCompose(src store.Message) (tea.Model, tea.Cmd) {
+	if m.deps.Drafts == nil {
+		m.lastError = fmt.Errorf("reply: not wired (drafts component missing)")
 		return m, nil
 	}
-	// Enter is the "I'm done — save it" path that matches the user
-	// expectation after exiting the editor with `:wq`. Same effect
-	// as pressing `s`; gives the modal a one-keystroke happy path.
-	if keyMsg.Type == tea.KeyEnter {
-		path := m.composeTempfile
-		src := m.composeSourceID
-		m.mode = NormalMode
-		m.engineActivity = "saving draft…"
-		return m, m.saveDraftCmd(path, src)
-	}
-	switch string(keyMsg.Runes) {
-	case "s":
-		// User chose to save. Run the existing pipeline.
-		path := m.composeTempfile
-		src := m.composeSourceID
-		m.mode = NormalMode
-		m.engineActivity = "saving draft…"
-		return m, m.saveDraftCmd(path, src)
-	case "e":
-		// Re-open the editor on the same tempfile. The user's
-		// previous edits are still on disk.
-		path := m.composeTempfile
-		src := m.composeSourceID
-		ec, err := compose.EditorCmd(path)
-		if err != nil {
-			m.mode = NormalMode
-			m.lastError = err
-			return m, nil
-		}
-		m.mode = NormalMode
-		m.engineActivity = "editing draft…"
-		return m, runEditorCmd(path, src, ec)
-	case "d":
-		// Discard: delete the tempfile, no Graph round-trip.
-		path := m.composeTempfile
-		m.composeTempfile = ""
-		m.composeSourceID = ""
-		m.mode = NormalMode
-		m.engineActivity = "draft discarded"
-		go func() { compose.CleanupTempfile(path) }()
-		return m, nil
-	}
-	if keyMsg.Type == tea.KeyEsc {
-		// Treat Esc as "back to confirm" — i.e., stay here. This
-		// prevents an accidental Esc from silently discarding work.
-		return m, nil
-	}
+	m.compose = NewCompose()
+	m.compose.ApplyReplySkeleton(src, src.BodyPreview)
+	m.mode = ComposeMode
 	return m, nil
+}
+
+// updateCompose handles input while the compose pane is open:
+//
+//	Tab          → next field   (Body → To → Cc → Subject → Body)
+//	Shift+Tab    → previous field
+//	Ctrl+S / Esc → save (dispatches saveComposeCmd)
+//	Ctrl+D       → discard (no Graph round-trip; modal closes)
+//	other keys   → forwarded to the focused field's component
+//
+// Esc-as-save matches the user's mental model from the prior
+// post-edit modal where Enter aliased to save; the in-modal flow
+// keeps that "I'm done" gesture so the redesign doesn't break
+// muscle memory.
+func (m Model) updateCompose(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, isKey := msg.(tea.KeyMsg)
+	if !isKey {
+		var cmd tea.Cmd
+		m.compose, cmd = m.compose.UpdateField(msg)
+		return m, cmd
+	}
+	switch keyMsg.Type {
+	case tea.KeyTab:
+		m.compose.NextField()
+		return m, nil
+	case tea.KeyShiftTab:
+		m.compose.PrevField()
+		return m, nil
+	case tea.KeyCtrlS, tea.KeyEsc:
+		snap := m.compose.Snapshot()
+		m.mode = NormalMode
+		m.compose = NewCompose()
+		m.engineActivity = "saving draft…"
+		return m, m.saveComposeCmd(snap)
+	case tea.KeyCtrlD:
+		m.mode = NormalMode
+		m.compose = NewCompose()
+		m.engineActivity = "draft discarded"
+		return m, nil
+	}
+	// Any other key: forward to the focused field. textinput /
+	// textarea handle character insert / cursor movement / etc.
+	var cmd tea.Cmd
+	m.compose, cmd = m.compose.UpdateField(msg)
+	return m, cmd
 }
 
 // updateOOF handles input while the out-of-office modal is open.
@@ -2590,8 +2546,11 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keymap.MarkRead):
 		// Per spec 15 §9 the viewer-pane `r` binding is REPLY (mutt
 		// convention). The list-pane `r` stays mark-read.
+		// Spec 15 v2: opens the in-modal compose pane instead of
+		// the legacy tempfile + $EDITOR flow. $EDITOR drop-out for
+		// power users lands as a follow-up via Ctrl+E.
 		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
-			return m, m.startReplyCmd(*cur)
+			return m.startCompose(*cur)
 		}
 		if m.deps.Drafts == nil {
 			m.lastError = fmt.Errorf("reply: not wired (drafts component missing)")
@@ -2847,8 +2806,8 @@ func (m Model) View() string {
 	if m.mode == OOFMode {
 		return m.oof.View(m.theme, m.width, m.height)
 	}
-	if m.mode == ComposeConfirmMode {
-		return m.renderComposeConfirm()
+	if m.mode == ComposeMode {
+		return m.compose.View(m.theme, m.width, m.height)
 	}
 	if m.mode == HelpMode {
 		return m.help.View(m.theme, m.keymap, m.width, m.height)

@@ -1,11 +1,14 @@
 # Spec 15 — Compose / Reply (drafts only)
 
 ## Status
-in-progress. Viewer-pane reply via `$EDITOR` shipped post-v0.10.0;
-drafts now flow through the action queue with two-stage idempotent
-dispatch (PR 7-i v0.13.x). Reply-all / forward / new message
-skeletons (PR 7-iii) and the `compose_sessions` crash-recovery
-resume prompt (PR 7-ii) remain deferred.
+in-progress. v1: viewer-pane reply via `$EDITOR` shipped
+post-v0.10.0. v0.13.x: drafts flow through the action queue with
+two-stage idempotent dispatch (PR 7-i). **v0.13.x spec rewrite:**
+in-modal compose pane replaces the editor-driven flow (real-tenant
+"select Exit command first" friction) — see iter 3. Reply-all /
+forward / new message skeletons (PR 7-iii), `compose_sessions`
+crash recovery (PR 7-ii), and `Ctrl+E` `$EDITOR` drop-out remain
+deferred.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/compose/`: template (reply skeleton), parse (RFC2822-style headers), editor (tempfile + `$INKWELL_EDITOR` / `$EDITOR` / nano fallback).
@@ -27,6 +30,92 @@ resume prompt (PR 7-ii) remain deferred.
 - [ ] Lint guard for `Mail.Send` strings — deferred. Spec invariant remains: no code path asks for or uses `Mail.Send`. Belt-and-suspenders CI script lands when convenient.
 
 ## Iteration log
+
+### Iter 3 — 2026-04-30 (in-modal compose redesign, spec-15 v2)
+- Trigger: real-tenant complaint — "the bottom should just have
+  the ability for me to save draft or discard directly, not
+  selecting the Exit command first". Spec 15 v1 inherited mutt's
+  $EDITOR-driven convention; `tea.ExecProcess` suspends the
+  Bubble Tea program while the editor runs, so save / discard
+  hints couldn't appear in a footer until the user had already
+  exited the editor. The pivot: keep inkwell's UI on screen the
+  whole time via an in-modal compose pane.
+- Slice:
+  - `internal/ui/compose_model.go` (new): `ComposeModel`
+    backed by `bubbles/textinput` for headers (To/Cc/Subject)
+    and `bubbles/textarea` for body. Focus tracking blurs all
+    fields except the focused one so only that component
+    receives keystrokes. `ApplyReplySkeleton` reuses the
+    existing `internal/compose/template.go::ReplySkeleton` and
+    strips the leading header block (the v1 tempfile shape's
+    redundant header section).
+  - `internal/ui/messages.go`: new `ComposeMode` constant.
+    Removed the `ComposeConfirmMode` constant — the
+    post-edit modal it gated is gone.
+  - `internal/ui/app.go::startCompose` enters ComposeMode with
+    the reply skeleton pre-filled; `updateCompose` handles
+    Tab / Shift+Tab / Ctrl+S / Esc / Ctrl+D and forwards
+    everything else to the focused field's component.
+    Ctrl+S / Esc both dispatch `saveComposeCmd` so "I'm done"
+    works either way (matches the user's mental model trained
+    by the v1 post-edit Enter alias).
+  - `internal/ui/compose.go`: replaced `startReplyCmd` /
+    `runEditorCmd` / `saveDraftCmd` (tempfile flow) with
+    `saveComposeCmd(snap ComposeSnapshot)`. Recipient
+    recovery (empty To → source.FromAddress) preserved.
+    `composeStartedMsg` / `composeEditedMsg` removed since the
+    editor flow is gone for now.
+  - `r` in the viewer pane (`internal/ui/app.go::dispatchViewer`)
+    now calls `startCompose` instead of `startReplyCmd`.
+  - Added bubbles/textarea + textinput as direct deps in
+    go.mod (transitively pulled atotto/clipboard,
+    MakeNowJust/heredoc).
+- Tests:
+  - 9 new compose_model_test.go unit tests:
+    NewComposeReturnsEmptyState, ApplyReplySkeleton-
+    PopulatesFromSource / HandlesRePrefix / EmptyFromAddress-
+    LeavesToEmpty, NextField/PrevField cycle, Snapshot+Restore
+    round-trip, BodyAcceptsTextEdits, ViewRendersAllFieldsAnd-
+    Footer (footer hint visibility — the structural fix for
+    the user complaint).
+  - 6 new dispatch tests:
+    ReplyKeyEntersComposeMode, ComposeTabCyclesFields,
+    ComposeCtrlSSavesAndExitsMode, ComposeEscIsSaveAlias,
+    ComposeCtrlDDiscards, ComposeRecipientRecoveryFromSource-
+    FromAddress, ComposeSaveErrorsWithoutFallback.
+  - Removed v1 dispatch tests that referenced gone symbols
+    (composeStartedMsg, composeEditedMsg, ComposeConfirmMode,
+    saveDraftCmd, composeTempfile, composeSourceID).
+  - e2e visible-delta deferred (same teatest issue from the
+    earlier `Enter`-as-save attempt).
+- Decisions:
+  - Esc saves rather than cancels. Standard modal convention
+    is Esc-cancels, but losing typed content silently is what
+    the v1 post-edit modal explicitly avoided. `Ctrl+D` is the
+    explicit discard path.
+  - Body field has focus by default after skeleton apply — the
+    user's primary editing target is the body; headers are
+    pre-filled.
+  - Reply only this iter. Reply-all / forward / new message
+    are PR 7-iii (alongside the action types they need).
+  - $EDITOR drop-out via `Ctrl+E` deferred to a follow-up. The
+    `internal/compose/{editor,parse}.go` helpers will retarget
+    for that path; kept in tree for now.
+  - JSON snapshot replaces the tempfile shape in
+    compose_sessions (spec §7) — PR 7-ii implements.
+- Result: full -race + -tags=e2e UI suite green; 15 new tests
+  pass; 5 v1 tests removed cleanly; spec 15 §6 / §6.1-6.3 / §7
+  / §9 / §11 updated to match.
+
+  **Deferred to PR 7-ii:** compose_sessions JSON-snapshot
+  migration, resume-on-startup prompt that Restore()s the
+  form.
+
+  **Deferred to PR 7-iii:** ReplyAll / Forward / NewMessage
+  action types + skeletons + R/F/m keybindings.
+
+  **Deferred to a follow-up:** `Ctrl+E` drop-out for power
+  users who want $EDITOR for body editing.
 
 ### Iter 2 — 2026-04-30 (drafts via action queue, PR 7-i of audit-drain)
 - Trigger: spec 15 §5 / §8 audit row — drafts bypassed the action

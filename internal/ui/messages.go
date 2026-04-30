@@ -28,7 +28,6 @@ const (
 	ConfirmMode
 	CalendarMode
 	OOFMode
-	ComposeConfirmMode
 	HelpMode
 	CategoryInputMode
 	FolderNameInputMode
@@ -36,6 +35,11 @@ const (
 	FullscreenBodyMode
 	FolderPickerMode
 	CalendarDetailMode
+	// ComposeMode is the spec 15 v2 in-modal compose overlay
+	// (replaces the legacy tempfile + $EDITOR + post-edit confirm
+	// flow). Persistent footer with Ctrl+S / Ctrl+D / Tab; resolves
+	// the user-reported "select Exit command first" friction.
+	ComposeMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update

@@ -97,94 +97,134 @@ type AttachmentRef struct {
 
 ## 6. The compose flow
 
+> **v2 (PR after spec 15 v1).** The original spec described a
+> `tea.ExecProcess($EDITOR)` flow that suspended Bubble Tea while
+> the user edited a tempfile. Real-tenant feedback flagged this as
+> non-intuitive: with the TUI suspended, `[s]ave / [d]iscard`
+> couldn't appear at the bottom — the user had to "select Exit
+> command first" (`:wq` / Ctrl-X / etc.) before the post-edit
+> confirm modal would surface. The redesign below replaces the
+> editor-driven flow with an **in-modal compose pane** that keeps
+> inkwell's UI on screen the entire time. A `$EDITOR` drop-out
+> for power users (`Ctrl+E` while in the body field) is a
+> follow-up.
+
 ```
         ┌───────────────────────────────┐
         │ user presses r / R / f / m    │
-        │  in list pane (selected msg)  │
-        │  or m anywhere (new msg)      │
+        │  in viewer pane (r/R/f) or    │
+        │  anywhere (m for new)         │
         └──────────────┬────────────────┘
                        │
                        ▼
         ┌───────────────────────────────┐
-        │ compose.Compose(ctx, kind,    │
-        │   sourceMessage, theme)       │
-        │ — assembles skeleton in       │
-        │   ~/Library/Caches/inkwell/   │
-        │   drafts/{uuid}.eml           │
+        │ ComposeMode opens. Form is    │
+        │ pre-filled from skeleton:     │
+        │   To       = src.FromAddress  │
+        │   Subject  = "Re: <subj>"     │
+        │   Body     = quote chain +    │
+        │              empty cursor pos │
+        │ Body field has focus.         │
         └──────────────┬────────────────┘
                        │
                        ▼
         ┌───────────────────────────────┐
-        │ tea.ExecProcess($EDITOR file) │
-        │ Bubble Tea suspends.          │
-        │ User edits.                   │
-        │ Editor exits.                 │
+        │ User edits in-place. Tab      │
+        │ cycles fields (Body→To→Cc→    │
+        │ Subject→Body). Footer always  │
+        │ visible: Ctrl+S/Esc save ·    │
+        │ Ctrl+D discard · Tab cycle.   │
         └──────────────┬────────────────┘
                        │
-                       ▼
-        ┌───────────────────────────────┐
-        │ compose.Parse(file) splits    │
-        │ headers / body. Validates To  │
-        │ is non-empty (unless Forward  │
-        │ to self).                     │
-        └──────────────┬────────────────┘
-                       │
-                       ▼
-        ┌───────────────────────────────┐
-        │ ConfirmPane:                  │
-        │  [s] save draft & open in     │
-        │      Outlook                  │
-        │  [e] re-edit                  │
-        │  [d] discard                  │
-        └──────┬──────┬─────────┬───────┘
-               │      │         │
-               │      │         └──> compose.Discard()
-               │      │              tempfile removed.
-               │      │              UI back to list.
-               │      │
-               │      └──> tea.ExecProcess again
-               │
-               ▼
-        ┌───────────────────────────────┐
-        │ executor.Execute(             │
-        │   Action{Type: CreateReply,…})│
-        └──────────────┬────────────────┘
-                       │
-                       ▼
-        ┌───────────────────────────────┐
-        │ Graph: POST /createReply etc. │
-        │ then PATCH /me/messages/{id}  │
-        │ to set body + attachments.    │
-        └──────────────┬────────────────┘
-                       │
-                       ▼
-        ┌───────────────────────────────┐
-        │ ActionConfirmedEvent →        │
-        │ status bar: "Draft saved →    │
-        │  press 's' to open in Outlook"│
-        │ tempfile removed.             │
-        └───────────────────────────────┘
+            ┌──────────┴──────────┐
+            │                     │
+            ▼                     ▼
+     ┌──────────────┐      ┌─────────────┐
+     │ Ctrl+S / Esc │      │ Ctrl+D      │
+     │  save        │      │  discard    │
+     └──────┬───────┘      └──────┬──────┘
+            │                     │
+            ▼                     ▼
+     ┌──────────────┐      ┌─────────────┐
+     │ Snapshot →   │      │ Drop form   │
+     │ saveCompose- │      │ state. Mode │
+     │ Cmd. Recipi- │      │ → Normal.   │
+     │ ent recovery │      │ Status:     │
+     │ from source. │      │ "discarded" │
+     └──────┬───────┘      └─────────────┘
+            │
+            ▼
+     ┌─────────────────────────────────┐
+     │ executor.CreateDraftReply       │
+     │ (action queue, two-stage:       │
+     │  POST /createReply,             │
+     │  PATCH /me/messages/{id}).      │
+     └────────────────┬────────────────┘
+                      │
+                      ▼
+     ┌─────────────────────────────────┐
+     │ draftSavedMsg → status bar:     │
+     │ "✓ draft saved · press s to     │
+     │  open in Outlook"               │
+     └─────────────────────────────────┘
 ```
 
-### 6.1 Editor integration
+**Why the structural pivot.** The user-visible bottom-line fix is
+that save / discard hints live in a footer that is *always*
+on-screen during compose, instead of only after the user has
+exited an external editor. Secondary wins:
+- No tempfile lifecycle to manage (no leaked files on crash).
+- Headers can be edited in dedicated single-line inputs, so an
+  accidentally-cleared `To:` is harder to produce than in a free-
+  form text file.
+- Recipient recovery (empty `To:` falls back to source's
+  `FromAddress`) still applies — the safety net survives.
 
-`internal/compose/editor.go`:
+**Scope of this spec revision.** Reply only (matches the v1
+shipped surface). Reply-all / forward / new message land with
+PR 7-iii alongside the corresponding action types. `$EDITOR`
+drop-out via `Ctrl+E` is post-MVP.
+
+### 6.1 In-modal compose pane
+
+`internal/ui/compose_model.go::ComposeModel`. Header fields use
+`bubbles/textinput`; body uses `bubbles/textarea`. Focus tracking
+is at the model level: only the focused component receives
+keystrokes. The pane occupies the full screen during compose
+(centered modal box) so the body has vertical room for replies of
+any length.
 
 ```go
-// Open suspends Bubble Tea and opens the user's editor on path.
-// Returns a tea.Cmd whose Msg is composeEditedMsg{path, err}.
-func Open(path string) tea.Cmd {
-    editor := os.Getenv("INKWELL_EDITOR")
-    if editor == "" { editor = os.Getenv("EDITOR") }
-    if editor == "" { editor = "nano" }
-    cmd := exec.Command(editor, path)
-    return tea.ExecProcess(cmd, func(err error) tea.Msg {
-        return composeEditedMsg{path: path, err: err}
-    })
+type ComposeModel struct {
+    Kind     ComposeKind   // Reply | ReplyAll | Forward | New (MVP: Reply)
+    SourceID string
+    to, cc, subject textinput.Model
+    body     textarea.Model
+    focused  ComposeFieldKind
 }
+
+func NewCompose() ComposeModel
+func (m *ComposeModel) ApplyReplySkeleton(src store.Message, renderedBody string)
+func (m *ComposeModel) NextField()       // Tab
+func (m *ComposeModel) PrevField()       // Shift+Tab
+func (m ComposeModel) Snapshot() ComposeSnapshot
+func (m *ComposeModel) Restore(s ComposeSnapshot)
+func (m ComposeModel) UpdateField(msg tea.Msg) (ComposeModel, tea.Cmd)
+func (m ComposeModel) View(t Theme, w, h int) string
 ```
 
-Reliability: vim, neovim, nano, emacs, micro, helix all play nicely with `tea.ExecProcess`. VS Code (`code --wait`) works but is slow to suspend; documented in `docs/qa-checklist.md`.
+`UpdateField` forwards to whichever component holds focus. Tab /
+Shift+Tab / Ctrl+S / Esc / Ctrl+D are handled at the
+`internal/ui/app.go::updateCompose` layer above (see §9).
+
+### 6.1.1 `$EDITOR` drop-out (post-MVP)
+
+Power users keep their muscle memory via `Ctrl+E` while in the
+body field: opens the body slice in `$INKWELL_EDITOR` /
+`$EDITOR` / nano. On editor exit, the body returns to the
+textarea; headers stay in their form fields the whole time. The
+existing `internal/compose/{editor,parse}.go` helpers retarget for
+this drop-out path. Lands in a follow-up PR; not in MVP.
 
 ### 6.2 Body templating
 
@@ -204,19 +244,32 @@ const (
 func Skeleton(kind Kind, src *store.Message, rendered render.BodyView) string
 ```
 
-Reply skeleton:
+Reply skeleton populates the form's individual fields and the
+textarea's body block (the headers no longer share the body's
+text region; v1's "To: …\nCc: …\n…\n\n<body>" tempfile shape is
+v2's separate-fields model):
 
 ```
-To: bob.acme@vendor.invalid
-Cc:
-Subject: Re: Q4 forecast
+[ form fields ]
+   To:      bob.acme@vendor.invalid
+   Cc:
+   Subject: Re: Q4 forecast
 
-<cursor>
+[ body textarea ]
+   <cursor>
 
-On Sun 2026-04-26 14:32, Bob Acme wrote:
-> Hey, attached the deck for the Q4 review…
-> (quoted body, line-prefixed with "> ")
+   On Sun 2026-04-26 14:32, Bob Acme wrote:
+   > Hey, attached the deck for the Q4 review…
+   > (quoted body, line-prefixed with "> ")
 ```
+
+The legacy `compose.ReplySkeleton(src, body)` is reused — it
+emits the canonical header-block + quote-chain string. The
+in-modal `ApplyReplySkeleton` strips the leading
+`To:.../Cc:.../Subject:.../\n` block and lands the remaining body
+into the textarea, while populating the field inputs from `src`
+directly. Keeping one skeleton formatter means the post-MVP
+`Ctrl+E` drop-out can hand the same string to `$EDITOR`.
 
 Reply-all skeleton: same as reply, but `To` includes the original `From` and any other `To`/`Cc` recipients (deduped against the user's own UPN).
 
@@ -240,24 +293,33 @@ To:      …
 
 The quoted body comes from `render.BodyView.Text` (already converted from HTML by spec 05's renderer). Line-prefixing with `> ` happens in `template.go`, not in render.
 
-### 6.3 Header parsing
+### 6.3 Form snapshot + dispatch
 
-After the editor exits, `compose.Parse(path)` splits the file:
+The in-modal flow doesn't parse a tempfile — fields live as typed
+values in the form components. On `Ctrl+S` / `Esc` the model
+emits a `ComposeSnapshot` struct (the JSON-serialisable view used
+by §7's crash recovery) and `saveComposeCmd` consumes it:
 
 ```go
-type ParsedDraft struct {
-    To, Cc, Bcc []string
-    Subject     string
-    Body        string
+type ComposeSnapshot struct {
+    Kind     ComposeKind `json:"kind"`
+    SourceID string      `json:"source_id,omitempty"`
+    To       string      `json:"to,omitempty"`       // comma-separated
+    Cc       string      `json:"cc,omitempty"`
+    Subject  string      `json:"subject,omitempty"`
+    Body     string      `json:"body,omitempty"`
 }
-
-// Parse returns ErrInvalidDraft when the headers block is malformed
-// (missing colon, unrecognised header), ErrNoRecipients when To is
-// empty (forwards may bypass this; the user finalises in Outlook).
-func Parse(path string) (ParsedDraft, error)
 ```
 
-Format: RFC-2822-style headers up to the first blank line, then the body. We don't support folded headers in v1 (they break round-trip with `text/plain` editors). `Cc` and `Bcc` are optional. `Subject` is mandatory.
+Recipient parsing splits To/Cc on `,` or `;` and trims whitespace.
+Empty entries are dropped. **Recipient recovery** (carried over
+from v1's saveDraftCmd): if the parsed To list is empty AND the
+snapshot has a SourceID, look up the source message and use its
+`FromAddress` as the implicit recipient — the user pressed Reply,
+the original sender is the obvious target. Without a source
+fallback, surface an actionable error (`"draft has no recipient
+(set To: in the compose form)"`) and keep the form state in
+m.compose so the user can correct + retry.
 
 ### 6.4 Outlook hand-off
 
@@ -275,25 +337,33 @@ We don't poll the draft for changes after the user opens it in Outlook — the n
 
 The `messages` table already has an `is_draft INTEGER NOT NULL DEFAULT 0` column (spec 02). Drafts created in inkwell get `is_draft = 1` in the optimistic local insert, then the Graph round-trip reconciles the canonical message ID and replaces the temporary local UUID.
 
-New table — temp-file lifecycle for incomplete drafts:
+New table — JSON snapshot of in-flight compose form state, used
+by the resume-on-startup path (PR 7-ii):
 
 ```sql
 CREATE TABLE compose_sessions (
     session_id   TEXT PRIMARY KEY,
     kind         TEXT NOT NULL,             -- 'new'|'reply'|'reply_all'|'forward'
     source_id    TEXT,                       -- message ID for reply/forward, NULL otherwise
-    tempfile     TEXT NOT NULL,              -- absolute path
+    snapshot     TEXT NOT NULL,              -- JSON-encoded ComposeSnapshot
     created_at   INTEGER NOT NULL,
-    confirmed_at INTEGER,                    -- set when user picked 's' or 'd'
+    confirmed_at INTEGER,                    -- set when user saves (Ctrl+S / Esc) or discards (Ctrl+D)
     FOREIGN KEY (source_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_compose_sessions_unconfirmed
   ON compose_sessions(created_at) WHERE confirmed_at IS NULL;
 ```
 
-Why: if the app crashes while the user is in the editor, the next launch finds an unconfirmed compose_session, prompts "resume draft?" and re-opens the editor on the saved tempfile. This is cheap and avoids the "lost draft" footgun.
+Why JSON snapshot vs the v1 tempfile path: in-modal compose
+holds form state in memory (textinputs + textarea), not on disk.
+The crash-recovery path serialises the form state via
+`ComposeModel.Snapshot()` on every keystroke (or on a debounced
+timer; PR 7-ii decides), persists into this table. On startup
+the resume prompt reads the most recent unconfirmed row,
+deserialises the snapshot, and `Restore`s into a fresh
+`ComposeModel`.
 
-Garbage collection: confirmed sessions older than 24h are deleted along with their tempfiles on next launch.
+Garbage collection: confirmed sessions older than 24h are deleted on next launch.
 
 ---
 
@@ -312,20 +382,25 @@ Idempotency: replay-on-startup of a draft creation that's already confirmed is d
 
 ## 9. Keybindings (extends spec 04 keymap)
 
-| Pane / mode      | Key       | Action                                    |
-| ---------------- | --------- | ----------------------------------------- |
-| List or viewer   | `r`       | Reply to focused message                  |
-| List or viewer   | `R`       | Reply-all                                 |
-| List or viewer   | `f`       | Forward                                   |
-| Anywhere normal  | `m`       | New message (compose blank)               |
-| Confirm pane     | `s`       | Save draft to server, hand off to Outlook |
-| Confirm pane     | `e`       | Re-edit                                   |
-| Confirm pane     | `d` / `D` | Discard the draft                         |
-| Status-bar hint  | `s`       | Open most-recently-saved draft in Outlook |
+| Pane / mode    | Key             | Action                                     |
+| -------------- | --------------- | ------------------------------------------ |
+| Viewer         | `r`             | Reply to focused message → ComposeMode     |
+| Viewer         | `R` (post-MVP)  | Reply-all → ComposeMode                    |
+| Viewer         | `f` (post-MVP)  | Forward → ComposeMode                      |
+| Anywhere normal | `m` (post-MVP) | New message → ComposeMode (blank)          |
+| ComposeMode    | `Tab`           | Cycle field forward (Body → To → Cc → Subj) |
+| ComposeMode    | `Shift+Tab`     | Cycle field backward                        |
+| ComposeMode    | `Ctrl+S`        | Save draft → enqueue + dispatch + close    |
+| ComposeMode    | `Esc`           | Save (alias for Ctrl+S — "I'm done" gesture) |
+| ComposeMode    | `Ctrl+D`        | Discard draft (no Graph round-trip)        |
+| ComposeMode    | `Ctrl+E` (post-MVP) | Drop the body slice into `$EDITOR`     |
+| Status-bar hint | `s`            | Open most-recently-saved draft in Outlook  |
 
 `r` already has a meaning in spec 07 (`mark_read`). The collision is resolved by pane scope: in the list pane, `r` = mark-read on the focused message; in the **viewer pane** `r` = reply. This mirrors mutt and is the precedent users will recognise.
 
-For `m`: the existing keymap binds `m` to `move`. We resolve by pane: `m` from the list pane is move; `m` from anywhere else (folders pane, viewer pane) is "new message". The command `:compose` also works from any mode and is the discoverable form.
+For `m` (post-MVP): the existing keymap binds `m` to `move` in the list pane. We resolve by pane: `m` from the list pane is move; `m` from anywhere else (folders pane, viewer pane) is "new message".
+
+**Why `Esc` saves and not cancels.** Standard modal convention is Esc-cancels, but in compose the user has just typed real content; silently throwing it away on Esc is the v1 mode the post-edit modal explicitly avoided. The redesign's principle: every exit from ComposeMode should be deliberate. `Ctrl+D` is the explicit discard; `Esc` matches the user's "I'm done" mental model from the v1 post-edit modal where Enter aliased to save.
 
 ---
 
@@ -346,20 +421,22 @@ For `m`: the existing keymap binds `m` to `move`. We resolve by pane: `m` from t
 
 ## 11. Definition of done
 
-- [ ] `internal/compose/` package compiles, exports `Compose(ctx, kind, source)` that returns the path to a tempfile populated with the skeleton.
-- [ ] `internal/compose/editor.go` opens `$INKWELL_EDITOR` / `$EDITOR` / `nano` via `tea.ExecProcess` and re-enters the TUI cleanly on exit.
-- [ ] `compose.Parse` round-trips a known fixture set (reply / forward / new) and rejects malformed input with typed errors.
-- [ ] `compose_sessions` table created by migration N+1 (latest schema version bumped accordingly).
-- [ ] Action executor (extending spec 07) handles the four new draft types with idempotent local apply + Graph dispatch + replay.
-- [ ] On `s`, the action's `webLink` is captured; the status bar exposes "open in Outlook" for 30s after.
-- [ ] Discard flow deletes both the local draft row AND the server-side draft (Graph `DELETE /me/messages/{id}`).
-- [ ] Crash-recovery: kill -9 the app while in the editor, restart, the resume-prompt fires and the tempfile is intact.
-- [ ] `r`/`R`/`f`/`m` keybindings wired with the pane-scoped resolution rule from §9.
-- [ ] e2e teatest: drives `r`, mocks the editor as a no-op that writes a fixed body, asserts confirm pane appears, drives `s`, asserts an action of type `create_draft_reply` enters the queue.
-- [ ] Unit tests for `template.Skeleton` covering reply / reply-all / forward dedup logic.
-- [ ] Privacy: tempfiles are mode 0600 in `~/Library/Caches/inkwell/drafts/`; cleaned on confirm or after 24h.
-- [ ] No code path imports `internal/auth` (Mail.Send temptation is structurally impossible — compose only talks to the action queue).
-- [ ] Lint guard (CI script) fails any source line that contains the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go` (where it's listed in the denied-set).
+**MVP (in-modal compose, reply only):**
+- [x] `internal/ui/compose_model.go` ships `ComposeModel` backed by `bubbles/textinput` (To/Cc/Subject) + `bubbles/textarea` (body); pure-state unit tests cover construction, skeleton apply (incl. "Re:" dedup + empty-FromAddress passthrough), Tab cycle, Snapshot/Restore round-trip, and the footer-rendering invariant.
+- [x] `internal/ui/messages.go` adds `ComposeMode`; `internal/ui/app.go` routes Update + View; `r` in the viewer enters compose with the reply skeleton pre-populated.
+- [x] `Ctrl+S` / `Esc` dispatch `saveComposeCmd` (snapshot → `CreateDraftReply` action). `Ctrl+D` discards (no Graph round-trip). Tab cycles fields.
+- [x] Recipient recovery: empty `To` falls back to source's `FromAddress`; absent that, surfaces an actionable error without dispatching.
+- [x] `internal/compose/template.go::ReplySkeleton` reused for the body's quote chain (one skeleton formatter so the post-MVP `Ctrl+E` drop-out can hand the same string to `$EDITOR`).
+- [x] Action executor (PR 7-i v0.13.x) handles `ActionCreateDraftReply` with two-stage idempotent dispatch (`createReply` → record draft_id → `PATCH body`). `Drain` skips this action type (createReply is non-idempotent).
+- [x] On save, `webLink` is captured; status bar shows `✓ draft saved · press s to open in Outlook`.
+- [x] No code path imports `internal/auth` for Mail.Send (compose only flows through the action queue).
+
+**Post-MVP (deferred):**
+- [ ] Reply-all (`R`), forward (`f`), new message (`m`) — adds `TypeCreateReplyAll` / `TypeCreateForward` / `TypeCreateDraft` action types and matching skeletons. PR 7-iii.
+- [ ] `compose_sessions` migration + crash-recovery resume prompt that re-opens compose with the saved snapshot. PR 7-ii.
+- [ ] `Ctrl+E` drop-out: opens `$EDITOR` with the body slice, returns to the in-modal form on exit.
+- [ ] Discard flow deletes both local and server-side draft when the user cancels in compose AFTER the draft was saved (today: cancel before save = `Ctrl+D`, no server roundtrip; this DoD bullet covers the post-save discard path).
+- [ ] Lint guard (CI script) fails any source line containing the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go`.
 
 ## 12. Performance budgets
 

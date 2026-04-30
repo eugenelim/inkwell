@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1887,14 +1886,16 @@ func TestCompactAddrsSummarisesAcrossToCcBcc(t *testing.T) {
 		"empty case shows em-dash")
 }
 
-// TestViewerReplyKeyDispatchesCompose drives `r` in the viewer pane
-// with a Drafts dep wired and asserts the compose flow starts:
-// composeStartedMsg fires, the model captures the source id, and a
-// non-nil Cmd is returned (which would then trigger tea.ExecProcess).
-func TestViewerReplyKeyDispatchesCompose(t *testing.T) {
+// TestReplyKeyEntersComposeMode is the spec 15 v2 §6 invariant:
+// pressing `r` in the viewer enters the in-modal ComposeMode with
+// the reply skeleton pre-filled (source captured, To populated,
+// Subject prefixed). Replaces the v1 editor flow that returned a
+// composeStartedMsg + ran tea.ExecProcess; the in-modal flow keeps
+// inkwell on screen so save / discard live in the persistent
+// footer.
+func TestReplyKeyEntersComposeMode(t *testing.T) {
 	m := newDispatchTestModel(t)
-	called := atomicBool{}
-	m.deps.Drafts = stubDraftCreator{onCall: called.set}
+	m.deps.Drafts = stubDraftCreator{}
 
 	// Open a message → focus moves to viewer.
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1903,24 +1904,14 @@ func TestViewerReplyKeyDispatchesCompose(t *testing.T) {
 	require.NotNil(t, m.viewer.current)
 
 	// Press r in the viewer pane.
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = m2.(Model)
-	require.NotNil(t, cmd, "viewer-pane r must return startReplyCmd")
 
-	// Driving cmd produces composeStartedMsg. We can't run the
-	// editor in the test (and tea.ExecProcess is owned by the
-	// runtime), so we just verify the started msg shape.
-	res := cmd()
-	started, ok := res.(composeStartedMsg)
-	require.True(t, ok, "cmd produces composeStartedMsg")
-	// A working editor is unlikely in CI; allow either path.
-	if started.err == nil {
-		require.NotEmpty(t, started.tempfile)
-		require.NotEmpty(t, started.sourceID)
-		require.NotNil(t, started.editor)
-		// Cleanup the tempfile we just wrote.
-		_ = called // stub doesn't fire on the start path
-	}
+	require.Equal(t, ComposeMode, m.mode, "r enters in-modal compose")
+	require.Equal(t, m.viewer.current.ID, m.compose.SourceID,
+		"compose captures the source id for the eventual save")
+	require.NotEmpty(t, m.compose.Subject(),
+		"reply skeleton populated subject (Re: ...)")
 }
 
 // TestViewerReplyWithoutDraftsDepShowsFriendlyError confirms `r` in
@@ -1962,76 +1953,130 @@ func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, bo
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-// TestComposeEditedRoutesIntoConfirmMode pins the v0.11.x fix: the
-// post-edit msg now hands off to a confirm pane instead of saving
-// immediately. Real-tenant feedback: editor `:q!` exits saved the
-// draft anyway, contrary to user expectation.
-func TestComposeEditedRoutesIntoConfirmMode(t *testing.T) {
+// TestComposeTabCyclesFields verifies the in-modal Tab navigation
+// reaches the spec 15 v2 §9 cycle order (Body → To → Cc → Subject).
+func TestComposeTabCyclesFields(t *testing.T) {
 	m := newDispatchTestModel(t)
 	m.deps.Drafts = stubDraftCreator{}
-	m2, _ := m.Update(composeEditedMsg{tempfile: "/tmp/x.eml", sourceID: "msg-1"})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
-	require.Equal(t, ComposeConfirmMode, m.mode, "post-edit lands in confirm pane, not save")
-	require.Equal(t, "/tmp/x.eml", m.composeTempfile)
-	require.Equal(t, "msg-1", m.composeSourceID)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+	require.Equal(t, ComposeFieldBody, m.compose.Focused())
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(Model)
+	require.Equal(t, ComposeFieldTo, m.compose.Focused())
 }
 
-// TestSaveDraftRecoversFromEmptyToUsingSourceFromAddress is the
-// spec 15 UX fix for the real-tenant complaint "errors out with
-// no recipient although i'm replying to an email". When the user
-// (or the skeleton) leaves the To: line empty in the edited
-// tempfile, the save path now falls back to the source message's
-// FromAddress — they pressed Reply, so the original sender is the
-// implicit recipient. Without the fallback, the parser's
-// ErrNoRecipients aborted the save AND deleted the tempfile,
-// losing the user's body.
-func TestSaveDraftRecoversFromEmptyToUsingSourceFromAddress(t *testing.T) {
+// TestComposeCtrlSSavesAndExitsMode dispatches the form snapshot
+// through saveComposeCmd. The model returns to NormalMode and
+// surfaces the saving-status hint; the Cmd returns the
+// draftSavedMsg from the stub creator.
+func TestComposeCtrlSSavesAndExitsMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode, "Ctrl+S exits compose mode")
+	require.Contains(t, m.engineActivity, "saving")
+	require.NotNil(t, cmd)
+	_ = cmd()
+	require.Equal(t, 1, stub.calls,
+		"saveComposeCmd dispatched the draft via DraftCreator")
+}
+
+// TestComposeEscIsSaveAlias matches the user's "I'm done" gesture:
+// Esc behaves identically to Ctrl+S so the redesign keeps the
+// muscle memory the v1 post-edit modal's Enter alias trained.
+func TestComposeEscIsSaveAlias(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.NotNil(t, cmd)
+	_ = cmd()
+	require.Equal(t, 1, stub.calls)
+}
+
+// TestComposeCtrlDDiscards fires the discard path: NormalMode,
+// "discarded" status, no Graph round-trip.
+func TestComposeCtrlDDiscards(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Contains(t, m.engineActivity, "discarded")
+	require.Nil(t, cmd, "Ctrl+D returns no save Cmd")
+	require.Equal(t, 0, stub.calls, "discard means NO Graph round-trip")
+}
+
+// TestComposeRecipientRecoveryFromSourceFromAddress is the spec
+// 15 v2 §6 safety net carried over from v1: if the user clears
+// the To field, the save path falls back to the source message's
+// FromAddress. The reply gesture implies the original sender as
+// the recipient; an empty To shouldn't error out.
+func TestComposeRecipientRecoveryFromSourceFromAddress(t *testing.T) {
 	m := newDispatchTestModel(t)
 	stub := &recordingDraftCreator{}
 	m.deps.Drafts = stub
 
-	// Write a tempfile with an EMPTY To: line — exactly the shape
-	// the bug produces when the user clears the To header.
-	tempfile := filepath.Join(t.TempDir(), "draft.eml")
-	require.NoError(t, os.WriteFile(tempfile, []byte("To:\nCc:\nSubject: Re: x\n\nthe body\n"), 0o600))
-
-	cmd := m.saveDraftCmd(tempfile, "m-1")
+	// Construct a snapshot directly with empty To, source m-1.
+	// Skip the full open-modal dance; saveComposeCmd is the unit
+	// the recovery lives in.
+	snap := ComposeSnapshot{
+		Kind:     ComposeKindReply,
+		SourceID: "m-1",
+		To:       "",
+		Subject:  "Re: x",
+		Body:     "the body",
+	}
+	cmd := m.saveComposeCmd(snap)
 	require.NotNil(t, cmd)
 	res := cmd()
-	saved, ok := res.(draftSavedMsg)
-	require.True(t, ok)
-	require.NoError(t, saved.err, "fallback recovers the recipient; no error surfaces")
+	saved, _ := res.(draftSavedMsg)
+	require.NoError(t, saved.err)
 	require.Equal(t, []string{"alice@example.invalid"}, stub.lastTo,
-		"To recipient backfilled from m-1's FromAddress")
+		"empty To recovered from m-1's FromAddress")
 }
 
-// TestSaveDraftSurfacesActionableErrorWhenNoFallback covers the
-// other half of the recovery path: when the source message has no
-// FromAddress (or sourceID is empty / unknown), preserve the
-// tempfile and surface a clear path-pointing error so the user
-// can rescue manually rather than losing their body to silent
-// cleanup.
-func TestSaveDraftSurfacesActionableErrorWhenNoFallback(t *testing.T) {
+// TestComposeSaveErrorsWithoutFallback confirms the no-recipient
+// path surfaces an actionable error when neither the form nor the
+// source can supply a recipient — instead of silently dispatching
+// an empty draft.
+func TestComposeSaveErrorsWithoutFallback(t *testing.T) {
 	m := newDispatchTestModel(t)
 	stub := &recordingDraftCreator{}
 	m.deps.Drafts = stub
-
-	tempfile := filepath.Join(t.TempDir(), "draft.eml")
-	require.NoError(t, os.WriteFile(tempfile, []byte("To:\n\nthe body\n"), 0o600))
-
-	// sourceID points at a non-existent row → no fallback FromAddress.
-	cmd := m.saveDraftCmd(tempfile, "missing-source-id")
+	snap := ComposeSnapshot{Kind: ComposeKindReply} // no SourceID, no To
+	cmd := m.saveComposeCmd(snap)
 	res := cmd()
 	saved, _ := res.(draftSavedMsg)
 	require.Error(t, saved.err)
-	require.Contains(t, saved.err.Error(), "edit the To: line",
-		"error must be actionable, naming the file path")
-	require.Equal(t, tempfile, saved.tempfile, "tempfile preserved for rescue")
-	require.Equal(t, 0, stub.calls, "Drafts.CreateDraftReply must NOT fire on unrecoverable parse error")
-
-	// Tempfile still on disk.
-	_, statErr := os.Stat(tempfile)
-	require.NoError(t, statErr, "tempfile NOT cleaned up — user can rescue")
+	require.Contains(t, saved.err.Error(), "no recipient")
+	require.Equal(t, 0, stub.calls)
 }
 
 // recordingDraftCreator captures the args of the most recent
@@ -2050,70 +2095,6 @@ func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, src
 	s.lastCc = cc
 	s.lastBcc = bcc
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
-}
-
-// TestComposeConfirmEnterIsSaveAlias is the spec 15 UX fix: Enter
-// in the post-edit confirm pane is the same as `s` (save). User
-// reported the keystroke flow felt awkward — `:wq` in editor →
-// then `s` in inkwell. Enter is the natural "I'm done, save it"
-// gesture and matches the user's mental model.
-func TestComposeConfirmEnterIsSaveAlias(t *testing.T) {
-	m := newDispatchTestModel(t)
-	m.deps.Drafts = stubDraftCreator{}
-	m.mode = ComposeConfirmMode
-	m.composeTempfile = "/tmp/x.eml"
-	m.composeSourceID = "msg-1"
-
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = m2.(Model)
-	require.Equal(t, NormalMode, m.mode, "Enter exits the confirm pane")
-	require.NotNil(t, cmd, "Enter dispatches the save Cmd just like 's'")
-	require.Contains(t, m.engineActivity, "saving")
-}
-
-// TestComposeConfirmDDiscards covers the d-key path — discard
-// without a Graph round-trip.
-func TestComposeConfirmDDiscards(t *testing.T) {
-	m := newDispatchTestModel(t)
-	m.mode = ComposeConfirmMode
-	m.composeTempfile = "/tmp/inkwell-test-discard.eml"
-	m.composeSourceID = "msg-1"
-
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
-	m = m2.(Model)
-	require.Equal(t, NormalMode, m.mode)
-	require.Empty(t, m.composeTempfile, "tempfile cleared from model state")
-	require.Contains(t, m.engineActivity, "discarded")
-	require.Nil(t, cmd, "discard does NOT return a save Cmd")
-}
-
-// TestComposeConfirmSReturnsSaveCmd covers the s-key path — save
-// dispatches the existing draft pipeline.
-func TestComposeConfirmSReturnsSaveCmd(t *testing.T) {
-	m := newDispatchTestModel(t)
-	m.deps.Drafts = stubDraftCreator{}
-	m.mode = ComposeConfirmMode
-	m.composeTempfile = "/tmp/x.eml"
-	m.composeSourceID = "msg-1"
-
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
-	m = m2.(Model)
-	require.Equal(t, NormalMode, m.mode)
-	require.Contains(t, m.engineActivity, "saving")
-	require.NotNil(t, cmd, "s returns saveDraftCmd")
-}
-
-// TestComposeConfirmEscDoesNotDiscard pins the safety property: an
-// accidental Esc must NOT silently throw away the user's work.
-func TestComposeConfirmEscDoesNotDiscard(t *testing.T) {
-	m := newDispatchTestModel(t)
-	m.mode = ComposeConfirmMode
-	m.composeTempfile = "/tmp/x.eml"
-
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = m2.(Model)
-	require.Equal(t, ComposeConfirmMode, m.mode, "Esc stays on the prompt")
-	require.Equal(t, "/tmp/x.eml", m.composeTempfile, "tempfile preserved")
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug

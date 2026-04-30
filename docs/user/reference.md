@@ -190,18 +190,40 @@ side-by-side three-pane layout normally breaks rectangular
 selection across pane borders. Press `z` again (or `Esc` / `q`) to
 return.
 
-**Reply flow** (`r`): inkwell writes a tempfile pre-populated with
-To / Cc / Subject + a quoted-body skeleton, then opens it in your
-editor. When you save and exit, inkwell parses the file, calls
-Microsoft Graph `createReply` + `PATCH /me/messages/{id}` to update
-body and headers, and stores a draft in your Drafts folder. The
-status bar shows `✓ draft saved · press s to open in Outlook`. Press
-`s` to launch the draft in your browser / Outlook desktop, where
-you finalise send. inkwell never sends mail — see the
-[explanation](explanation.md#why-no-send) for why.
+**Reply flow** (`r`): pressing `r` in the viewer opens the
+in-modal compose pane, pre-filled from the source message:
 
-`r` / `R` are reserved in the viewer for spec 15 (reply / reply-all)
-and don't currently mark-read. Use the list pane for that.
+- `To:` is the original sender's address.
+- `Subject:` becomes `Re: <original subject>` (no double-`Re:`).
+- The body starts with a quote chain (`On <date>, <name> wrote:`
+  followed by `> `-prefixed source text). Cursor lands above the
+  quote, ready to type.
+
+While in compose:
+
+| Key            | Action                                              |
+| -------------- | --------------------------------------------------- |
+| `Tab`          | Cycle field forward (Body → To → Cc → Subject → Body) |
+| `Shift+Tab`    | Cycle backward                                      |
+| `Ctrl+S`       | Save the draft, close the pane                      |
+| `Esc`          | Save (alias for Ctrl+S — the "I'm done" gesture)    |
+| `Ctrl+D`       | Discard the draft (no Graph round-trip)             |
+
+Save calls Microsoft Graph `createReply` + `PATCH /me/messages/
+{id}` to land the draft in your Drafts folder. The status bar
+shows `✓ draft saved · press s to open in Outlook`. Press `s`
+(in Normal mode) to launch the draft in your browser / Outlook
+desktop, where you finalise send. inkwell never sends mail — see
+the [explanation](explanation.md#why-no-send) for why.
+
+**Recipient recovery**: if you clear the `To:` field by accident,
+Save will fall back to the original sender's address (the implicit
+recipient of a reply). If neither the form nor the source has a
+recipient, you get an actionable error and the form state stays
+on screen so you can correct and retry.
+
+`r` / `R` are pane-scoped: in the viewer = reply / reply-all
+(reply-all post-MVP); in the messages pane = mark-read.
 
 ## Command mode (`:`)
 
