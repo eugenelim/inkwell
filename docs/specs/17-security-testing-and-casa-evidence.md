@@ -140,6 +140,17 @@ Pre-commit hook companion:
 version bumps. Auto-merge for patch versions in green CI; manual
 review for minor and major.
 
+**Grouping invariant (lesson from v0.13.x).** Dependabot opens one
+PR per dependency by default. When multiple deps live in the same
+file in adjacent lines (e.g. every CI job has both
+`actions/checkout` and `actions/setup-go` in the same step block),
+merging the first PR creates a 3-way conflict for every subsequent
+PR — a recurring rebase chore. The fix: group ALL bumps in each
+ecosystem into a single weekly PR via `groups: <name>: patterns:
+["*"]`. Single PR, single rebase, single merge. The cost of
+reviewing a fatter PR is much smaller than the cost of conflict-
+resolving N-1 PRs each week.
+
 ### 3.9 Pending: SBOM
 
 ```yaml
