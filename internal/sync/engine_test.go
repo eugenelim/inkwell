@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -643,6 +644,140 @@ func TestSyncFolderPullSinceUsesFilter(t *testing.T) {
 	require.Contains(t, filterSeen, "receivedDateTime gt ")
 	require.Contains(t, filterSeen, prior.Format("2006-01-02"),
 		"$filter must include the persisted last-delta timestamp")
+}
+
+// TestEngineForwardsThrottleAsEvent is the spec-03-§3 invariant:
+// the graph client's OnThrottle hook, wired through the engine,
+// must surface as a ThrottledEvent on the Notifications channel.
+// Without this the UI's `case isync.ThrottledEvent` is dead code
+// and a 429-storm degrades sync silently.
+func TestEngineForwardsThrottleAsEvent(t *testing.T) {
+	eng, _, _, _ := newSyncTest(t)
+	// The engine satisfies the OnThrottle hook contract; calling it
+	// directly is what the cmd_run.go closure does at runtime.
+	eng.OnThrottle(2 * time.Second)
+
+	select {
+	case ev := <-eng.Notifications():
+		thr, ok := ev.(ThrottledEvent)
+		require.True(t, ok, "expected ThrottledEvent, got %T", ev)
+		require.Equal(t, 2*time.Second, thr.RetryAfter)
+	case <-time.After(time.Second):
+		t.Fatal("ThrottledEvent never emitted")
+	}
+}
+
+// TestEngineGraphClientIntegrationEmitsThrottle is the wired-up
+// version of the test above: a real graph.Client backed by a 429-
+// returning httptest server, with OnThrottle pointed at the engine
+// via the same closure pattern as cmd_run.go.
+func TestEngineGraphClientIntegrationEmitsThrottle(t *testing.T) {
+	st := openSyncTestStore(t)
+	acc := seedSyncAccount(t, st)
+
+	srv := newFakeServer()
+	defer srv.Close()
+	var hits atomic.Int32
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		n := hits.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		writeJSON(w, graph.FolderListResponse{Value: []graph.MailFolder{
+			{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		}})
+	})
+
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	var eng Engine
+	gc, err := graph.NewClient(&fakeAuth{}, graph.Options{
+		BaseURL: srv.URL(),
+		Logger:  logger,
+		OnThrottle: func(d time.Duration) {
+			if eng != nil {
+				eng.OnThrottle(d)
+			}
+		},
+	})
+	require.NoError(t, err)
+	eng, err = New(gc, st, nil, Options{
+		AccountID: acc, Logger: logger,
+		ForegroundInterval: 50 * time.Millisecond,
+		BackgroundInterval: time.Second,
+	})
+	require.NoError(t, err)
+
+	// Drive a folder-enumeration cycle; the 429 fires the hook.
+	_ = eng.(*engine).syncFolders(context.Background())
+
+	select {
+	case ev := <-eng.Notifications():
+		_, ok := ev.(ThrottledEvent)
+		require.True(t, ok, "expected ThrottledEvent, got %T", ev)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ThrottledEvent not emitted from graph.Client → engine path")
+	}
+}
+
+// TestEngineEmitsAuthRequiredOn401 covers the spec-03-§3 invariant
+// for the auth half: a cycle that returns IsAuth(err) must surface
+// as AuthRequiredEvent (UI transitions to sign-in) rather than the
+// generic SyncFailedEvent.
+func TestEngineEmitsAuthRequiredOn401(t *testing.T) {
+	st := openSyncTestStore(t)
+	acc := seedSyncAccount(t, st)
+
+	srv := newFakeServer()
+	defer srv.Close()
+	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+		// Always 401 so the auth retry also fails; this is the
+		// "user's tokens were revoked at the tenant" case.
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":{"code":"InvalidAuthenticationToken","message":"token expired"}}`)
+	})
+
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	gc, err := graph.NewClient(&fakeAuth{}, graph.Options{
+		BaseURL: srv.URL(),
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+	eng, err := New(gc, st, nil, Options{
+		AccountID: acc, Logger: logger,
+		ForegroundInterval: 50 * time.Millisecond,
+		BackgroundInterval: time.Second,
+	})
+	require.NoError(t, err)
+
+	// Run one cycle; the 401 propagates through runCycle → loop
+	// → emitCycleFailure → AuthRequiredEvent. Drive runCycle
+	// directly so we don't have to start the goroutine loop.
+	err = eng.(*engine).runCycle(context.Background())
+	require.Error(t, err)
+	require.True(t, graph.IsAuth(err), "test setup: cycle error must classify as auth")
+
+	// emitCycleFailure is what the loop wraps runCycle errors with.
+	eng.(*engine).emitCycleFailure(err)
+
+	select {
+	case ev := <-eng.Notifications():
+		// Drain through any FoldersEnumeratedEvent / SyncStartedEvent
+		// noise that runCycle may have emitted along the way.
+		for {
+			if _, ok := ev.(AuthRequiredEvent); ok {
+				return
+			}
+			select {
+			case ev = <-eng.Notifications():
+			case <-time.After(time.Second):
+				t.Fatal("AuthRequiredEvent never emitted after IsAuth error")
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no events emitted")
+	}
 }
 
 // helper: silence unused-import in some build configurations.
