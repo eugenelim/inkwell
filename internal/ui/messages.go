@@ -32,6 +32,8 @@ const (
 	HelpMode
 	CategoryInputMode
 	FolderNameInputMode
+	URLPickerMode
+	FullscreenBodyMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update
@@ -64,10 +66,19 @@ type ConfirmResultMsg struct {
 // refresh failed. It transitions the root into SignInMode.
 type authRequiredMsg struct{ At time.Time }
 
+// BodyLink is a UI-side mirror of render.ExtractedLink. Defined
+// at the consumer site so messages.go doesn't import internal/render.
+type BodyLink struct {
+	Index int
+	URL   string
+	Text  string
+}
+
 // BodyRenderedMsg is delivered after a body fetch (or cache hit) has
 // produced text and link table. The viewer pane consumes it.
 type BodyRenderedMsg struct {
 	MessageID string
 	Text      string
+	Links     []BodyLink
 	State     int // mirrors render.BodyState
 }

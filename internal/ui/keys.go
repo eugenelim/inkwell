@@ -109,6 +109,21 @@ type KeyMap struct {
 	NewFolder    key.Binding
 	RenameFolder key.Binding
 	DeleteFolder key.Binding
+
+	// URL picker + clipboard yank (v0.15.x — TUI parity with urlview).
+	// `o` opens the URL picker overlay from the viewer pane. `y`
+	// yanks the focused URL (or selected attachment URL) to the
+	// system clipboard via OSC 52 (+ pbcopy on macOS).
+	OpenURL key.Binding
+	Yank    key.Binding
+
+	// Fullscreen body (v0.15.x) — temporarily hide folders + list
+	// panes so the viewer body uses the full terminal width. Real
+	// purpose: terminal-native multi-line text selection with
+	// drag/Shift-drag, which the side-by-side three-pane layout
+	// otherwise breaks (selection is rectangular and crosses pane
+	// borders). `z` is the typical "zoom" mnemonic in TUI tools.
+	FullscreenBody key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -159,6 +174,10 @@ func DefaultKeyMap() KeyMap {
 		NewFolder:    key.NewBinding(key.WithKeys("N")),
 		RenameFolder: key.NewBinding(key.WithKeys("R")),
 		DeleteFolder: key.NewBinding(key.WithKeys("X")),
+
+		OpenURL:        key.NewBinding(key.WithKeys("o")),
+		Yank:           key.NewBinding(key.WithKeys("y")),
+		FullscreenBody: key.NewBinding(key.WithKeys("z")),
 	}
 }
 

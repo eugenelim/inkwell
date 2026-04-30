@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -275,16 +276,18 @@ type Model struct {
 	height     int
 	paneWidths PaneWidths
 
-	folders  FoldersModel
-	list     ListModel
-	viewer   ViewerModel
-	cmd      CommandModel
-	status   StatusModel
-	signin   SignInModel
-	confirm  ConfirmModel
-	calendar CalendarModel
-	oof      OOFModel
-	help     HelpModel
+	folders   FoldersModel
+	list      ListModel
+	viewer    ViewerModel
+	cmd       CommandModel
+	status    StatusModel
+	signin    SignInModel
+	confirm   ConfirmModel
+	calendar  CalendarModel
+	oof       OOFModel
+	help      HelpModel
+	urlPicker URLPickerModel
+	yanker    *yanker
 
 	focused Pane
 	mode    Mode
@@ -408,7 +411,18 @@ func New(deps Deps) (Model, error) {
 		calendar:   NewCalendar(),
 		oof:        NewOOF(),
 		help:       NewHelp(),
+		urlPicker:  NewURLPicker(),
+		yanker:     newYanker(stdoutOSC52Writer),
 	}, nil
+}
+
+// stdoutOSC52Writer writes the supplied OSC 52 escape sequence to
+// stdout — the same FD Bubble Tea uses for rendering, so the
+// terminal sees it inline with the next render frame. Tests
+// substitute a buffer-backed writer.
+var stdoutOSC52Writer = func(seq string) error {
+	_, err := os.Stdout.WriteString(seq)
+	return err
 }
 
 // Init kicks off folder loading and sync-event consumption.
@@ -480,6 +494,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case BodyRenderedMsg:
 		if m.viewer.CurrentMessageID() == msg.MessageID {
 			m.viewer.SetBody(msg.Text, msg.State)
+			m.viewer.SetLinks(msg.Links)
 		}
 		return m, nil
 
@@ -818,9 +833,80 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCategoryInput(msg)
 	case FolderNameInputMode:
 		return m.updateFolderNameInput(msg)
+	case URLPickerMode:
+		return m.updateURLPicker(msg)
+	case FullscreenBodyMode:
+		return m.updateFullscreenBody(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateFullscreenBody handles input while the body is in
+// fullscreen mode. j/k scroll the body; Esc / q / z return to
+// the three-pane layout.
+func (m Model) updateFullscreenBody(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch {
+	case key.Matches(keyMsg, m.keymap.Down):
+		m.viewer.ScrollDown()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Up):
+		m.viewer.ScrollUp()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Yank):
+		// Single-URL fast path; otherwise no-op (URL picker is
+		// only reachable from normal mode by design).
+		if len(m.viewer.Links()) == 1 {
+			return m.yankURL(m.viewer.Links()[0].URL)
+		}
+		return m, nil
+	}
+	switch keyMsg.String() {
+	case "esc", "q", "z":
+		m.mode = NormalMode
+	}
+	return m, nil
+}
+
+// updateURLPicker handles input while the URL picker overlay is
+// open. j/k cursor; Enter / o open in browser; y yank; Esc / q
+// close.
+func (m Model) updateURLPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	links := m.viewer.Links()
+	switch {
+	case key.Matches(keyMsg, m.keymap.Up):
+		m.urlPicker.Up()
+	case key.Matches(keyMsg, m.keymap.Down):
+		m.urlPicker.Down(len(links) - 1)
+	case key.Matches(keyMsg, m.keymap.Open), key.Matches(keyMsg, m.keymap.OpenURL):
+		sel := m.urlPicker.Selected(links)
+		if sel != nil {
+			go openInBrowser(sel.URL)
+			m.engineActivity = "opened URL in browser"
+		}
+		m.mode = NormalMode
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Yank):
+		sel := m.urlPicker.Selected(links)
+		if sel != nil {
+			m.mode = NormalMode
+			return m.yankURL(sel.URL)
+		}
+		return m, nil
+	}
+	switch keyMsg.String() {
+	case "esc", "q":
+		m.mode = NormalMode
+	}
+	return m, nil
 }
 
 // updateHelp handles input while the help overlay is open. Esc / q
@@ -2024,7 +2110,7 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
 		}
 		if view.State == render.BodyReady {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, State: int(view.State)}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State)}
 		}
 		// BodyFetching: dispatch the fetch synchronously inside this
 		// goroutine and return the final rendered view.
@@ -2033,10 +2119,21 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			if err != nil {
 				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
 			}
-			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, State: int(final.State)}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State)}
 		}
-		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, State: int(view.State)}
+		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State)}
 	}
+}
+
+// convertLinks translates render.ExtractedLink → ui.BodyLink. The
+// UI defines its own link type so messages.go doesn't import
+// internal/render (CLAUDE.md §2 layering).
+func convertLinks(in []render.ExtractedLink) []BodyLink {
+	out := make([]BodyLink, len(in))
+	for i, l := range in {
+		out[i] = BodyLink{Index: l.Index, URL: l.URL, Text: l.Text}
+	}
+	return out
 }
 
 func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2104,9 +2201,49 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.viewer.current; cur != nil {
 			return m.startCategoryInput("remove", *cur)
 		}
+	case key.Matches(msg, m.keymap.OpenURL):
+		// Spec 05 §10 / v0.15.x — open the URL picker overlay.
+		// Acts on the renderer's extracted URL table for the
+		// current message. Empty list still opens the modal so
+		// the user gets feedback ("No URLs in this message").
+		m.urlPicker.Reset()
+		m.mode = URLPickerMode
+		return m, nil
+	case key.Matches(msg, m.keymap.Yank):
+		// Spec 05 §10 / v0.15.x — quick yank from the viewer:
+		// if the body has a single URL, copy it; otherwise prompt
+		// to disambiguate by opening the picker.
+		if len(m.viewer.Links()) == 1 {
+			return m.yankURL(m.viewer.Links()[0].URL)
+		}
+		m.urlPicker.Reset()
+		m.mode = URLPickerMode
+		m.engineActivity = "y in picker yanks selected URL"
+		return m, nil
+	case key.Matches(msg, m.keymap.FullscreenBody):
+		// Hide folders + list panes so the viewer body uses the
+		// full terminal width — terminal-native click-drag for
+		// multi-line text selection only works when the cursor's
+		// drag region isn't crossed by pane borders.
+		m.mode = FullscreenBodyMode
+		return m, nil
 	case key.Matches(msg, m.keymap.Undo):
 		return m.runUndo()
 	}
+	return m, nil
+}
+
+// yankURL copies a URL to the clipboard and paints a status hint.
+// Used by the viewer-pane y shortcut when there's only one URL,
+// and by the URL picker's y key.
+func (m Model) yankURL(url string) (tea.Model, tea.Cmd) {
+	label, err := m.yanker.Yank(url)
+	if err != nil {
+		m.lastError = fmt.Errorf("yank: %w", err)
+		return m, nil
+	}
+	m.lastError = nil
+	m.engineActivity = fmt.Sprintf("✓ copied URL (%s)", label)
 	return m, nil
 }
 
@@ -2266,6 +2403,17 @@ func (m Model) View() string {
 	}
 	if m.mode == HelpMode {
 		return m.help.View(m.theme, m.keymap, m.width, m.height)
+	}
+	if m.mode == URLPickerMode {
+		return m.urlPicker.View(m.theme, m.viewer.Links(), m.width, m.height)
+	}
+	if m.mode == FullscreenBodyMode {
+		// Render the viewer at full terminal width with no
+		// surrounding pane chrome so terminal selection drag works
+		// end-to-end. Reserves the bottom row for a hint line.
+		body := m.viewer.View(m.theme, m.width, m.height-1, true)
+		hint := m.theme.Dim.Render("z / Esc / q  exit fullscreen  ·  drag to select  ·  y  yank URL")
+		return body + "\n" + hint
 	}
 	if m.mode == FolderNameInputMode {
 		var title string

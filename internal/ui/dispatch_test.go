@@ -2189,3 +2189,205 @@ func TestDispatchQuitReturnsTeaQuit(t *testing.T) {
 	_, ok := msg.(tea.QuitMsg)
 	require.True(t, ok, "q must produce tea.QuitMsg")
 }
+
+// openViewerWithLinks brings the model into ViewerPane focus with a
+// known URL list staged on the renderer. Used by the URL-picker
+// tests so each one starts from a deterministic point.
+func openViewerWithLinks(t *testing.T, m Model, links []BodyLink) Model {
+	t.Helper()
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	m.viewer.SetLinks(links)
+	return m
+}
+
+// captureYanker swaps a buffer-backed writer onto the model's
+// yanker so tests can read what got "copied" without firing
+// pbcopy or hitting stdout. Returns the byte buffer.
+func captureYanker(m *Model) *strings.Builder {
+	buf := &strings.Builder{}
+	m.yanker = &yanker{
+		writeOSC52: func(s string) error { _, _ = buf.WriteString(s); return nil },
+	}
+	return buf
+}
+
+// TestDispatchViewerOOpensURLPicker is the visible-truth dispatch
+// test: pressing `o` in the focused viewer pane flips m.mode to
+// URLPickerMode AND the picker render produces non-empty output.
+// Without the mode flip the View branch never runs so the user
+// sees nothing.
+func TestDispatchViewerOOpensURLPicker(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/a", Text: "anchor a"},
+		{Index: 2, URL: "https://example.invalid/b", Text: "anchor b"},
+	})
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+
+	require.Equal(t, URLPickerMode, m.mode, "o in viewer must enter URLPickerMode")
+	frame := m.View()
+	require.Contains(t, frame, "https://example.invalid/a", "picker frame must render URL #1")
+	require.Contains(t, frame, "https://example.invalid/b", "picker frame must render URL #2")
+}
+
+// TestDispatchURLPickerJKMovesCursor confirms j/k move the picker
+// cursor within the link bounds. Without this the user is stuck on
+// row 0 and can only ever yank/open the first URL.
+func TestDispatchURLPickerJKMovesCursor(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/a"},
+		{Index: 2, URL: "https://example.invalid/b"},
+		{Index: 3, URL: "https://example.invalid/c"},
+	})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Equal(t, 0, m.urlPicker.cursor)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 1, m.urlPicker.cursor)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 2, m.urlPicker.cursor)
+
+	// j at the bottom is a no-op (no wrap).
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 2, m.urlPicker.cursor)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = m2.(Model)
+	require.Equal(t, 1, m.urlPicker.cursor)
+}
+
+// TestDispatchURLPickerYYanksSelectedURL is the spec 05 §10 truth: y
+// in the picker writes the cursor's URL via the yanker and exits
+// the picker. Without this the picker is decorative.
+func TestDispatchURLPickerYYanksSelectedURL(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/a"},
+		{Index: 2, URL: "https://example.invalid/b"},
+	})
+	buf := captureYanker(&m)
+
+	// Open picker, move to row 1, yank.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode, "y must close the picker")
+	require.Contains(t, buf.String(), "\x1b]52;c;", "OSC 52 sequence must hit the writer")
+	require.Contains(t, buf.String(), osc52Sequence("https://example.invalid/b"),
+		"yanked URL must be the cursor's row, not row 0")
+	require.Contains(t, m.engineActivity, "copied URL", "status must reflect yank")
+}
+
+// TestDispatchViewerYWithSingleURLFastPathYanks confirms the
+// shortcut: when the body has exactly one URL, viewer-pane y skips
+// the picker and yanks immediately. This is the urlview parity case.
+func TestDispatchViewerYWithSingleURLFastPathYanks(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/only"},
+	})
+	buf := captureYanker(&m)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode, "single-URL y must NOT enter picker mode")
+	require.Contains(t, buf.String(), osc52Sequence("https://example.invalid/only"))
+	require.Contains(t, m.engineActivity, "copied URL")
+}
+
+// TestDispatchViewerYWithMultipleURLsOpensPicker is the disambig
+// case: 2+ URLs means y must surface the picker so the user can
+// pick. We assert mode flip + status hint so the user knows what
+// to do next.
+func TestDispatchViewerYWithMultipleURLsOpensPicker(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/a"},
+		{Index: 2, URL: "https://example.invalid/b"},
+	})
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+
+	require.Equal(t, URLPickerMode, m.mode)
+	require.Contains(t, m.engineActivity, "yanks selected URL", "must hint at picker workflow")
+}
+
+// TestDispatchURLPickerEscClosesWithoutAction confirms Esc / q
+// closes the picker without yanking or opening anything.
+func TestDispatchURLPickerEscClosesWithoutAction(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/a"},
+	})
+	buf := captureYanker(&m)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Equal(t, URLPickerMode, m.mode)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode, "Esc must close the picker")
+	require.Empty(t, buf.String(), "Esc must NOT emit any clipboard sequence")
+}
+
+// TestDispatchViewerZEntersFullscreenAndExits confirms `z` in the
+// viewer toggles FullscreenBodyMode, and that the rendered frame in
+// that mode does NOT include the folder/list pane chrome (those are
+// the panes the mode is meant to hide so terminal-native drag-
+// selection works end-to-end).
+func TestDispatchViewerZEntersFullscreenAndExits(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	m = m2.(Model)
+	require.Equal(t, FullscreenBodyMode, m.mode)
+
+	frame := m.View()
+	require.NotContains(t, frame, "Folders", "fullscreen frame must hide the folders pane header")
+	require.Contains(t, frame, "exit fullscreen", "fullscreen hint must be visible")
+
+	// z again exits.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+}
+
+// TestURLPickerEmptyShowsHelpfulModal confirms an `o` press on a
+// message with zero extracted URLs still opens the picker and
+// renders an empty-state hint, instead of silently doing nothing.
+// (Empty-state silence has bitten us twice — folder pane in v0.5,
+// help bar in v0.10.)
+func TestURLPickerEmptyShowsHelpfulModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	m.viewer.SetLinks(nil)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = m2.(Model)
+	require.Equal(t, URLPickerMode, m.mode)
+	frame := m.View()
+	require.Contains(t, frame, "No URLs in this message")
+}

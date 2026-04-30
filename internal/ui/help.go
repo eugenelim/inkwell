@@ -97,6 +97,14 @@ func buildHelpSections(km KeyMap) []helpSection {
 			},
 		},
 		{
+			title: "Viewer extras",
+			rows: []helpRow{
+				{keysOf(km.OpenURL), "URL picker (extracted links)"},
+				{keysOf(km.Yank), "yank URL to clipboard"},
+				{keysOf(km.FullscreenBody), "fullscreen body (drag-select)"},
+			},
+		},
+		{
 			title: "Modes & meta",
 			rows: []helpRow{
 				{keysOf(km.Cmd), "command mode"},

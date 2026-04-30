@@ -811,6 +811,106 @@ func TestUnsubscribeUKeyOpensConfirmModalAndExecutes(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// newE2EModelWithBody mirrors newE2EModel but wires a stubBodyFetcher
+// with caller-supplied content. Used by the URL-picker e2e to seed a
+// body whose plain-text URL the renderer can extract.
+func newE2EModelWithBody(t *testing.T, content string) (Model, *fakeEngine) {
+	t.Helper()
+	st, acc := openE2EStore(t)
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m, err := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    st,
+		Engine:   eng,
+		Renderer: render.New(st, stubBodyFetcher{contentType: "text", content: content}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	require.NoError(t, err)
+	return m, eng
+}
+
+// TestURLPickerOOpensModalWithExtractedURL is the spec 05 §10 e2e
+// visible-delta test. Body contains a plain-text URL the renderer
+// extracts; pressing `o` in the focused viewer must paint the picker
+// modal containing that URL. Without this, the user can press `o`
+// and see nothing — the v0.2.6 regression class.
+func TestURLPickerOOpensModalWithExtractedURL(t *testing.T) {
+	m, _ := newE2EModelWithBody(t, "Read more at https://example.invalid/article")
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open the first message — body fetch + render extracts the URL.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Read more at")
+	}, teatest.WithDuration(2*time.Second))
+
+	// `o` opens the picker.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "URLs (") &&
+			contains(s, "https://example.invalid/article") &&
+			contains(s, "Enter / o  open")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Esc closes; viewer chrome returns.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "▌ Message") && !contains(s, "URLs (")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFullscreenBodyZHidesPanesAndShowsHint is the v0.15.x e2e
+// visible-delta test for fullscreen body mode. Pressing `z` in the
+// focused viewer hides the folders + list panes (so terminal-native
+// click-drag selection works) and paints the exit hint. `z` again
+// (or Esc) restores the three-pane layout.
+func TestFullscreenBodyZHidesPanesAndShowsHint(t *testing.T) {
+	m, _ := newE2EModel(t)
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open the first message; viewer is focused.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "▌ Message")
+	}, teatest.WithDuration(2*time.Second))
+
+	// `z` enters fullscreen body. Folders pane header (and list pane
+	// header) must disappear; exit hint must render.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "exit fullscreen") &&
+			!contains(s, "Folders") &&
+			!contains(s, "Messages")
+	}, teatest.WithDuration(2*time.Second))
+
+	// `z` again exits — pane chrome returns.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Folders") && !contains(s, "exit fullscreen")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // folderAppearsAtIndent returns true if `name` appears in `buf`
 // preceded by exactly `indent` spaces (after the cursor-marker col).
 // We split on visual lines and check each line for the pattern
