@@ -26,13 +26,20 @@ type Flag struct {
 
 // MailFolder mirrors the subset of /me/mailFolders we read.
 type MailFolder struct {
-	ID              string `json:"id"`
-	DisplayName     string `json:"displayName"`
-	ParentFolderID  string `json:"parentFolderId,omitempty"`
-	WellKnownName   string `json:"wellKnownName,omitempty"`
-	TotalItemCount  int    `json:"totalItemCount,omitempty"`
-	UnreadItemCount int    `json:"unreadItemCount,omitempty"`
-	IsHidden        bool   `json:"isHidden,omitempty"`
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	ParentFolderID   string `json:"parentFolderId,omitempty"`
+	WellKnownName    string `json:"wellKnownName,omitempty"`
+	TotalItemCount   int    `json:"totalItemCount,omitempty"`
+	UnreadItemCount  int    `json:"unreadItemCount,omitempty"`
+	IsHidden         bool   `json:"isHidden,omitempty"`
+	ChildFolderCount int    `json:"childFolderCount,omitempty"`
+	// Removed is set by /me/mailFolders/delta when a folder has been
+	// deleted server-side. Callers using the delta endpoint without
+	// a persisted delta token won't see this (a fresh delta returns
+	// the current state with no removals); the field is here for
+	// when the delta-token incremental path lands.
+	Removed *RemovedMarker `json:"@removed,omitempty"`
 }
 
 // Message is the shape we request via $select. Fields not listed in the

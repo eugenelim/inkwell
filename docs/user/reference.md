@@ -37,6 +37,11 @@ recipes, see [`how-to.md`](how-to.md).
 | `R`       | Rename the focused folder (well-known folders refused server-side) |
 | `X`       | Delete the focused folder (with confirm; cascades to Deleted Items server-side) |
 
+The full folder hierarchy syncs from Microsoft Graph — Inbox
+sub-folders, sub-sub-folders, any depth. The tree renders with
+two-space indentation per level; `▾` / `▸` glyphs mark expanded /
+collapsed parents. Inbox is auto-expanded on first launch.
+
 Saved searches (configured in `[[saved_searches]]`) show under a
 "Saved Searches" section with a `☆` glyph. Enter on one runs its
 pattern via the filter machinery.
@@ -58,6 +63,7 @@ pattern via the filter machinery.
 | `d`       | Soft-delete (move to Deleted Items)                           |
 | `D`       | Permanent delete (with confirm; bypasses Deleted Items; **NOT undoable**) |
 | `a`       | Archive (move to Archive folder)                              |
+| `m`       | Move to a folder (opens picker; type to filter; Enter selects) |
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
 | `;`       | Begin bulk chord (only when a filter is active)               |
@@ -72,9 +78,25 @@ slice, the next page (200 rows) loads from the local store
 automatically. When the cache is exhausted, inkwell kicks a sync to
 pull more from Graph.
 
-**Calendar-invite indicator**: messages whose subject starts with
-`Accepted:`, `Declined:`, `Tentative:`, `Updated:`, `Canceled:`,
-`Meeting:`, or `Invitation:` show a leading `📅` glyph.
+**Calendar-invite indicator**: messages get a leading `📅` glyph
+when ANY of these signal a meeting:
+
+- Subject prefix: `Accepted:`, `Declined:`, `Tentative:`,
+  `Updated:`, `Canceled:`, `Meeting:`, `Invitation:`,
+  `Forwarded Invitation:`, `New Time Proposed:`. These catch
+  *responses* and *cancellations*.
+- Body preview shape: Outlook auto-generates a `When: <date>`
+  / `Where: <location>` header block on the body of every
+  invite it sends. Detecting both labels in the first ~200
+  chars catches *meeting requests* whose subject is just the
+  meeting title with no prefix.
+
+Limitation: heuristics are English-only. Non-English Outlook
+deployments emit localised `When:` / `Where:` labels and won't
+match. A future release will use the Graph type-cast `$select`
+to make detection locale-independent — that path is currently
+disabled because of a real-tenant 400 regression on the bare
+`$select=meetingMessageType` form.
 
 ## Viewer pane (when focused)
 
@@ -94,6 +116,7 @@ pull more from Graph.
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `D`       | Permanent delete (with confirm; **NOT undoable**)             |
 | `a`       | Archive (focus pops back to list)                             |
+| `m`       | Move to a folder (opens picker; type to filter; Enter selects) |
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
@@ -109,10 +132,28 @@ lines.
 
 **Clickable URLs**: every URL in a rendered message body — inline
 and in the trailing `Links:` block — is wrapped in OSC 8 hyperlink
-escapes. Modern terminals (iTerm2, kitty, alacritty, foot, wezterm,
-recent gnome-terminal / Konsole) make these directly clickable
-(Cmd-click on macOS, Ctrl-click on Linux). Older terminals (Apple
-Terminal.app) fall back to plain text.
+escapes WITH a stable `id=` parameter so terminals can group all
+fragments of the same URL as one logical link. The practical effect:
+when a long URL wraps to multiple visual rows, hovering any row
+highlights the entire URL together. Modern terminals (iTerm2, kitty,
+alacritty, foot, wezterm, ghostty, recent gnome-terminal / Konsole)
+make these directly clickable (Cmd-click on macOS, Ctrl-click on
+Linux). Older terminals (Apple Terminal.app) fall back to plain
+text — use the URL picker (`o`) instead.
+
+**Long-URL truncation**: URLs longer than 60 cells render with end-
+truncation in the body — `https://example.com/auth/…` — so they
+don't dominate vertical space when you scroll. The OSC 8 escape
+sequence keeps the FULL URL in its `url` portion, so:
+
+- Cmd-click on a truncated URL still opens the full URL.
+- The URL picker (`o`) shows full URLs.
+- The `Links:` block at the bottom of every body keeps full URLs
+  untruncated — that's the canonical place to read or copy a full
+  link.
+
+The domain prefix is always preserved (security: spot phishing at
+a glance).
 
 **URL picker (`o`)**: lists every URL the renderer pulled out of
 the body. `j` / `k` move the cursor; `Enter` or `o` opens the
@@ -129,6 +170,18 @@ Alacritty / Windows Terminal / recent VTE) and, on macOS,
 additionally via `pbcopy` so Apple Terminal users still get the
 local clipboard. tmux users need `set -g set-clipboard on` for
 OSC 52 passthrough.
+
+**Folder picker (`m`)**: opens a centered modal listing every
+synced folder, with the ones you've most recently moved messages
+to ranked at the top under `[recent]`. Type any substring to
+narrow (case-insensitive on the path AND the well-known alias);
+the `↑` / `↓` arrow keys move the cursor (so `j` and `k` flow
+into the filter buffer, not navigation); `Enter` dispatches the
+move and bumps that folder to the top of the recents; `Esc`
+cancels. The MRU list is session-scoped; the cap is the
+`[triage].recent_folders_count` config key (default 5). The
+Drafts well-known folder is filtered out of destinations because
+Graph rejects moves into Drafts for non-draft items.
 
 **Fullscreen body (`z`)**: hides the folders + list panes so the
 viewer body uses the full terminal width. Use this when you need
@@ -189,9 +242,23 @@ Server-side `$search` merge is post-v0.8.
 
 | Key            | Action                                                         |
 | -------------- | -------------------------------------------------------------- |
+| `j` / `↓`      | Move cursor to next event                                      |
+| `k` / `↑`      | Move cursor to previous event                                  |
+| `Enter`        | Open the focused event's detail modal (attendees, body, links) |
 | `Esc` / `q`    | Close the modal, return to Normal mode                         |
 
 Read-only. To act on an event, finish in Outlook.
+
+## Calendar detail mode (Enter on `:cal`)
+
+| Key            | Action                                                         |
+| -------------- | -------------------------------------------------------------- |
+| `o`            | Open the event in Outlook (web link)                           |
+| `l`            | Open the online meeting URL (Teams / Zoom / etc.)              |
+| `Esc` / `q`    | Close the detail modal, return to the calendar list            |
+
+Attendee status glyphs: `✓` accepted, `~` tentatively accepted,
+`✗` declined, `?` not responded.
 
 ## Out-of-office mode (`:ooo`)
 
@@ -282,8 +349,10 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Search      | `/`                  | `Enter` (run) or `Esc`                           |
 | SignIn      | auth flow            | `Esc`                                            |
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
-| Calendar    | `:cal` / `:calendar` | `Esc` or `q`                                     |
+| Calendar    | `:cal` / `:calendar` | `Esc` or `q` (`j`/`k` nav, `Enter` opens detail) |
+| CalendarDetail | `Enter` on a calendar event | `Esc` or `q` (`o` Outlook, `l` meeting URL) |
 | OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`t` toggles)            |
+| FolderPicker | `m` (list / viewer)              | `Esc` (cancel) or `Enter` (move)      |
 
 ## Indicators
 

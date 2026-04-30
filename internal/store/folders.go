@@ -95,3 +95,31 @@ func (s *store) UpdateFolderDisplayName(ctx context.Context, id, displayName str
 		displayName, id)
 	return err
 }
+
+// AdjustFolderCounts applies signed deltas to folders.total_count
+// and folders.unread_count atomically. Counts are clamped at 0 so
+// optimistic decrements can't drive the row negative when the
+// pre-state was already stale (e.g. sync hadn't run yet).
+//
+// No-op for unknown folder IDs — the underlying UPDATE matches 0
+// rows and returns no error. Callers can fire this for both
+// source and destination folders without checking which exist
+// locally.
+//
+// Eventually-consistent contract: every sync cycle's
+// `syncFolders` rewrites total_count / unread_count from Graph's
+// authoritative values, so any drift between optimistic and
+// server state heals on the next cycle (~30s in foreground
+// mode).
+func (s *store) AdjustFolderCounts(ctx context.Context, folderID string, totalDelta, unreadDelta int) error {
+	if folderID == "" || (totalDelta == 0 && unreadDelta == 0) {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE folders
+		SET total_count = MAX(0, total_count + ?),
+		    unread_count = MAX(0, unread_count + ?)
+		WHERE id = ?`,
+		totalDelta, unreadDelta, folderID)
+	return err
+}

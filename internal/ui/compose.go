@@ -86,23 +86,51 @@ func runEditorCmd(tempfile, sourceID string, editor *exec.Cmd) tea.Cmd {
 }
 
 // saveDraftCmd parses the post-edit tempfile and dispatches the
-// CreateDraftReply action. The tempfile is cleaned up ONLY on
-// success or on a parse error that means the user discarded
-// (ErrEmpty / ErrNoRecipients). Graph round-trip failures leave the
-// file on disk so the user doesn't lose their work — they can copy
-// the path from the log and finish in Outlook directly.
+// CreateDraftReply action. ErrEmpty (blank file) is a genuine
+// discard — safe to clean up. ErrNoRecipients tries to recover by
+// falling back to the source message's `FromAddress`: the user
+// pressed Reply, so the original sender is the obvious recipient,
+// and a hard error in that case ("no recipient although i'm
+// replying to an email") was a real-tenant complaint. Graph
+// round-trip failures leave the file on disk so the user can
+// rescue manually.
 func (m Model) saveDraftCmd(tempfile, sourceID string) tea.Cmd {
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	store := m.deps.Store
 	return func() tea.Msg {
-		parsed, err := compose.Parse(tempfile)
-		if err != nil {
-			// Discard cases — the file is intentionally being thrown
-			// away; safe to clean up.
+		parsed, parseErr := compose.Parse(tempfile)
+		switch {
+		case parseErr == compose.ErrEmpty:
+			// Blank file — explicit discard. Clean up.
 			compose.CleanupTempfile(tempfile)
-			return draftSavedMsg{err: err}
+			return draftSavedMsg{err: parseErr}
+		case parseErr == compose.ErrNoRecipients:
+			// The user (or the skeleton) left the To: line empty.
+			// Recover from the source: a reply to message X
+			// implicitly addresses X's sender.
+			fallback := lookupSourceFromAddress(store, sourceID)
+			if fallback == "" {
+				// No source FromAddress available — preserve the
+				// tempfile so the user can rescue and surface a
+				// clearer error than the bare ErrNoRecipients.
+				return draftSavedMsg{
+					err:      fmt.Errorf("%w (edit the To: line at %s)", parseErr, tempfile),
+					tempfile: tempfile,
+				}
+			}
+			parsed.To = []string{fallback}
+			parseErr = nil
+		case parseErr != nil:
+			// Other parse errors (file IO etc.) — surface; preserve
+			// the tempfile so nothing is lost.
+			return draftSavedMsg{err: parseErr, tempfile: tempfile}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		ref, err := m.deps.Drafts.CreateDraftReply(ctx, sourceID, parsed.Body, parsed.To, parsed.Cc, parsed.Bcc, parsed.Subject)
+		ref, err := m.deps.Drafts.CreateDraftReply(ctx, accountID, sourceID, parsed.Body, parsed.To, parsed.Cc, parsed.Bcc, parsed.Subject)
 		if err != nil {
 			// Preserve the tempfile so the user has a copy of their
 			// work. Surface the path so they can recover.
@@ -111,6 +139,22 @@ func (m Model) saveDraftCmd(tempfile, sourceID string) tea.Cmd {
 		compose.CleanupTempfile(tempfile)
 		return draftSavedMsg{webLink: ref.WebLink}
 	}
+}
+
+// lookupSourceFromAddress reads sourceID's `FromAddress` from the
+// store. Returns "" if the row isn't found or the FromAddress is
+// empty — the caller treats either as "no fallback available".
+func lookupSourceFromAddress(s store.Store, sourceID string) string {
+	if s == nil || sourceID == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	msg, err := s.GetMessage(ctx, sourceID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.FromAddress
 }
 
 // renderComposeConfirm draws the post-edit confirm pane. The
@@ -124,9 +168,9 @@ func (m Model) renderComposeConfirm() string {
 		"",
 		"Your editor closed. Pick what to do with this draft:",
 		"",
-		"  " + m.theme.HelpKey.Render("s") + "  " + m.theme.Help.Render("save draft (lands in your Outlook Drafts folder)"),
-		"  " + m.theme.HelpKey.Render("e") + "  " + m.theme.Help.Render("re-edit (re-opens the same file in your editor)"),
-		"  " + m.theme.HelpKey.Render("d") + "  " + m.theme.Help.Render("discard (delete the file; nothing sent or saved)"),
+		"  " + m.theme.HelpKey.Render("s") + " / " + m.theme.HelpKey.Render("Enter") + "  " + m.theme.Help.Render("save draft (lands in your Outlook Drafts folder)"),
+		"  " + m.theme.HelpKey.Render("e") + "                " + m.theme.Help.Render("re-edit (re-opens the same file in your editor)"),
+		"  " + m.theme.HelpKey.Render("d") + "                " + m.theme.Help.Render("discard (delete the file; nothing sent or saved)"),
 		"",
 		m.theme.Dim.Render("Esc stays on this prompt — destructive choices need an explicit key."),
 	}

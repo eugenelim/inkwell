@@ -163,21 +163,22 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern})
 	}
 	model, err := ui.New(ui.Deps{
-		Auth:          a,
-		Store:         st,
-		Engine:        engine,
-		Renderer:      renderer,
-		Logger:        logger,
-		Account:       acc,
-		Triage:        triageAdapter{exec: exec},
-		Bulk:          bulkAdapter{exec: exec},
-		Calendar:      calendarAdapter{gc: gc, st: st, accountID: acc.ID},
-		Mailbox:       mailboxAdapter{gc: gc},
-		Drafts:        draftAdapter{exec: exec},
-		Unsubscribe:   newUnsubAdapter(st, gc, version),
-		ThemeName:     cfg.UI.Theme,
-		SavedSearches: saved,
-		Bindings:      bindingsToOverrides(cfg.Bindings),
+		Auth:               a,
+		Store:              st,
+		Engine:             engine,
+		Renderer:           renderer,
+		Logger:             logger,
+		Account:            acc,
+		Triage:             triageAdapter{exec: exec},
+		Bulk:               bulkAdapter{exec: exec},
+		Calendar:           calendarAdapter{gc: gc, st: st, accountID: acc.ID},
+		Mailbox:            mailboxAdapter{gc: gc},
+		Drafts:             draftAdapter{exec: exec},
+		Unsubscribe:        newUnsubAdapter(st, gc, version),
+		ThemeName:          cfg.UI.Theme,
+		SavedSearches:      saved,
+		Bindings:           bindingsToOverrides(cfg.Bindings),
+		RecentFoldersCount: cfg.Triage.RecentFoldersCount,
 	})
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
@@ -245,6 +246,10 @@ func (t triageAdapter) Archive(ctx context.Context, accountID int64, messageID s
 	return t.exec.Archive(ctx, accountID, messageID)
 }
 
+func (t triageAdapter) Move(ctx context.Context, accountID int64, messageID, destFolderID, destAlias string) error {
+	return t.exec.Move(ctx, accountID, messageID, destFolderID, destAlias)
+}
+
 func (t triageAdapter) PermanentDelete(ctx context.Context, accountID int64, messageID string) error {
 	return t.exec.PermanentDelete(ctx, accountID, messageID)
 }
@@ -309,8 +314,8 @@ func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []st
 // import internal/action.
 type draftAdapter struct{ exec *action.Executor }
 
-func (d draftAdapter) CreateDraftReply(ctx context.Context, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	res, err := d.exec.CreateDraftReply(ctx, sourceID, body, to, cc, bcc, subject)
+func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
+	res, err := d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject)
 	if res == nil {
 		return nil, err
 	}
@@ -408,6 +413,7 @@ func convertStoreEvents(events []store.Event) []ui.CalendarEvent {
 	out := make([]ui.CalendarEvent, len(events))
 	for i, e := range events {
 		out[i] = ui.CalendarEvent{
+			ID:               e.ID,
 			Subject:          e.Subject,
 			OrganizerName:    e.OrganizerName,
 			OrganizerAddress: e.OrganizerAddress,
@@ -416,6 +422,7 @@ func convertStoreEvents(events []store.Event) []ui.CalendarEvent {
 			IsAllDay:         e.IsAllDay,
 			Location:         e.Location,
 			OnlineMeetingURL: e.OnlineMeetingURL,
+			WebLink:          e.WebLink,
 		}
 	}
 	return out
@@ -425,6 +432,7 @@ func convertStoreEventsFromGraph(events []graph.Event) []ui.CalendarEvent {
 	out := make([]ui.CalendarEvent, len(events))
 	for i, e := range events {
 		out[i] = ui.CalendarEvent{
+			ID:               e.ID,
 			Subject:          e.Subject,
 			OrganizerName:    e.OrganizerName,
 			OrganizerAddress: e.OrganizerAddress,
@@ -433,9 +441,46 @@ func convertStoreEventsFromGraph(events []graph.Event) []ui.CalendarEvent {
 			IsAllDay:         e.IsAllDay,
 			Location:         e.Location,
 			OnlineMeetingURL: e.OnlineMeetingURL,
+			WebLink:          e.WebLink,
 		}
 	}
 	return out
+}
+
+// GetEvent fetches a single event with attendees + body preview
+// from Graph. No caching this PR — attendees aren't persisted yet
+// (spec 12 §3 event_attendees table lands with the sync-engine
+// third state). The request is small (one event) and only fires
+// on user-initiated Enter, so live-fetch is fine.
+func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEventDetail, error) {
+	det, err := c.gc.GetEvent(ctx, id)
+	if err != nil {
+		return ui.CalendarEventDetail{}, err
+	}
+	out := ui.CalendarEventDetail{
+		CalendarEvent: ui.CalendarEvent{
+			ID:               det.ID,
+			Subject:          det.Subject,
+			OrganizerName:    det.OrganizerName,
+			OrganizerAddress: det.OrganizerAddress,
+			Start:            det.Start,
+			End:              det.End,
+			IsAllDay:         det.IsAllDay,
+			Location:         det.Location,
+			OnlineMeetingURL: det.OnlineMeetingURL,
+			WebLink:          det.WebLink,
+		},
+		BodyPreview: det.BodyPreview,
+	}
+	for _, a := range det.Attendees {
+		out.Attendees = append(out.Attendees, ui.CalendarAttendee{
+			Name:    a.Name,
+			Address: a.Address,
+			Type:    a.Type,
+			Status:  a.Status,
+		})
+	}
+	return out, nil
 }
 
 func convertGraphEvents(accountID int64, events []graph.Event) []store.Event {

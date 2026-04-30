@@ -100,7 +100,7 @@ func TestHeadersHandleEmptySubject(t *testing.T) {
 
 func TestPlainNormalisesCRLFAndQuoting(t *testing.T) {
 	body := "Hi Alice,\r\n> previous reply\r\n>> deep quote\r\nthanks\r\n"
-	out, _ := normalisePlain(body, 80)
+	out, _ := normalisePlain(body, 80, 0)
 	require.Contains(t, out, "Hi Alice,\n")
 	require.Contains(t, out, "> previous reply\n")
 	require.Contains(t, out, "> > deep quote\n")
@@ -108,23 +108,28 @@ func TestPlainNormalisesCRLFAndQuoting(t *testing.T) {
 
 func TestPlainSoftWrapsLongLines(t *testing.T) {
 	long := strings.Repeat("word ", 30)
-	out, _ := normalisePlain(long, 30)
+	out, _ := normalisePlain(long, 30, 0)
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		require.LessOrEqual(t, len(line), 35, "wrapped line: %q", line)
 	}
 }
 
 // TestLinkifyURLsWrapsInOSC8 confirms inline URLs in the rendered
-// body get wrapped in OSC 8 hyperlink escapes. Real-tenant complaint:
-// drag-selecting a multi-line URL captured the adjacent message-list
-// pane (terminal rectangular selection). OSC 8 makes URLs clickable
-// in supporting terminals (iTerm2, kitty, alacritty, foot, wezterm)
-// so the user clicks instead of dragging across pane borders.
+// body get wrapped in OSC 8 hyperlink escapes WITH a stable `id=`
+// parameter. Real-tenant complaints addressed:
+//  1. drag-selecting a multi-line URL captured the adjacent
+//     message-list pane (terminal rectangular selection) → OSC 8
+//     makes URLs clickable so the user clicks instead;
+//  2. hovering a URL that lipgloss wrapped across rows highlighted
+//     only the row under the cursor → the `id=` parameter groups
+//     all rendered fragments as one logical link, so terminals
+//     (Ghostty, iTerm2, kitty, etc.) highlight every row.
 func TestLinkifyURLsWrapsInOSC8(t *testing.T) {
 	in := "see https://example.invalid/a for details."
-	out := linkifyURLsInText(in)
-	// OSC 8 sequence: \x1b]8;;<url>\x1b\\<text>\x1b]8;;\x1b\\
-	require.Contains(t, out, "\x1b]8;;https://example.invalid/a\x1b\\")
+	out := linkifyURLsInText(in, 0)
+	id := osc8LinkID("https://example.invalid/a")
+	// OSC 8 sequence with id: \x1b]8;id=<id>;<url>\x1b\\<text>\x1b]8;;\x1b\\
+	require.Contains(t, out, "\x1b]8;id="+id+";https://example.invalid/a\x1b\\")
 	require.Contains(t, out, "https://example.invalid/a\x1b]8;;\x1b\\")
 	// Trailing punctuation preserved outside the hyperlink wrap.
 	require.Contains(t, out, " for details.")
@@ -132,7 +137,7 @@ func TestLinkifyURLsWrapsInOSC8(t *testing.T) {
 
 func TestLinkifyURLsLeavesNonURLsAlone(t *testing.T) {
 	in := "no links here, just prose."
-	out := linkifyURLsInText(in)
+	out := linkifyURLsInText(in, 0)
 	require.Equal(t, in, out)
 }
 
@@ -141,8 +146,145 @@ func TestRenderLinkBlockEmitsOSC8(t *testing.T) {
 		{Index: 1, URL: "https://example.invalid/a", Text: "https://example.invalid/a"},
 	}
 	out := renderLinkBlock(links)
-	require.Contains(t, out, "\x1b]8;;https://example.invalid/a\x1b\\")
+	id := osc8LinkID("https://example.invalid/a")
+	require.Contains(t, out, "\x1b]8;id="+id+";https://example.invalid/a\x1b\\")
 	require.Contains(t, out, "[1]")
+}
+
+// TestOSC8RepeatedURLGetsSameID is the multi-line hover-highlight
+// invariant: when a URL appears more than once (or wraps across
+// rows), every emitted fragment carries the same `id=` so the
+// terminal groups them as one logical hyperlink. Without the
+// stable id, hover highlights only the row under the cursor.
+func TestOSC8RepeatedURLGetsSameID(t *testing.T) {
+	in := "see https://example.invalid/a then again https://example.invalid/a"
+	out := linkifyURLsInText(in, 0)
+	id := osc8LinkID("https://example.invalid/a")
+	// Both occurrences carry the same id.
+	first := strings.Index(out, "\x1b]8;id="+id+";")
+	require.NotEqual(t, -1, first, "first occurrence must carry id")
+	second := strings.Index(out[first+1:], "\x1b]8;id="+id+";")
+	require.NotEqual(t, -1, second, "second occurrence must carry the SAME id")
+}
+
+// TestOSC8DistinctURLsGetDistinctIDs guards against id collisions
+// — two different URLs in the same body must not share an id, or
+// hover would link them together as if they were one URL.
+func TestOSC8DistinctURLsGetDistinctIDs(t *testing.T) {
+	idA := osc8LinkID("https://example.invalid/a")
+	idB := osc8LinkID("https://example.invalid/b")
+	require.NotEqual(t, idA, idB, "distinct URLs must produce distinct ids")
+}
+
+// TestNormalisePlainEmitsConsistentOSC8IDsAcrossInlineAndLinkBlock
+// is the integration check for spec 05 §10 + the multi-line hover
+// fix: every emission of a given URL — the inline OSC8 wrap inside
+// the body AND the trailing `Links:` block — must carry the same
+// `id=` so terminals group them as one logical hyperlink. Without
+// this, hovering the inline span and the [N] reference produces
+// two separate highlights even though they point to the same URL.
+func TestNormalisePlainEmitsConsistentOSC8IDsAcrossInlineAndLinkBlock(t *testing.T) {
+	body := "see https://example.invalid/long-path/document\nthanks"
+	out, links := normalisePlain(body, 80, 0)
+	require.Len(t, links, 1)
+	id := osc8LinkID("https://example.invalid/long-path/document")
+
+	// Two emissions: the inline wrap inside the body text + the
+	// [1] entry in the appended Links: block. Both must use the
+	// same id.
+	first := strings.Index(out, "\x1b]8;id="+id+";")
+	require.NotEqual(t, -1, first, "inline OSC 8 emission carries id")
+	second := strings.Index(out[first+1:], "\x1b]8;id="+id+";")
+	require.NotEqual(t, -1, second, "Links: block emission must carry the SAME id, not a fresh sequence number")
+}
+
+// TestTruncateURLForDisplayShort confirms a URL shorter than the
+// cap passes through unchanged (no `…` marker added).
+func TestTruncateURLForDisplayShort(t *testing.T) {
+	in := "https://example.invalid/x"
+	require.Equal(t, in, truncateURLForDisplay(in, 60),
+		"URL <= cap renders unchanged")
+}
+
+// TestTruncateURLForDisplayLong confirms end-truncation produces a
+// string of exactly maxDisplay cells with `…` as the final char.
+// End-truncation (vs middle-truncation) preserves the security-
+// relevant domain prefix.
+func TestTruncateURLForDisplayLong(t *testing.T) {
+	in := "https://very-long.example.invalid/auth/callback?token=AAAAAAAAAAAAAAAAAAAAAAAA&state=BBBBBB"
+	out := truncateURLForDisplay(in, 40)
+	runes := []rune(out)
+	require.Len(t, runes, 40, "truncated form has exactly maxDisplay runes (== cells for ASCII URL)")
+	require.Equal(t, '…', runes[len(runes)-1])
+	require.Equal(t, "https://very-long.example.invalid/auth/", string(runes[:len(runes)-1]),
+		"domain prefix preserved for phishing detection")
+}
+
+// TestTruncateURLForDisplayDisabled covers the maxDisplay <= 0
+// branch — the disabled state. URL passes through unchanged
+// regardless of length.
+func TestTruncateURLForDisplayDisabled(t *testing.T) {
+	long := "https://example.invalid/" + strings.Repeat("a", 200)
+	require.Equal(t, long, truncateURLForDisplay(long, 0))
+	require.Equal(t, long, truncateURLForDisplay(long, -5))
+}
+
+// TestLinkifyURLsTruncatesDisplayKeepsURLFull is the long-URL UX
+// invariant: when a URL exceeds the cap, the OSC 8 *display* text
+// is truncated but the OSC 8 *url* portion stays full so Cmd-click
+// + the URL picker still resolve to the full URL. The `id=`
+// parameter still groups all occurrences of the same URL.
+func TestLinkifyURLsTruncatesDisplayKeepsURLFull(t *testing.T) {
+	full := "https://very-long.example.invalid/auth/callback?token=AAAAAAAAAAAAAAAAAAAAAAAA&state=BBBBBB"
+	in := "click " + full + " thanks"
+	out := linkifyURLsInText(in, 40)
+	id := osc8LinkID(full)
+
+	require.Contains(t, out, "\x1b]8;id="+id+";"+full+"\x1b\\",
+		"OSC 8 url portion must carry the full URL")
+
+	display := truncateURLForDisplay(full, 40)
+	require.NotEqual(t, full, display, "sanity: this URL was long enough to truncate")
+	require.Contains(t, out, display+"\x1b]8;;\x1b\\",
+		"display text is the truncated form ending with …")
+}
+
+// TestRenderLinkBlockNeverTruncates is the always-untruncated-
+// source-of-truth invariant: even when the inline body display
+// truncates a URL, the trailing Links: block keeps the full URL
+// so the user has one place to read / copy the full target.
+func TestRenderLinkBlockNeverTruncates(t *testing.T) {
+	long := "https://very-long.example.invalid/auth/callback?token=AAAAAAAAAAAAAAAAAAAAAAAA&state=BBBBBB"
+	links := []ExtractedLink{{Index: 1, URL: long, Text: long}}
+	out := renderLinkBlock(links)
+	require.Contains(t, out, long, "Links: block always carries the full URL untruncated")
+}
+
+// TestNormalisePlainTruncatesLongURLsButNotShortOnes is the
+// integration check: short URLs render full inline; long URLs are
+// truncated in the body display BUT the Links: block at the
+// bottom retains the full forms.
+func TestNormalisePlainTruncatesLongURLsButNotShortOnes(t *testing.T) {
+	body := "short: https://example.invalid/x\n" +
+		"long:  https://very-long.example.invalid/auth/callback?token=AAAAAAAAAAAAAAAAAAAAAAAA"
+	out, links := normalisePlain(body, 80, 40)
+	require.Len(t, links, 2)
+
+	short := "https://example.invalid/x"
+	long := "https://very-long.example.invalid/auth/callback?token=AAAAAAAAAAAAAAAAAAAAAAAA"
+
+	require.Contains(t, out, short+"\x1b]8;;\x1b\\",
+		"short URL renders full")
+
+	longDisplay := truncateURLForDisplay(long, 40)
+	require.NotEqual(t, long, longDisplay)
+	require.Contains(t, out, longDisplay+"\x1b]8;;\x1b\\",
+		"long URL renders truncated inline")
+
+	// Both URLs land in the Links: block, untruncated.
+	require.Contains(t, out, "\nLinks:\n")
+	require.Contains(t, out, short)
+	require.Contains(t, out, long, "Links: block carries the full long URL")
 }
 
 func TestExtractLinksAreNumberedAndDeduped(t *testing.T) {
@@ -156,7 +298,7 @@ func TestExtractLinksAreNumberedAndDeduped(t *testing.T) {
 
 func TestHTMLToTextStripsTrackingPixels(t *testing.T) {
 	html := `<html><body>Hello <img src="https://t.example.invalid/p.gif" width=1 height=1>world<a href="https://example.invalid/x">link</a></body></html>`
-	text, links, err := htmlToText(html, 80)
+	text, links, err := htmlToText(html, 80, 0)
 	require.NoError(t, err)
 	require.Contains(t, text, "Hello")
 	require.Contains(t, text, "world")

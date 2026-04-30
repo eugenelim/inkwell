@@ -148,6 +148,28 @@ func (e *Executor) SoftDelete(ctx context.Context, accountID int64, messageID st
 	})
 }
 
+// Move moves a message to the supplied destination folder. Spec 07
+// §6.5. destFolderID is the Graph folder ID; alias may be a Graph
+// well-known name ("inbox", "archive", "deleteditems") and is used
+// preferentially in the dispatch path because Graph accepts those
+// without resolving to tenant-specific IDs. Either may be empty —
+// when both are empty the call rejects with an error.
+func (e *Executor) Move(ctx context.Context, accountID int64, messageID, destFolderID, destAlias string) error {
+	if strings.TrimSpace(destFolderID) == "" && strings.TrimSpace(destAlias) == "" {
+		return fmt.Errorf("move: destination folder required")
+	}
+	return e.run(ctx, store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       TypeMove,
+		MessageIDs: []string{messageID},
+		Params: map[string]any{
+			"destination_folder_id":    destFolderID,
+			"destination_folder_alias": destAlias,
+		},
+	})
+}
+
 // Archive moves a message to the Archive folder.
 func (e *Executor) Archive(ctx context.Context, accountID int64, messageID string) error {
 	dest, alias, err := e.resolveWellKnownDestination(ctx, accountID, "archive")
@@ -279,6 +301,15 @@ func (e *Executor) Drain(ctx context.Context) error {
 		return fmt.Errorf("action drain: list pending: %w", err)
 	}
 	for _, a := range pending {
+		// ActionCreateDraftReply is non-idempotent at stage 1
+		// (POST /me/messages/{src}/createReply produces a fresh
+		// draft each call). Drain mustn't re-fire it. The action
+		// stays Pending in the table for crash-recovery (PR 7-ii)
+		// to find on next launch and resume from the recorded
+		// draft_id.
+		if a.Type == store.ActionCreateDraftReply {
+			continue
+		}
 		if err := e.dispatch(ctx, a); err != nil {
 			classification := classifyDispatchError(err)
 			switch classification {

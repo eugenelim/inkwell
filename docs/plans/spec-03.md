@@ -26,6 +26,68 @@ test still deferred per CLAUDE.md §5.5.
 
 ## Iteration log
 
+### Iter 9 — 2026-04-30 (nested-folder sync via /delta, RT-1)
+- Trigger: real-tenant report — pressing `o` or Enter on the
+  Inbox in the folders pane never expanded children, even though
+  Outlook-on-the-web showed sub-folders. Bug not in the original
+  audit.
+- Root cause: `internal/graph/folders.go::ListFolders` hits
+  `/me/mailFolders?$top=100`, which Graph treats as
+  non-recursive — only top-level folders come back. Children
+  never made it into the local store; `flattenFolderTree` had
+  nothing to indent; `ToggleExpand` short-circuited with
+  `hasKids=false` and the user saw "no subfolders to expand
+  here" forever. Spec 04 iter 7 had added the UI tree
+  rendering but treated the missing-data symptom as a UI bug;
+  the sync layer was never updated.
+- Slice:
+  - `internal/graph/folders.go`: new `ListFoldersDelta` helper
+    hitting `/me/mailFolders/delta`. Returns the whole folder
+    tree flat in one paginated response regardless of depth.
+    Skips `@removed` entries defensively (they only fire on
+    incremental fetches, which we don't do yet).
+  - `internal/graph/types.go`: `MailFolder` gains
+    `ChildFolderCount` (returned by Graph; future-useful) and
+    `Removed *RemovedMarker` for the delta-tombstone shape.
+  - `internal/sync/folders.go`: `syncFolders` swaps
+    `gc.ListFolders` → `gc.ListFoldersDelta`. Doc comment
+    updated to call out the regression class.
+  - `internal/ui/app.go`: removed the stale "Graph
+    /me/mailFolders is non-recursive in v0.x" comment in
+    the Expand handler — now untrue.
+- Tests:
+  - `engine_test.go` —
+    `TestSyncFolderEnumerationPersistsNestedChildren` (4-level
+    Inbox → Projects → Q4 → Decks fixture; all four rows
+    persist with parent chains intact);
+    `TestSyncFolderEnumerationSkipsRemovedDeltaEntries`
+    (defensive `@removed` skip).
+  - Existing sync tests updated: every
+    `srv.Handle("/me/mailFolders", ...)` registration moves
+    to `/me/mailFolders/delta`. No assertion changes — the
+    response shape is identical.
+- Decisions:
+  - Delta endpoint vs `$expand=childFolders` chains: chose
+    delta because it's depth-unbounded (chained $expand caps
+    around 5 levels, which real mailboxes occasionally exceed)
+    and sets up free incremental sync the day we persist the
+    deltaLink. Cost: zero (one GET per cycle, same as before).
+  - Delta token persistence deferred. Each cycle calls
+    `/delta` fresh, which returns the full state. That's
+    O(N) folders per cycle, but folder counts are <100 for
+    typical users — unmeasurable against the per-folder
+    message-delta calls. When we add the meta column, the
+    full-list call becomes a tiny incremental delta. Future
+    iter.
+  - `MailFolder.Removed` field added as defensive plumbing.
+    We don't see `@removed` markers today (no persisted
+    token), but the field has to exist when the incremental
+    path lands. Cheap to carry.
+  - Did NOT remove the legacy `ListFolders` helper because no
+    other callers exist today; if a future surface (e.g. a
+    "favourite folders" sidebar) wants top-level-only data,
+    the helper is still there.
+
 ### Iter 8 — 2026-04-30 (event emission, PR 3 of audit-drain)
 - Slice: spec 03 §3 invariants — ThrottledEvent never emitted +
   AuthRequiredEvent never emitted (UI handlers were dead code).

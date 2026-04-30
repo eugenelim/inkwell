@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	ilog "github.com/eugenelim/inkwell/internal/log"
@@ -522,7 +524,10 @@ func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error
 	s.onCall()
 	return nil
 }
-func (s stubTriageDelete) Archive(context.Context, int64, string) error         { return nil }
+func (s stubTriageDelete) Archive(context.Context, int64, string) error { return nil }
+func (s stubTriageDelete) Move(context.Context, int64, string, string, string) error {
+	return nil
+}
 func (s stubTriageDelete) PermanentDelete(context.Context, int64, string) error { return nil }
 func (s stubTriageDelete) AddCategory(context.Context, int64, string, string) error {
 	return nil
@@ -547,8 +552,11 @@ func (s stubTriageFlag) ToggleFlag(_ context.Context, _ int64, _ string, _ bool)
 	s.onCall()
 	return nil
 }
-func (s stubTriageFlag) SoftDelete(context.Context, int64, string) error      { return nil }
-func (s stubTriageFlag) Archive(context.Context, int64, string) error         { return nil }
+func (s stubTriageFlag) SoftDelete(context.Context, int64, string) error { return nil }
+func (s stubTriageFlag) Archive(context.Context, int64, string) error    { return nil }
+func (s stubTriageFlag) Move(context.Context, int64, string, string, string) error {
+	return nil
+}
 func (s stubTriageFlag) PermanentDelete(context.Context, int64, string) error { return nil }
 func (s stubTriageFlag) AddCategory(context.Context, int64, string, string) error {
 	return nil
@@ -840,6 +848,7 @@ type stubTriageWithUndo struct {
 	undoneLabel      string
 	undoErr          error
 	lastFolderAction string
+	lastMove         string // "<msgID>:<destFolderID>:<destAlias>"
 }
 
 func (s *stubTriageWithUndo) MarkRead(_ context.Context, _ int64, _ string) error {
@@ -855,6 +864,10 @@ func (s *stubTriageWithUndo) SoftDelete(_ context.Context, _ int64, _ string) er
 	return nil
 }
 func (s *stubTriageWithUndo) Archive(_ context.Context, _ int64, _ string) error { return nil }
+func (s *stubTriageWithUndo) Move(_ context.Context, _ int64, msgID, destID, destAlias string) error {
+	s.lastMove = msgID + ":" + destID + ":" + destAlias
+	return nil
+}
 func (s *stubTriageWithUndo) PermanentDelete(_ context.Context, _ int64, _ string) error {
 	return nil
 }
@@ -1641,6 +1654,49 @@ func TestIsMeetingMessagePrefersCanonicalSignal(t *testing.T) {
 			want:    false,
 			comment: "plain mail",
 		},
+		// Real-tenant gap closed by the bodyPreview heuristic: an
+		// invite where the user is being invited carries the
+		// meeting title as the subject (no prefix). Outlook fills
+		// the bodyPreview with the canonical "When: ... Where:
+		// ..." block. With the third signal in isMeetingMessage,
+		// these now get the 📅 indicator.
+		{
+			name: "no-prefix-but-invite-bodypreview-detected",
+			msg: store.Message{
+				Subject:     "Q4 deck review",
+				BodyPreview: "When: Friday, October 31, 2025 14:00-15:00. Where: Conference Room 3.",
+			},
+			want:    true,
+			comment: "When+Where in bodyPreview = invite (the user-reported gap)",
+		},
+		{
+			name: "bodypreview-mentions-when-only-not-an-invite",
+			msg: store.Message{
+				Subject:     "Re: schedule",
+				BodyPreview: "I'll send the details when I'm back from vacation.",
+			},
+			want:    false,
+			comment: "casual 'when' without 'Where:' label is NOT an invite",
+		},
+		{
+			name: "bodypreview-mentions-where-only-not-an-invite",
+			msg: store.Message{
+				Subject:     "lunch?",
+				BodyPreview: "Where do you want to grab lunch later?",
+			},
+			want:    false,
+			comment: "casual 'where' without 'When:' label is NOT an invite",
+		},
+		{
+			name: "bodypreview-checks-only-first-200-chars",
+			msg: store.Message{
+				Subject: "long email",
+				BodyPreview: strings.Repeat("noise ", 50) +
+					"When: tomorrow Where: my desk",
+			},
+			want:    false,
+			comment: "When/Where buried past 200 chars don't trigger the heuristic",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1655,7 +1711,7 @@ func TestIsMeetingMessagePrefersCanonicalSignal(t *testing.T) {
 func TestCalCommandOpensCalendarModal(t *testing.T) {
 	m := newDispatchTestModel(t)
 	now := time.Now().UTC()
-	m.deps.Calendar = stubCalendar{events: []CalendarEvent{
+	m.deps.Calendar = &stubCalendar{events: []CalendarEvent{
 		{Subject: "Standup", Start: now.Add(time.Hour), End: now.Add(time.Hour + 30*time.Minute)},
 		{Subject: "Q4 review", Start: now.Add(3 * time.Hour), End: now.Add(4 * time.Hour)},
 	}}
@@ -1705,12 +1761,22 @@ func TestCalCommandWithoutFetcherFailsGracefully(t *testing.T) {
 }
 
 type stubCalendar struct {
-	events []CalendarEvent
-	err    error
+	events    []CalendarEvent
+	err       error
+	detail    CalendarEventDetail
+	detailErr error
+	getCalls  int
+	gotID     string
 }
 
-func (s stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
+func (s *stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
 	return s.events, s.err
+}
+
+func (s *stubCalendar) GetEvent(_ context.Context, id string) (CalendarEventDetail, error) {
+	s.getCalls++
+	s.gotID = id
+	return s.detail, s.detailErr
 }
 
 // TestWallSyncFiresOncePerCacheState is the regression for the
@@ -1889,7 +1955,7 @@ func TestDraftSavedMsgPopulatesWebLinkAndStatus(t *testing.T) {
 // stubDraftCreator satisfies ui.DraftCreator.
 type stubDraftCreator struct{ onCall func() }
 
-func (s stubDraftCreator) CreateDraftReply(_ context.Context, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
@@ -1908,6 +1974,101 @@ func TestComposeEditedRoutesIntoConfirmMode(t *testing.T) {
 	require.Equal(t, ComposeConfirmMode, m.mode, "post-edit lands in confirm pane, not save")
 	require.Equal(t, "/tmp/x.eml", m.composeTempfile)
 	require.Equal(t, "msg-1", m.composeSourceID)
+}
+
+// TestSaveDraftRecoversFromEmptyToUsingSourceFromAddress is the
+// spec 15 UX fix for the real-tenant complaint "errors out with
+// no recipient although i'm replying to an email". When the user
+// (or the skeleton) leaves the To: line empty in the edited
+// tempfile, the save path now falls back to the source message's
+// FromAddress — they pressed Reply, so the original sender is the
+// implicit recipient. Without the fallback, the parser's
+// ErrNoRecipients aborted the save AND deleted the tempfile,
+// losing the user's body.
+func TestSaveDraftRecoversFromEmptyToUsingSourceFromAddress(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+
+	// Write a tempfile with an EMPTY To: line — exactly the shape
+	// the bug produces when the user clears the To header.
+	tempfile := filepath.Join(t.TempDir(), "draft.eml")
+	require.NoError(t, os.WriteFile(tempfile, []byte("To:\nCc:\nSubject: Re: x\n\nthe body\n"), 0o600))
+
+	cmd := m.saveDraftCmd(tempfile, "m-1")
+	require.NotNil(t, cmd)
+	res := cmd()
+	saved, ok := res.(draftSavedMsg)
+	require.True(t, ok)
+	require.NoError(t, saved.err, "fallback recovers the recipient; no error surfaces")
+	require.Equal(t, []string{"alice@example.invalid"}, stub.lastTo,
+		"To recipient backfilled from m-1's FromAddress")
+}
+
+// TestSaveDraftSurfacesActionableErrorWhenNoFallback covers the
+// other half of the recovery path: when the source message has no
+// FromAddress (or sourceID is empty / unknown), preserve the
+// tempfile and surface a clear path-pointing error so the user
+// can rescue manually rather than losing their body to silent
+// cleanup.
+func TestSaveDraftSurfacesActionableErrorWhenNoFallback(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+
+	tempfile := filepath.Join(t.TempDir(), "draft.eml")
+	require.NoError(t, os.WriteFile(tempfile, []byte("To:\n\nthe body\n"), 0o600))
+
+	// sourceID points at a non-existent row → no fallback FromAddress.
+	cmd := m.saveDraftCmd(tempfile, "missing-source-id")
+	res := cmd()
+	saved, _ := res.(draftSavedMsg)
+	require.Error(t, saved.err)
+	require.Contains(t, saved.err.Error(), "edit the To: line",
+		"error must be actionable, naming the file path")
+	require.Equal(t, tempfile, saved.tempfile, "tempfile preserved for rescue")
+	require.Equal(t, 0, stub.calls, "Drafts.CreateDraftReply must NOT fire on unrecoverable parse error")
+
+	// Tempfile still on disk.
+	_, statErr := os.Stat(tempfile)
+	require.NoError(t, statErr, "tempfile NOT cleaned up — user can rescue")
+}
+
+// recordingDraftCreator captures the args of the most recent
+// CreateDraftReply call so tests can assert on the exact recipient
+// list passed through.
+type recordingDraftCreator struct {
+	calls   int
+	lastTo  []string
+	lastCc  []string
+	lastBcc []string
+}
+
+func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	s.calls++
+	s.lastTo = to
+	s.lastCc = cc
+	s.lastBcc = bcc
+	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
+}
+
+// TestComposeConfirmEnterIsSaveAlias is the spec 15 UX fix: Enter
+// in the post-edit confirm pane is the same as `s` (save). User
+// reported the keystroke flow felt awkward — `:wq` in editor →
+// then `s` in inkwell. Enter is the natural "I'm done, save it"
+// gesture and matches the user's mental model.
+func TestComposeConfirmEnterIsSaveAlias(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m.mode = ComposeConfirmMode
+	m.composeTempfile = "/tmp/x.eml"
+	m.composeSourceID = "msg-1"
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode, "Enter exits the confirm pane")
+	require.NotNil(t, cmd, "Enter dispatches the save Cmd just like 's'")
+	require.Contains(t, m.engineActivity, "saving")
 }
 
 // TestComposeConfirmDDiscards covers the d-key path — discard
@@ -2460,6 +2621,47 @@ func TestUnfilterFallsBackToInboxWhenPriorEmpty(t *testing.T) {
 	require.NotNil(t, cmd, "unfilter must reload the inbox")
 }
 
+// TestTruncateRespectsCellWidthForEmoji is the real-tenant
+// Ghostty regression: list rows with the 📅 invite glyph (1 rune,
+// 2 cells) overshot the configured pane width when truncate
+// sliced by rune count instead of visual cell width. The right-
+// edge characters then spilled past the pane until the user
+// resized the terminal.
+func TestTruncateRespectsCellWidthForEmoji(t *testing.T) {
+	// "📅 hello" — 📅 (2 cells) + " " (1) + "hello" (5) = 8 cells.
+	in := "📅 hello"
+	require.Equal(t, 8, lipgloss.Width(in))
+
+	// Cap at 5 cells: must keep "📅 he" (= 5 cells).
+	out := truncate(in, 5)
+	require.LessOrEqual(t, lipgloss.Width(out), 5,
+		"truncate must respect cell width even with wide-glyph prefix")
+	require.Equal(t, "📅 he", out)
+
+	// Cap at 2 cells: only the 📅 fits (2 cells).
+	out2 := truncate(in, 2)
+	require.LessOrEqual(t, lipgloss.Width(out2), 2)
+	require.Equal(t, "📅", out2)
+
+	// Cap at 1 cell: 📅 doesn't fit (it's 2 cells); result is empty
+	// rather than overshot.
+	out3 := truncate(in, 1)
+	require.LessOrEqual(t, lipgloss.Width(out3), 1)
+	require.Empty(t, out3)
+}
+
+// TestTruncateRespectsCellWidthForCJK guards the same invariant
+// for East-Asian wide characters: each CJK glyph occupies 2 cells
+// despite being 1 rune.
+func TestTruncateRespectsCellWidthForCJK(t *testing.T) {
+	// "李四" — 2 runes, 4 cells.
+	in := "李四 王五"
+	w := lipgloss.Width(in)
+	out := truncate(in, 4)
+	require.LessOrEqual(t, lipgloss.Width(out), 4,
+		"CJK glyphs must be measured by cell width, got input width %d", w)
+}
+
 // TestViewerBodyPreservesOSC8Hyperlinks asserts the rendered viewer
 // pane retains the renderer's OSC 8 escape sequences end-to-end.
 // Without this, lipgloss width / height truncation could silently
@@ -2627,4 +2829,474 @@ func TestURLPickerEmptyShowsHelpfulModal(t *testing.T) {
 	require.Equal(t, URLPickerMode, m.mode)
 	frame := m.View()
 	require.Contains(t, frame, "No URLs in this message")
+}
+
+// TestMoveOpensFolderPicker is the spec 07 §6.5 / §12.1 invariant:
+// pressing `m` in the list pane MUST transition into FolderPickerMode
+// with the focused message captured. Without this gate, `m` is a
+// silent no-op and the user has no path to user-folder moves.
+func TestMoveOpensFolderPicker(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.GreaterOrEqual(t, len(m.list.messages), 1)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	require.Equal(t, FolderPickerMode, m.mode, "m must transition to FolderPickerMode")
+	require.NotNil(t, m.pendingMoveMsg, "pendingMoveMsg must capture the focused message")
+	require.NotEmpty(t, m.folderPicker.rows, "picker must seed rows from FoldersModel")
+}
+
+// TestFolderPickerFiltersOnTypedInput drives `m` then types "Arc"
+// and asserts only the Archive row remains in the filtered list.
+// Confirms the typed-input filter wires through Update without
+// j/k accidentally being captured by keymap.Up/Down.
+func TestFolderPickerFiltersOnTypedInput(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	for _, r := range "Arc" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	require.Equal(t, "Arc", m.folderPicker.Buffer())
+	visible := m.folderPicker.filtered()
+	require.Len(t, visible, 1, "only Archive matches \"Arc\"")
+	require.Equal(t, "f-archive", visible[0].id)
+}
+
+// TestFolderPickerEnterDispatchesMove confirms the full m → filter
+// → Enter path fires Triage.Move with the highlighted row's
+// folder ID + alias. Bumps the recent-folder MRU as a side effect.
+func TestFolderPickerEnterDispatchesMove(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	for _, r := range "Arc" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "Enter must dispatch the runTriage Cmd")
+	require.Equal(t, NormalMode, m.mode)
+	require.Nil(t, m.pendingMoveMsg, "Enter must clear pendingMoveMsg")
+	require.Equal(t, []string{"f-archive"}, m.recentFolderIDs,
+		"successful Enter must promote the destination to MRU front")
+	_ = cmd()
+	require.NotEmpty(t, stub.lastMove, "Triage.Move must fire")
+	require.Contains(t, stub.lastMove, ":f-archive:archive")
+}
+
+// TestFolderPickerEscCancels covers the cancel path: Esc returns
+// to NormalMode without dispatching, drops pendingMoveMsg, and
+// surfaces a cancellation hint.
+func TestFolderPickerEscCancels(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{}
+	m.deps.Triage = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Nil(t, m.pendingMoveMsg)
+	require.Empty(t, stub.lastMove, "Esc must NOT dispatch Move")
+	require.Contains(t, m.engineActivity, "cancelled")
+}
+
+// TestFolderPickerArrowsDoNotFilter confirms tea.KeyUp / tea.KeyDown
+// move the cursor without leaking into the filter buffer. j/k DO
+// flow into the buffer (typed-input rule); arrows are reserved for
+// navigation. This is the precise invariant that lets the user
+// scroll the list while typing a partial filter.
+func TestFolderPickerArrowsDoNotFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	pre := m.folderPicker.cursor
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = m2.(Model)
+	require.Empty(t, m.folderPicker.Buffer(), "arrow keys must not leak into filter")
+	require.NotEqual(t, pre, m.folderPicker.cursor, "tea.KeyDown must move the cursor")
+}
+
+// TestBumpRecentFolderPromotesAndCaps tests the MRU ring directly
+// — a unit-level guard against an off-by-one that would silently
+// keep duplicates or exceed the cap.
+func TestBumpRecentFolderPromotesAndCaps(t *testing.T) {
+	out := bumpRecentFolder(nil, "a", 3)
+	require.Equal(t, []string{"a"}, out)
+
+	out = bumpRecentFolder([]string{"a", "b"}, "c", 3)
+	require.Equal(t, []string{"c", "a", "b"}, out)
+
+	// Re-promoting an existing entry moves it to the front.
+	out = bumpRecentFolder([]string{"c", "a", "b"}, "a", 3)
+	require.Equal(t, []string{"a", "c", "b"}, out)
+
+	// Cap enforces eviction of the oldest.
+	out = bumpRecentFolder([]string{"a", "c", "b"}, "d", 3)
+	require.Equal(t, []string{"d", "a", "c"}, out)
+
+	// Cap of 0 disables recents entirely (config knob exposes this).
+	out = bumpRecentFolder([]string{"x"}, "y", 0)
+	require.Equal(t, []string{"x"}, out)
+}
+
+// TestFolderPickerRowsSkipDrafts is the spec 07 §6.5 invariant: the
+// Drafts well-known folder is filtered out of move destinations.
+// Outlook rejects moves into Drafts; surfacing the row would
+// generate a confused-user 400.
+func TestFolderPickerRowsSkipDrafts(t *testing.T) {
+	folders := []store.Folder{
+		{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "f-drafts", DisplayName: "Drafts", WellKnownName: "drafts"},
+		{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive"},
+	}
+	rows := buildFolderPickerRows(folders, nil)
+	for _, r := range rows {
+		require.NotEqual(t, "drafts", r.alias, "Drafts must be filtered out")
+	}
+	require.Len(t, rows, 2)
+}
+
+// TestFolderPickerRowsRecentRanksFirst confirms the recent IDs
+// surface above the alphabetical section, in MRU order.
+func TestFolderPickerRowsRecentRanksFirst(t *testing.T) {
+	folders := []store.Folder{
+		{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive"},
+		{ID: "f-projects", DisplayName: "Projects"},
+	}
+	rows := buildFolderPickerRows(folders, []string{"f-projects", "f-archive"})
+	require.Len(t, rows, 3)
+	require.True(t, rows[0].recent && rows[0].id == "f-projects")
+	require.True(t, rows[1].recent && rows[1].id == "f-archive")
+	require.False(t, rows[2].recent, "non-MRU row must not be tagged recent")
+	require.Equal(t, "f-inbox", rows[2].id)
+}
+
+// TestMoveAndUndoRoundTrip is the cross-feature integration check:
+// PR 4c (move-with-folder-picker) + spec 07 §11 (undo). User
+// opens the picker, selects a destination, dispatches the move,
+// presses `u`, and the undo machinery fires Triage.Undo. Without
+// this we'd find dispatch passes for each feature independently
+// while the user-facing "move + undo" gesture broke at the seam.
+func TestMoveAndUndoRoundTrip(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{undoneLabel: "moved"}
+	m.deps.Triage = stub
+
+	// `m` opens the picker; type "Arc" to narrow to Archive; Enter.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	for _, r := range "Arc" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "Enter must dispatch the move")
+	_ = cmd()
+	require.NotEmpty(t, stub.lastMove, "move dispatched")
+	require.Equal(t, []string{"f-archive"}, m.recentFolderIDs, "MRU bumped")
+
+	// Now press `u` — undo must fire Triage.Undo. The stub returns
+	// {label:"moved", ids:[m-1]} so the undoDoneMsg handler paints
+	// the status bar.
+	m2, undoCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = m2.(Model)
+	require.NotNil(t, undoCmd, "u must dispatch runUndo")
+	res := undoCmd()
+	require.IsType(t, undoDoneMsg{}, res, "undo Cmd lands as undoDoneMsg")
+	m2, _ = m.Update(res)
+	m = m2.(Model)
+	require.Equal(t, 1, stub.undoCalls, "Triage.Undo invoked exactly once")
+	require.Contains(t, m.engineActivity, "undid", "status bar paints undo confirmation")
+}
+
+// TestFolderPickerRowsRenderNestedPaths verifies the picker
+// surfaces nested folder destinations with path-style labels
+// ("Inbox / Projects / Q4") so duplicate child names in
+// different parent chains stay disambiguated. This is the cross-
+// feature integration of RT-1 (sync now fetches nested folders)
+// + PR 4c (the picker uses them).
+func TestFolderPickerRowsRenderNestedPaths(t *testing.T) {
+	folders := []store.Folder{
+		{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "f-projects", DisplayName: "Projects", ParentFolderID: "f-inbox"},
+		{ID: "f-q4", DisplayName: "Q4", ParentFolderID: "f-projects"},
+		{ID: "f-q3", DisplayName: "Q3", ParentFolderID: "f-projects"},
+	}
+	rows := buildFolderPickerRows(folders, nil)
+	labels := make([]string, 0, len(rows))
+	for _, r := range rows {
+		labels = append(labels, r.label)
+	}
+	require.Contains(t, labels, "Inbox", "root visible by name")
+	require.Contains(t, labels, "Inbox / Projects", "level-2 child uses path")
+	require.Contains(t, labels, "Inbox / Projects / Q4", "level-3 child uses full path")
+	require.Contains(t, labels, "Inbox / Projects / Q3")
+
+	// Filter "Q4" matches the deepest nested folder uniquely.
+	picker := NewFolderPicker()
+	picker.Reset(folders, nil)
+	for _, r := range "Q4" {
+		picker.AppendRune(r)
+	}
+	visible := picker.filtered()
+	require.Len(t, visible, 1, "filter narrows to a single deepest match")
+	require.Equal(t, "f-q4", visible[0].id)
+}
+
+// TestFolderPickerStaleMRUIDIsFilteredOut covers the edge where
+// the MRU list points at a folder id that no longer exists locally
+// (e.g. the destination was deleted server-side, the next sync
+// removed the row, but the in-memory recents slice still
+// references the id). The picker must render without panicking
+// and silently drop the stale id.
+func TestFolderPickerStaleMRUIDIsFilteredOut(t *testing.T) {
+	folders := []store.Folder{
+		{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
+		{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive"},
+	}
+	// Recents include both a present folder (f-archive) and a stale
+	// id (f-deleted) that doesn't appear in `folders`.
+	rows := buildFolderPickerRows(folders, []string{"f-deleted", "f-archive"})
+	require.Len(t, rows, 2, "stale id dropped; only present folders rendered")
+	// f-archive is the only recent; it ranks first.
+	require.True(t, rows[0].recent && rows[0].id == "f-archive")
+	require.False(t, rows[1].recent)
+}
+
+// TestStartMoveWithoutFoldersErrors covers the edge case the audit
+// flagged: pressing m before the first folder sync surfaces a
+// useful error rather than opening an empty picker.
+func TestStartMoveWithoutFoldersErrors(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+	// Empty the folder list to simulate pre-sync state.
+	m.folders = NewFolders()
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode, "no folders → no picker")
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "no folders synced")
+}
+
+// TestCalendarJKMovesCursor is the spec 12 §6.2 invariant: with
+// the calendar list modal open, j/k moves CalendarModel.cursor
+// without leaving the modal. Without this the user can see today's
+// events but can't pick one to drill into.
+func TestCalendarJKMovesCursor(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now().UTC()
+	m.deps.Calendar = &stubCalendar{events: []CalendarEvent{
+		{ID: "e-1", Subject: "Standup", Start: now.Add(time.Hour), End: now.Add(time.Hour + 30*time.Minute)},
+		{ID: "e-2", Subject: "Q4 review", Start: now.Add(3 * time.Hour), End: now.Add(4 * time.Hour)},
+		{ID: "e-3", Subject: "1:1", Start: now.Add(5 * time.Hour), End: now.Add(6 * time.Hour)},
+	}}
+	// Open the modal and hand-feed events so the cursor has rows.
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	require.Equal(t, CalendarMode, m.mode)
+	require.NotNil(t, cmd)
+	res := cmd()
+	m2, _ = m.Update(res)
+	m = m2.(Model)
+	require.Equal(t, 0, m.calendar.cursor)
+
+	// j → cursor=1.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 1, m.calendar.cursor)
+
+	// j → 2; j again clamps at end.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 2, m.calendar.cursor)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = m2.(Model)
+	require.Equal(t, 2, m.calendar.cursor, "no wrap-around at end")
+
+	// k twice → 0; k again clamps at top.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = m2.(Model)
+	require.Equal(t, 0, m.calendar.cursor)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = m2.(Model)
+	require.Equal(t, 0, m.calendar.cursor, "no wrap-around at top")
+	require.Equal(t, CalendarMode, m.mode, "j/k stays in CalendarMode")
+}
+
+// TestCalendarEnterDispatchesGetEventAndOpensDetailModal drives
+// the spec 12 §7 detail flow: Enter on a highlighted event opens
+// CalendarDetailMode with loading state; the GetEvent Cmd
+// resolves; the modal renders the attendees + body.
+func TestCalendarEnterDispatchesGetEventAndOpensDetailModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now().UTC()
+	stub := &stubCalendar{
+		events: []CalendarEvent{{
+			ID: "e-42", Subject: "Q4 review", Start: now, End: now.Add(time.Hour),
+		}},
+		detail: CalendarEventDetail{
+			CalendarEvent: CalendarEvent{
+				ID: "e-42", Subject: "Q4 review", Start: now, End: now.Add(time.Hour),
+				Location: "Conf Rm 3", WebLink: "https://outlook/event/42",
+				OnlineMeetingURL: "https://teams/meet",
+			},
+			BodyPreview: "Going through the final draft.",
+			Attendees: []CalendarAttendee{
+				{Name: "Alice", Address: "alice@example.invalid", Type: "required", Status: "accepted"},
+				{Name: "Bob", Address: "bob@example.invalid", Type: "optional", Status: "tentativelyAccepted"},
+			},
+		},
+	}
+	m.deps.Calendar = stub
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Len(t, m.calendar.events, 1)
+
+	// Enter dispatches the GetEvent fetch.
+	m2, getCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, CalendarDetailMode, m.mode)
+	require.True(t, m.calendarDetail.loading)
+	require.NotNil(t, getCmd, "Enter must return fetchEventCmd")
+
+	// Drive the Cmd; feed result back.
+	res := getCmd()
+	fm, ok := res.(eventFetchedMsg)
+	require.True(t, ok)
+	require.NoError(t, fm.Err)
+	require.Equal(t, "e-42", stub.gotID, "GetEvent called with the highlighted event's id")
+	m2, _ = m.Update(fm)
+	m = m2.(Model)
+	require.False(t, m.calendarDetail.loading)
+	require.NotNil(t, m.calendarDetail.detail)
+	require.Equal(t, "Q4 review", m.calendarDetail.detail.Subject)
+
+	// View must paint attendees + body.
+	frame := m.View()
+	require.Contains(t, frame, "Q4 review")
+	require.Contains(t, frame, "Alice")
+	require.Contains(t, frame, "Bob")
+	require.Contains(t, frame, "Going through the final draft")
+}
+
+// TestCalendarDetailEscReturnsToCalendarMode covers the back-out
+// path: Esc on the detail modal returns to the calendar list,
+// preserving the events the list had loaded.
+func TestCalendarDetailEscReturnsToCalendarMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now().UTC()
+	stub := &stubCalendar{
+		events: []CalendarEvent{{ID: "e-1", Subject: "Standup", Start: now, End: now.Add(time.Hour)}},
+		detail: CalendarEventDetail{
+			CalendarEvent: CalendarEvent{ID: "e-1", Subject: "Standup", Start: now, End: now.Add(time.Hour)},
+		},
+	}
+	m.deps.Calendar = stub
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	m2, getCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(getCmd())
+	m = m2.(Model)
+	require.Equal(t, CalendarDetailMode, m.mode)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, CalendarMode, m.mode, "Esc on detail returns to list, not Normal")
+	require.Len(t, m.calendar.events, 1, "list state preserved across detail trip")
+	require.Nil(t, m.calendarDetail.detail, "detail cleared on Esc")
+}
+
+// TestCalendarEnterIsSafeWhenNoEventsLoaded covers the edge case:
+// Enter on an empty / loading calendar must not crash, must not
+// dispatch GetEvent, and must stay in CalendarMode.
+func TestCalendarEnterIsSafeWhenNoEventsLoaded(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubCalendar{} // empty events list
+	m.deps.Calendar = stub
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Empty(t, m.calendar.events)
+
+	m2, getCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Nil(t, getCmd, "Enter on empty list must not dispatch GetEvent")
+	require.Equal(t, CalendarMode, m.mode)
+	require.Equal(t, 0, stub.getCalls)
+}
+
+// TestCalendarDetailFetchErrorPaintsErrorState confirms the spec
+// 12 §10 failure-mode contract: GetEvent error surfaces inside
+// the detail modal rather than dropping the user back to the list
+// silently.
+func TestCalendarDetailFetchErrorPaintsErrorState(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now().UTC()
+	stub := &stubCalendar{
+		events:    []CalendarEvent{{ID: "e-1", Subject: "Standup", Start: now, End: now.Add(time.Hour)}},
+		detailErr: errors.New("graph throttled"),
+	}
+	m.deps.Calendar = stub
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	m2, getCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.NotNil(t, getCmd)
+	m2, _ = m.Update(getCmd())
+	m = m2.(Model)
+	require.Equal(t, CalendarDetailMode, m.mode)
+	require.NotNil(t, m.calendarDetail.err)
+	frame := m.View()
+	require.Contains(t, frame, "graph throttled")
+}
+
+// TestFolderPickerEnterWithEmptyResultsIsSafe covers the ‟filter
+// matches nothing then Enter” path: must not panic, must paint a
+// status hint, must stay in FolderPickerMode for the user to
+// adjust the filter.
+func TestFolderPickerEnterWithEmptyResultsIsSafe(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Triage = &stubTriageWithUndo{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	for _, r := range "zzznosuchfolder" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	require.Empty(t, m.folderPicker.filtered())
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Nil(t, cmd, "Enter on empty filter must not dispatch")
+	require.Equal(t, FolderPickerMode, m.mode, "stay in picker mode")
+	require.Contains(t, m.engineActivity, "no folder selected")
 }

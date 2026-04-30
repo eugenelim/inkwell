@@ -71,6 +71,53 @@ Linux builds (amd64 / arm64) are also published on each release.
 
 ---
 
+## Terminal compatibility
+
+inkwell uses three terminal escape conventions. Beyond these,
+inkwell makes no demands — pick whichever terminal you prefer that
+meets the bar.
+
+- **OSC 8** — clickable hyperlinks (Cmd-click on URLs). Only
+  feature where the UX visibly degrades when missing. Fallback:
+  the in-app URL picker (`o`) and yank (`y`) work without it.
+- **OSC 52** — clipboard yank from `y` over SSH / tmux. macOS has
+  a `pbcopy` fallback baked in; Linux without OSC 52 loses yank.
+- **24-bit true color** — theme rendering. Without it, themes
+  degrade to 256-color.
+
+| Terminal                 | OSC 8 | OSC 52 | True color | Platforms                |
+| ------------------------ | ----- | ------ | ---------- | ------------------------ |
+| Ghostty                  | ✅    | ✅     | ✅         | macOS, Linux (beta)      |
+| iTerm2                   | ✅    | ✅     | ✅         | macOS                    |
+| WezTerm                  | ✅    | ✅     | ✅         | macOS, Linux, Windows    |
+| Kitty                    | ✅    | ✅     | ✅         | macOS, Linux             |
+| Alacritty                | ✅    | ✅     | ✅         | macOS, Linux, Windows    |
+| Foot                     | ✅    | ✅     | ✅         | Linux (Wayland)          |
+| GNOME Terminal           | ✅    | ✅     | ✅         | Linux (vte ≥ 0.50)       |
+| Konsole                  | ✅    | ✅     | ✅         | Linux (KDE)              |
+| Tilix                    | ✅    | ✅     | ✅         | Linux (vte ≥ 0.50)       |
+| VS Code terminal         | ✅    | ✅     | ✅         | macOS, Linux, Windows    |
+| **Apple Terminal.app**   | ❌    | ❌     | ❌         | macOS                    |
+
+> **Apple Terminal.app warning.** macOS's bundled Terminal doesn't
+> support any of the three. inkwell still runs — `o` opens the
+> URL picker and `y` uses the `pbcopy` fallback — but Cmd-click on
+> URLs does nothing, themes render flat, and yanking over SSH
+> won't reach your clipboard. Switching terminals takes 30 seconds
+> and your shell config carries over unchanged.
+
+> **Linux note.** Linux builds aren't officially baked in yet
+> (binaries publish on each release; the macOS code paths are the
+> only ones smoke-tested), but the GNOME Terminal / Konsole / Tilix
+> rows above are accurate for terminal-feature support when Linux
+> support lands. The vte-based terminals (GNOME Terminal, Tilix)
+> require vte ≥ 0.50 for OSC 8 — every distro shipping in the last
+> ~5 years already has it. urxvt, st (unpatched), and pre-379 xterm
+> are the Linux equivalents of Apple Terminal.app: same workflow
+> degradation, same `o` / `y` fallbacks.
+
+---
+
 ## Documentation
 
 Start here, in this order:

@@ -3,9 +3,11 @@
 ## Status
 in-progress. `:cal` modal + Graph fetch shipped v0.8.0. Events
 schema + persistence + cache-first reads shipped v0.13.x (PR 6a
-of audit-drain). Sidebar pane, sync-engine third state, midnight
-window slide, week / agenda view, attendees + event-detail modal
-remain deferred (PR 6b).
+of audit-drain). Event detail modal (Enter on the list) + j/k
+navigation + GetEvent($expand=attendees) shipped v0.13.x (PR
+6b-i). Sidebar pane, sync-engine third state, midnight window
+slide, week / agenda view, day navigation (]/[/{/}), and
+attendees persistence remain deferred (PR 6b-ii).
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/calendar.go` — `ListEventsBetween(start, end)` + `ListEventsToday()` against `/me/calendarView` with the right $select fields.
@@ -26,9 +28,87 @@ remain deferred (PR 6b).
 - [ ] Sidebar calendar pane (dismissable) — deferred. v0.8.0 is modal-only; the sidebar pane requires layout reflow that's out of scope.
 - [ ] `/me/calendarView/delta` sync into local store — deferred. v0.8.0 fetches per `:cal` invocation; no caching.
 - [ ] Week / agenda full-screen view — deferred.
-- [ ] Event detail modal — deferred. v0.8.0's modal is one-screen list-style.
+- [x] Event detail modal — shipped v0.13.x (PR 6b-i). Enter on the calendar list opens CalendarDetailMode with attendees + body preview; `o` opens Outlook web link; `l` opens online meeting URL; `Esc` returns to the list.
 
 ## Iteration log
+
+### Iter 3 — 2026-04-30 (event detail modal + j/k/Enter, PR 6b-i of audit-drain)
+- Slice: spec 12 §6.2 (j/k/Enter) + §7 (detail modal) + §4.3
+  (GetEvent helper). Closes the highest-leverage 6b sub-slice
+  in one cut while leaving sync-engine third state, window
+  slide, sidebar pane, and day/week navigation for later PRs.
+- Files added/modified:
+  - `internal/graph/calendar.go`: new `EventDetail`,
+    `EventAttendee` types; new `GetEvent(ctx, id)` helper hits
+    `/me/events/{id}?$expand=attendees` and decodes the
+    response into the new types.
+  - `internal/ui/calendar.go`: `CalendarModel` gains cursor +
+    `Up`/`Down`/`Selected`; `formatEvent` renders the cursor
+    glyph and highlights the selected row; new
+    `CalendarDetailModel` renders subject/time/location/online
+    URL/organizer/attendees (with status glyphs) /body preview
+    + dynamic hint line that surfaces only the keys the event
+    supports (`o` if WebLink, `l` if OnlineMeetingURL).
+  - `internal/ui/messages.go`: new `CalendarDetailMode`
+    constant.
+  - `internal/ui/app.go`: TriageExecutor's parallel — the
+    CalendarFetcher interface gains `GetEvent`; CalendarEvent
+    gains `ID` + `WebLink`; new `CalendarEventDetail` +
+    `CalendarAttendee` consumer types; model gains
+    `calendarDetail` field + `pendingMoveMsg`-equivalent
+    routing; new `eventFetchedMsg` flows through Update;
+    `updateCalendar` handles j/k/Enter, `updateCalendarDetail`
+    handles `o` / `l` / Esc; View routes CalendarDetailMode.
+  - `cmd/inkwell/cmd_run.go`: calendarAdapter gains GetEvent
+    (live fetch — no caching this PR; attendees persistence
+    deferred until PR 6b-ii ships the sync-engine third state
+    so we don't half-implement the persistence story);
+    convertStoreEvents / convertStoreEventsFromGraph now carry
+    ID + WebLink so the list rows can dispatch GetEvent.
+- Tests:
+  - dispatch_test: j/k move CalendarModel cursor (no
+    wrap-around at edges); Enter dispatches GetEvent + opens
+    CalendarDetailMode with loading state; eventFetchedMsg
+    populates the detail model; View paints attendees + body;
+    Esc on detail returns to CalendarMode (preserves list
+    state); Enter on empty list is safe (no GetEvent fired,
+    stays in CalendarMode); GetEvent error surfaces inside
+    the detail modal.
+  - app_e2e_test: visible-delta — `:cal` paints the list with
+    "navigate" hint; `j` moves the ▶ cursor to the second
+    event row; Enter paints attendees + body preview + "o
+    Outlook" hint; Esc returns to the list with the cursor
+    intact.
+- Decisions:
+  - Live fetch on Enter rather than caching attendees. The
+    sync-engine third state lands in PR 6b-ii — when it does,
+    we add the event_attendees migration + persist on
+    GetEvent. Doing it now without the sync extension would
+    leave attendees data getting stale forever (no engine
+    pass to refresh).
+  - Hint line is dynamic: only renders `o` / `l` when the
+    event actually has WebLink / OnlineMeetingURL. Real-tenant
+    events sometimes lack one or the other; static hints
+    invite the user to press a key that does nothing.
+  - Attendee cap at 10 with "… and N more" — spec §10 failure
+    mode "Event has 100+ attendees" needs the cap or the
+    modal blows past the screen. 10 matches the spec's
+    "first 10 plus … and 92 more" example.
+  - Used `~` for tentative attendee glyph rather than `?` so
+    the four states (`✓` / `~` / `✗` / `?`) are distinct;
+    spec text uses `?` for both tentative and not-responded
+    but the visual distinction is more useful in practice.
+  - `o`/`l` keys in detail mode use string literal matching
+    rather than keymap entries because they're modal-scoped
+    and don't need the global rebinding plumbing of the list
+    pane.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
+
+  **Deferred to PR 6b-ii:** sync-engine third state, midnight
+  window slide, sidebar pane (vs modal), week/agenda toggle,
+  day navigation (`]`/`[`/`}`/`{`/`t`/`c`), event_attendees
+  table, mailboxSettings.timeZone resolution.
 
 ### Iter 2 — 2026-04-30 (events schema + persistence, PR 6a of audit-drain)
 - Slice: spec 12 §3 schema + cache-first read path. The biggest

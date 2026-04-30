@@ -54,6 +54,12 @@ type TriageExecutor interface {
 	ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error
 	SoftDelete(ctx context.Context, accountID int64, messageID string) error
 	Archive(ctx context.Context, accountID int64, messageID string) error
+	// Move dispatches a user-folder move (spec 07 §6.5). destAlias is
+	// optional — supply the well-known name for transactional folders
+	// (the dispatch path prefers it because Graph accepts aliases
+	// without tenant-specific IDs); pass empty for arbitrary user
+	// folders.
+	Move(ctx context.Context, accountID int64, messageID, destFolderID, destAlias string) error
 	// PermanentDelete removes the message from the tenant entirely
 	// (spec 07 §6.7). Irreversible — caller MUST guard with the
 	// confirm modal; pressing `D` without confirmation is the
@@ -152,6 +158,10 @@ type Deps struct {
 	// Unsubscribe wires the U key (spec 16). Optional — when nil, U
 	// shows a friendly "unsubscribe not wired" message.
 	Unsubscribe UnsubscribeService
+	// RecentFoldersCount caps the move-picker MRU list (spec 07
+	// §12.1). 0 disables the recent section. Falls back to 5 when
+	// unset.
+	RecentFoldersCount int
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -166,6 +176,11 @@ type SavedSearch struct {
 // full surface.
 type CalendarFetcher interface {
 	ListEventsToday(ctx context.Context) ([]CalendarEvent, error)
+	// GetEvent fetches the full detail for an event id (spec 12 §4.3
+	// / §7) — used by the detail modal opened from `Enter` on the
+	// calendar list. Returns attendees and the body preview that the
+	// list view doesn't carry.
+	GetEvent(ctx context.Context, id string) (CalendarEventDetail, error)
 }
 
 // MailboxSettings is the subset of mailbox settings the UI renders
@@ -189,7 +204,7 @@ type MailboxClient interface {
 // (compose / reply). Defined here so the UI doesn't import
 // internal/action's full type set.
 type DraftCreator interface {
-	CreateDraftReply(ctx context.Context, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
 }
 
 // UnsubscribeKind enumerates the action the UI should drive after
@@ -237,8 +252,10 @@ type DraftRef struct {
 }
 
 // CalendarEvent mirrors the fields the calendar modal renders. All
-// times are UTC.
+// times are UTC. ID + WebLink are required by the detail-modal
+// dispatch (Enter routes through GetEvent(id); `o` opens WebLink).
 type CalendarEvent struct {
+	ID               string
 	Subject          string
 	OrganizerName    string
 	OrganizerAddress string
@@ -247,6 +264,25 @@ type CalendarEvent struct {
 	IsAllDay         bool
 	Location         string
 	OnlineMeetingURL string
+	WebLink          string
+}
+
+// CalendarEventDetail is the spec 12 §7 detail-modal payload —
+// CalendarEvent plus the attendee list and body preview that the
+// list view doesn't carry.
+type CalendarEventDetail struct {
+	CalendarEvent
+	BodyPreview string
+	Attendees   []CalendarAttendee
+}
+
+// CalendarAttendee mirrors graph.EventAttendee at the consumer site
+// so the UI doesn't import internal/graph (CLAUDE.md §2).
+type CalendarAttendee struct {
+	Name    string
+	Address string
+	Type    string // "required" | "optional" | "resource"
+	Status  string // "accepted" | "declined" | "tentativelyAccepted" | "notResponded" | "organizer" | "none"
 }
 
 // bodyAsyncFetcher narrows render.Renderer to its fetch entry point.
@@ -276,18 +312,20 @@ type Model struct {
 	height     int
 	paneWidths PaneWidths
 
-	folders   FoldersModel
-	list      ListModel
-	viewer    ViewerModel
-	cmd       CommandModel
-	status    StatusModel
-	signin    SignInModel
-	confirm   ConfirmModel
-	calendar  CalendarModel
-	oof       OOFModel
-	help      HelpModel
-	urlPicker URLPickerModel
-	yanker    *yanker
+	folders        FoldersModel
+	list           ListModel
+	viewer         ViewerModel
+	cmd            CommandModel
+	status         StatusModel
+	signin         SignInModel
+	confirm        ConfirmModel
+	calendar       CalendarModel
+	oof            OOFModel
+	help           HelpModel
+	urlPicker      URLPickerModel
+	folderPicker   FolderPickerModel
+	calendarDetail CalendarDetailModel
+	yanker         *yanker
 
 	focused Pane
 	mode    Mode
@@ -357,6 +395,13 @@ type Model struct {
 	// Folder delete (spec 18). pendingFolderDelete holds the target
 	// while the confirm modal is open. Set to nil after y/n.
 	pendingFolderDelete *store.Folder
+
+	// Move-with-folder-picker (spec 07 §6.5 / §12.1). pendingMoveMsg
+	// holds the focused message while FolderPickerMode is active;
+	// recentFolderIDs is the session-scoped MRU list (most-recently-
+	// moved-to first), capped at deps.RecentFoldersCount.
+	pendingMoveMsg  *store.Message
+	recentFolderIDs []string
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -395,24 +440,26 @@ func New(deps Deps) (Model, error) {
 		return Model{}, fmt.Errorf("ui: %w", err)
 	}
 	return Model{
-		deps:       deps,
-		paneWidths: DefaultPaneWidths(),
-		focused:    ListPane,
-		mode:       NormalMode,
-		keymap:     keymap,
-		theme:      theme,
-		folders:    folders,
-		list:       NewList(),
-		viewer:     NewViewer(),
-		cmd:        NewCommand(),
-		status:     NewStatus(upn, tenant),
-		signin:     NewSignIn(),
-		confirm:    NewConfirm(),
-		calendar:   NewCalendar(),
-		oof:        NewOOF(),
-		help:       NewHelp(),
-		urlPicker:  NewURLPicker(),
-		yanker:     newYanker(stdoutOSC52Writer),
+		deps:           deps,
+		paneWidths:     DefaultPaneWidths(),
+		focused:        ListPane,
+		mode:           NormalMode,
+		keymap:         keymap,
+		theme:          theme,
+		folders:        folders,
+		list:           NewList(),
+		viewer:         NewViewer(),
+		cmd:            NewCommand(),
+		status:         NewStatus(upn, tenant),
+		signin:         NewSignIn(),
+		confirm:        NewConfirm(),
+		calendar:       NewCalendar(),
+		oof:            NewOOF(),
+		help:           NewHelp(),
+		urlPicker:      NewURLPicker(),
+		folderPicker:   NewFolderPicker(),
+		calendarDetail: NewCalendarDetail(),
+		yanker:         newYanker(stdoutOSC52Writer),
 	}, nil
 }
 
@@ -546,6 +593,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.calendar.SetError(msg.Err)
 		} else {
 			m.calendar.SetEvents(msg.Events)
+		}
+		return m, nil
+
+	case eventFetchedMsg:
+		if msg.Err != nil {
+			m.calendarDetail.SetError(msg.Err)
+		} else {
+			m.calendarDetail.SetDetail(msg.Detail)
 		}
 		return m, nil
 
@@ -888,6 +943,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateURLPicker(msg)
 	case FullscreenBodyMode:
 		return m.updateFullscreenBody(msg)
+	case FolderPickerMode:
+		return m.updateFolderPicker(msg)
+	case CalendarDetailMode:
+		return m.updateCalendarDetail(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -988,6 +1047,16 @@ func (m Model) updateComposeConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Enter is the "I'm done — save it" path that matches the user
+	// expectation after exiting the editor with `:wq`. Same effect
+	// as pressing `s`; gives the modal a one-keystroke happy path.
+	if keyMsg.Type == tea.KeyEnter {
+		path := m.composeTempfile
+		src := m.composeSourceID
+		m.mode = NormalMode
+		m.engineActivity = "saving draft…"
+		return m, m.saveDraftCmd(path, src)
+	}
 	switch string(keyMsg.Runes) {
 	case "s":
 		// User chose to save. Run the existing pipeline.
@@ -1052,18 +1121,82 @@ func (m Model) updateOOF(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateCalendar handles input while the calendar modal is open.
-// Esc closes; everything else is swallowed (the modal is read-only).
+// updateCalendar handles input while the calendar list modal is
+// open. Spec 12 §6.2: j/k navigate; Enter opens the detail modal;
+// Esc/q closes the calendar entirely.
 func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	if keyMsg.Type == tea.KeyEsc || string(keyMsg.Runes) == "q" {
+	switch {
+	case keyMsg.Type == tea.KeyEsc, string(keyMsg.Runes) == "q":
 		m.mode = NormalMode
 		m.calendar.Reset()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Down):
+		m.calendar.Down()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Up):
+		m.calendar.Up()
+		return m, nil
+	case keyMsg.Type == tea.KeyEnter:
+		sel := m.calendar.Selected()
+		if sel == nil || sel.ID == "" || m.deps.Calendar == nil {
+			return m, nil
+		}
+		m.calendarDetail.SetLoading()
+		m.mode = CalendarDetailMode
+		return m, m.fetchEventCmd(sel.ID)
 	}
 	return m, nil
+}
+
+// updateCalendarDetail handles input inside the detail modal.
+// Spec 12 §7: Esc returns to the list; o opens the webLink; l
+// opens the online meeting URL. Both shellouts are best-effort —
+// the modal stays open after dispatching the open call.
+func (m Model) updateCalendarDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch {
+	case keyMsg.Type == tea.KeyEsc, string(keyMsg.Runes) == "q":
+		m.calendarDetail.Reset()
+		m.mode = CalendarMode
+		return m, nil
+	case string(keyMsg.Runes) == "o":
+		if d := m.calendarDetail.Detail(); d != nil && d.WebLink != "" {
+			go openInBrowser(d.WebLink)
+			m.engineActivity = "opened event in Outlook"
+		}
+		return m, nil
+	case string(keyMsg.Runes) == "l":
+		if d := m.calendarDetail.Detail(); d != nil && d.OnlineMeetingURL != "" {
+			go openInBrowser(d.OnlineMeetingURL)
+			m.engineActivity = "opened meeting URL"
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// eventFetchedMsg lands when CalendarFetcher.GetEvent completes.
+type eventFetchedMsg struct {
+	Detail CalendarEventDetail
+	Err    error
+}
+
+// fetchEventCmd hits CalendarFetcher.GetEvent in a goroutine and
+// returns an eventFetchedMsg.
+func (m Model) fetchEventCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		d, err := m.deps.Calendar.GetEvent(ctx, id)
+		return eventFetchedMsg{Detail: d, Err: err}
+	}
 }
 
 func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1623,11 +1756,7 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keymap.Expand):
 		if !m.folders.ToggleExpand() {
 			// Leaf folder or saved-search row — paint a hint so the
-			// keypress isn't visually silent. The "no children
-			// synced locally" wording is intentional: the folder
-			// MAY have children on the server (Graph
-			// /me/mailFolders is non-recursive in v0.x) — don't
-			// claim the user's mailbox is structured incorrectly.
+			// keypress isn't visually silent.
 			m.engineActivity = "no subfolders to expand here"
 		}
 	case key.Matches(msg, m.keymap.NewFolder):
@@ -1825,6 +1954,12 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startCategoryInput("remove", sel)
+	case key.Matches(msg, m.keymap.Move):
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m.startMove(sel)
 	case key.Matches(msg, m.keymap.Undo):
 		return m.runUndo()
 	}
@@ -2042,6 +2177,112 @@ func (m Model) updateCategoryInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// startMove opens the spec 07 §6.5 / §12.1 folder picker for a
+// move action. The picker rebuilds its row list from the current
+// FoldersModel raw list + the session MRU each time it opens so
+// freshly-synced folders surface without a refresh, and recent
+// destinations always appear above the alphabetical section.
+func (m Model) startMove(src store.Message) (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("move: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	folders := m.folders.raw
+	if len(folders) == 0 {
+		m.lastError = fmt.Errorf("move: no folders synced yet")
+		return m, nil
+	}
+	m.pendingMoveMsg = &src
+	m.folderPicker.Reset(folders, m.recentFolderIDs)
+	m.mode = FolderPickerMode
+	return m, nil
+}
+
+// updateFolderPicker handles input while the move-picker overlay
+// is open. Up/Down navigate (arrows only — letters flow into the
+// filter buffer); Enter dispatches the move; Esc cancels.
+func (m Model) updateFolderPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		m.mode = NormalMode
+		m.pendingMoveMsg = nil
+		m.engineActivity = "move cancelled"
+		return m, nil
+	case tea.KeyUp:
+		m.folderPicker.Up()
+		return m, nil
+	case tea.KeyDown:
+		m.folderPicker.Down()
+		return m, nil
+	case tea.KeyEnter:
+		row := m.folderPicker.Selected()
+		if row == nil {
+			m.engineActivity = "move: no folder selected"
+			return m, nil
+		}
+		src := *m.pendingMoveMsg
+		destID := row.id
+		destAlias := row.alias
+		destLabel := row.label
+		m.mode = NormalMode
+		m.pendingMoveMsg = nil
+		m.recentFolderIDs = bumpRecentFolder(m.recentFolderIDs, destID, m.recentFoldersCap())
+		return m.runTriage("move", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
+			if err := m.deps.Triage.Move(ctx, accID, s.ID, destID, destAlias); err != nil {
+				return fmt.Errorf("move to %s: %w", destLabel, err)
+			}
+			return nil
+		})
+	case tea.KeyBackspace:
+		m.folderPicker.Backspace()
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeyRunes {
+		for _, r := range keyMsg.Runes {
+			m.folderPicker.AppendRune(r)
+		}
+		return m, nil
+	}
+	if keyMsg.Type == tea.KeySpace {
+		m.folderPicker.AppendRune(' ')
+		return m, nil
+	}
+	return m, nil
+}
+
+// recentFoldersCap returns the configured MRU cap for the move
+// picker. Falls back to 5 when unset (matches CONFIG.md default).
+func (m Model) recentFoldersCap() int {
+	if m.deps.RecentFoldersCount > 0 {
+		return m.deps.RecentFoldersCount
+	}
+	return 5
+}
+
+// bumpRecentFolder promotes id to the front of recents (or inserts
+// it if absent), capped at max. A cap of 0 disables recents entirely.
+func bumpRecentFolder(recents []string, id string, max int) []string {
+	if max <= 0 || id == "" {
+		return recents
+	}
+	out := make([]string, 0, max)
+	out = append(out, id)
+	for _, r := range recents {
+		if r == id {
+			continue
+		}
+		if len(out) >= max {
+			break
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // startPermanentDelete opens the spec 07 §6.7 confirm modal. The
 // modal copy explicitly names the irreversibility so the user
 // can't claim "I didn't realise"; the y key fires
@@ -2214,7 +2455,12 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		opts := render.BodyOpts{Width: 80, Theme: render.DefaultTheme()}
+		// URLDisplayMaxWidth: 60 truncates long URLs in the body to
+		// 60 visible cells with end-truncation (`https://host/path/…`)
+		// so they don't dominate vertical space. Cmd-click + `o`
+		// (URL picker) + the trailing `Links:` block all retain the
+		// full URL.
+		opts := render.BodyOpts{Width: 80, Theme: render.DefaultTheme(), URLDisplayMaxWidth: 60}
 		view, err := r.Body(ctx, &msg, opts)
 		if err != nil {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
@@ -2358,6 +2604,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keymap.RemoveCategory):
 		if cur := m.viewer.current; cur != nil {
 			return m.startCategoryInput("remove", *cur)
+		}
+	case key.Matches(msg, m.keymap.Move):
+		if cur := m.viewer.current; cur != nil {
+			return m.startMove(*cur)
 		}
 	case key.Matches(msg, m.keymap.OpenURL):
 		// Spec 05 §10 / v0.15.x — open the URL picker overlay.
@@ -2581,6 +2831,9 @@ func (m Model) View() string {
 	if m.mode == CalendarMode {
 		return m.calendar.View(m.theme, m.width, m.height)
 	}
+	if m.mode == CalendarDetailMode {
+		return m.calendarDetail.View(m.theme, m.width, m.height)
+	}
 	if m.mode == OOFMode {
 		return m.oof.View(m.theme, m.width, m.height)
 	}
@@ -2592,6 +2845,9 @@ func (m Model) View() string {
 	}
 	if m.mode == URLPickerMode {
 		return m.urlPicker.View(m.theme, m.viewer.Links(), m.width, m.height)
+	}
+	if m.mode == FolderPickerMode {
+		return m.folderPicker.View(m.theme, m.width, m.height)
 	}
 	if m.mode == FullscreenBodyMode {
 		// Render the viewer at full terminal width with no

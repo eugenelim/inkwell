@@ -124,6 +124,11 @@ const (
 	ActionUnflag          ActionType = "unflag"
 	ActionAddCategory     ActionType = "add_category"
 	ActionRemoveCategory  ActionType = "remove_category"
+	// ActionCreateDraftReply enqueues a "reply to message X with body Y"
+	// draft creation. Two-stage dispatch (createReply → PATCH body):
+	// the first stage records draft_id + web_link in Params so a
+	// crashed second stage can resume idempotently. Spec 15 §5 / §8.
+	ActionCreateDraftReply ActionType = "create_draft_reply"
 )
 
 // ActionStatus enumerates the lifecycle states.

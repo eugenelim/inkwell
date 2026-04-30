@@ -130,9 +130,9 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Status overall: partial
 - Implementation gaps:
   - DoD "All 13 action types in §3 implemented" — `executor.go:23-30` exposes only MarkRead, MarkUnread, Flag, Unflag, SoftDelete, Archive, Move. **Missing:** `permanent_delete`, `add_category`, `remove_category`, `move`-with-arbitrary-folder picker. The four draft types (`create_draft`, `create_draft_reply`, `create_draft_reply_all`, `create_draft_forward`) are not in the queued-action surface — only `CreateDraftReply` exists as a one-off non-queued path (`draft.go:26`).
-  - ~~Permanent delete unimplemented~~ **Closed by PR 4a (v0.13.x).** `graph.PermanentDelete` helper, `Executor.PermanentDelete`, applyLocal/rollback/dispatch branches, and the `D` keybind with confirm modal all shipped. Inverse returns ok=false so undo doesn't try to restore a tenant-deleted message. Categories (`c`/`C`) and move-with-folder-picker (`m`) deferred to PR 4b.
+  - ~~Permanent delete unimplemented~~ **Closed by PR 4a (v0.13.x).** `graph.PermanentDelete` helper, `Executor.PermanentDelete`, applyLocal/rollback/dispatch branches, and the `D` keybind with confirm modal all shipped. Inverse returns ok=false so undo doesn't try to restore a tenant-deleted message. Categories (`c`/`C`) closed by PR 4b; move-with-folder-picker (`m`) closed by PR 4c.
   - ~~Categories unimplemented~~ **Closed by PR 4b (v0.13.x).** applyLocal + dispatch + Inverse all handle add/remove; PATCH carries the full post-state list (Graph contract); case-insensitive dedup matches Outlook semantics. UI prompt mode opens via `c` / `C`; Enter dispatches; Esc cancels.
-  - Move-with-folder-picker (spec §12.1): `m` keybinding is declared (`keys.go:91`) with no handler in `dispatchList`. No folder-picker modal exists in `internal/ui/`.
+  - ~~Move-with-folder-picker~~ **Closed by PR 4c (v0.13.x).** New `internal/ui/folder_picker.go` renders the modal; FolderPickerMode handles typed-input filter + arrow navigation; Enter dispatches `Triage.Move(ctx, accID, msgID, destID, alias)`; recently-used destinations rank above the alphabetical list (capped at `[triage].recent_folders_count`, default 5); Drafts is filtered from destinations because Graph rejects move-into-Drafts. e2e visible-delta verifies `m` paints "Move to:" + filter narrows + Enter clears the modal.
   - ~~DoD "Optimistic UI, rollback, undo, replay all verified" — **undo is unimplemented**.~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse on success, `u` wired in list + viewer dispatch, e2e visible-delta verifies the status bar paints `↶ undid: <label>`. See `docs/plans/spec-07.md` iteration log.
   - Replay (`ReplayPending`) — not present in `executor.go`. `Drain` (`executor.go:180`) re-dispatches Pending/InFlight on each cycle but with no rollback semantics and no startup explicit replay path. Spec §10 contract is partially satisfied by Drain piggybacking on the sync loop.
   - ~~Pre-mutation snapshot used for rollback; no inverse computation for undo (`computeInverse` from spec §7.1 is absent).~~ **Closed by PR 1 (v0.13.x).** `internal/action/inverse.go` covers all reversible action types; soft-delete / move use `pre.FolderID` to restore to the source folder. Bulk path still pending (PR-bulk-undo, separate item).
@@ -249,9 +249,9 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Window slide at midnight (§5.1) — no goroutine.
   - DoD "Sidebar pane renders today + next 1 day with correct event styling." — calendar is rendered as a **modal** (`ui/calendar.go:42`, opened via `:cal`), not as a sidebar pane below "Saved Searches." Spec §6 layout is wrong vs reality.
   - DoD "`:cal` opens full view; week and agenda toggleable." — no week view, no agenda toggle. The modal renders today only.
-  - DoD "Event detail modal works; `o` opens Outlook; `l` opens meeting URL." — no detail modal. `j`/`k` event navigation not wired (`updateCalendar` swallows everything except Esc/q, `app.go:619-629`).
-  - Spec §6.2 keybindings (`j`, `k`, `Enter`, `t`, `]`, `[`, `}`, `{`, `c`) — none.
-  - Spec §4.3 `GET /me/events/{id}?$expand=attendees` for full event — no helper.
+  - ~~DoD "Event detail modal works; `o` opens Outlook; `l` opens meeting URL."~~ **Closed by PR 6b-i (v0.13.x).** New `CalendarDetailModel` opens via `Enter` on the calendar list; renders subject + time + location + online-meeting URL + organizer + attendees (with response-status glyphs `✓`/`~`/`✗`/`?`) + body preview. `o` shellouts to webLink, `l` shellouts to onlineMeetingURL, `Esc` returns to the list. e2e visible-delta verifies the modal paints attendees + body + Outlook hint. The `j`/`k` cursor + `Enter` dispatch closed in the same PR.
+  - Spec §6.2 keybindings — `j` / `k` / `Enter` shipped (PR 6b-i v0.13.x). Day navigation (`]` / `[` / `}` / `{`), today (`t`), and full-view (`c`) deferred to later PRs (each requires multi-day fetch / window-slide / week-view scaffolding).
+  - ~~Spec §4.3 `GET /me/events/{id}?$expand=attendees` for full event — no helper.~~ **Closed by PR 6b-i (v0.13.x).** New `graph.GetEvent(ctx, id)` + `graph.EventDetail` / `graph.EventAttendee` types; CalendarFetcher.GetEvent flows through calendarAdapter (live fetch — attendees persistence still deferred).
 - Design drifts:
   - `graph/calendar.go:107-113` `ListEventsToday` uses `time.Now().Date()` in local time. Spec §5 / §7.1 says timezone resolution should come from `mailboxSettings.timeZone` (or `[calendar].time_zone` override). System local time is the wrong source of truth on a tenant whose user travels.
   - Spec §3 `attendees` table separate from `events` (so we can query "events where Alice is attending"). With no schema, the use case is impossible.
@@ -310,7 +310,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation: `internal/compose/` + `action/draft.go` + UI compose flow
 - Status overall: partial
 - Implementation gaps:
-  - DoD "Action executor (extending spec 07) handles the four new draft types with idempotent local apply + Graph dispatch + replay." Only `CreateDraftReply` is implemented (`action/draft.go:26-42`). Missing: `TypeCreateDraft` (new), `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft`. The action enum in `store/types.go:107-117` does not include any draft action types — drafts are dispatched out-of-band, **not** through the queued action surface. Spec §5 / §8 contract is violated: drafts are not in the action queue, not idempotent on replay, and not in the `actions` table.
+  - DoD "Action executor (extending spec 07) handles the four new draft types with idempotent local apply + Graph dispatch + replay." `CreateDraftReply` now flows through the action queue end-to-end (PR 7-i v0.13.x): two-stage dispatch (createReply → record draft_id+web_link in Params → PATCH), Failed status persisted on either stage's failure, Drain skips the type so non-idempotent stage 1 isn't re-fired, the recorded draft_id sets up PR 7-ii's resume path. Still missing: `TypeCreateDraft` (new), `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft` — those land with PR 7-iii alongside the R/F/m skeletons. Crash-recovery (the resume-on-startup invariant) lands with PR 7-ii.
   - DoD "`compose_sessions` table created by migration N+1 (latest schema version bumped accordingly)." No migration `003_compose_sessions.sql`. `SchemaVersion` is `2` (`store.go:22`). Crash recovery for in-flight compose (spec §7) impossible.
   - DoD "Discard flow deletes both the local draft row AND the server-side draft (Graph `DELETE /me/messages/{id}`)." UI flow (`updateComposeConfirm` `app.go:548-591`, case `"d"`) only deletes the tempfile. There is no Graph `DELETE` call. Server-side draft never lifted.
   - DoD "On `s`, the action's `webLink` is captured; the status bar exposes 'open in Outlook' for 30s after." `lastDraftWebLink` (`app.go:233`) is set indefinitely, not for 30s. There's no TTL.
@@ -320,7 +320,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Spec §10 row "App crash while editor is open / On next launch, 'resume draft?' prompt; tempfile and source_id are intact in `compose_sessions`." — not implemented.
   - Spec §11 lint guard "fails any source line that contains the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go`" — no CI script for this in `scripts/`.
 - Design drifts:
-  - Spec §8 "local row gets a temp ID that's replaced after the Graph response." `action/draft.go:30-32` calls `CreateReply` and gets back a server ID immediately; the optimistic local insert step is skipped entirely. Drafts only appear in the local store after the next delta sync of the Drafts folder.
+  - Spec §8 "local row gets a temp ID that's replaced after the Graph response." Optimistic local insert is intentionally skipped — drafts only appear in the local store after the next delta sync of the Drafts folder. Spec wording predates the refactor; the action queue now records the action in the actions table (post-PR 7-i), which is the spec-15 §8 audit-trail intent. Reframe in a future spec edit; not a code gap.
   - Spec §5 declared `DraftParams` with `Attachments []AttachmentRef`. `compose.ParsedDraft` (`compose/parse.go:11-17`) has no attachments field. Attachments path absent end-to-end.
   - Spec §6.2 forward skeleton, reply-all skeleton — only `ReplySkeleton` (`compose/template.go:44-65`) exists. No `ForwardSkeleton`, `ReplyAllSkeleton`, `NewSkeleton`.
 - Schema/config gaps:
@@ -347,20 +347,21 @@ inline. Refresh after every audit-drain PR.
 | 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
 | 06   | mostly-spec-only | 10 | — | whole `internal/search/` is a doc stub; one-shot `store.Search` masquerades as the spec's streaming Searcher |
-| 07   | partial | 10 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1) | move-with-folder-picker; replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
+| 07   | partial | 9 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1); move-with-folder-picker (PR 4c) | replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
 | 08   | partial | 7 | — | no Compile/Execute API; no server `$filter` / `$search` evaluators; no strategy selection |
 | 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |
 | 10   | partial | ~14 | bulk-config skeleton (PR 12) | no preview screen; no progress modal; 6 of 10 `;` verbs unbound; `F` keybind unhandled |
 | 11   | mostly-spec-only | 12 | — | whole `Manager` API absent; live counts / TOML mirror / `:rule` / seed defaults all unimplemented |
-| 12   | partial | 10 | events table + persistence + cache-first reads (PR 6a) | sync-engine third state; midnight window slide; detail modal; pane-vs-modal layout |
+| 12   | partial | 7 | events table + persistence + cache-first reads (PR 6a); detail modal + j/k/Enter + GetEvent (PR 6b-i) | sync-engine third state; midnight window slide; pane-vs-modal layout; ]/[/{/}/t/c day/week navigation |
 | 13   | partial | 10 | — | OOF read-only beyond enable/disable; no schedule/audience editing; no `:settings`; no time-zone source of truth |
 | 14   | mostly-spec-only | 11 | spec 18 added `folder new/rename/delete` (overlap, not closure) | ~60% of CLI surface absent (rule/calendar/ooo/settings/message subverbs/export/daemon/backfill); exit-code map missing; line-delimited JSON not honoured |
-| 15   | partial | 12 | — | drafts bypass action queue; no `compose_sessions` migration; reply-only (no R/F/m); no Graph delete on discard |
+| 15   | partial | 11 | drafts via action queue + two-stage idempotent dispatch (PR 7-i) | no `compose_sessions` migration; reply-only (no R/F/m); no Graph delete on discard; no startup resume scan |
 
-**Drained-since-v0.12.0 totals:** 12 audit bullets struck out
-across 5 specs (02 + 03 + 04 + 07 + 12). Six of the original
-top-10 leverage gaps are closed; see the next section for which
-ones.
+**Drained-since-v0.12.0 totals:** 17 audit bullets struck out
+across 6 specs (02 + 03 + 04 + 07 + 12 + 15). Seven of the
+original top-10 leverage gaps are closed (#1 undo, #2 bindings/
+help, #3 events, #4 permanent-delete, #5 commands, #6 calendar
+schema, #7 drafts queue); see the next section for which ones.
 
 ---
 
@@ -374,13 +375,13 @@ Ranked by what blocks a v0.X release.
 
 3. ~~**`ThrottledEvent` / `AuthRequiredEvent` never emitted (spec 03 §3)**~~ **Closed by PR 3 (v0.13.x).** Engine.OnThrottle hook + emitCycleFailure classifier; integration tests cover both paths. See `docs/plans/spec-03.md` iter 8.
 
-4. ~~**Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)**~~ **Closed by PR 4a (v0.13.x).** See `docs/plans/spec-07.md` iter 3. Categories (`c`/`C`) and move-with-folder-picker (`m`) tracked under PR 4b.
+4. ~~**Permanent delete (`D`) unimplemented end-to-end (spec 07 §6.7)**~~ **Closed by PR 4a (v0.13.x).** Categories (`c`/`C`) closed by PR 4b (iter 4); move-with-folder-picker (`m`) closed by PR 4c (iter 5). See `docs/plans/spec-07.md`.
 
 5. ~~**7 of 15 `:` commands unimplemented (spec 04 §6.4)**~~ Five closed by PR 5 (v0.13.x): `:refresh`, `:folder`, `:open`, `:backfill`, `:search`. The remaining two (`:save`, `:rule`) depend on spec 11's saved-search Manager; tracked under PR 5b alongside the spec 11 implementation. See `docs/plans/spec-04.md` iter 10.
 
-6. ~~**Calendar schema not migrated (spec 12 §3)**~~ Schema + persistence closed by PR 6a (v0.13.x); migration 004 adds the events table. The `:cal` modal now serves from cache first with TTL refresh; offline use works once events have been cached. Sync engine pass, midnight window slide, detail modal, and pane-vs-modal layout question deferred to PR 6b.
+6. ~~**Calendar schema not migrated (spec 12 §3)**~~ Schema + persistence closed by PR 6a (v0.13.x); migration 004 adds the events table. The `:cal` modal now serves from cache first with TTL refresh; offline use works once events have been cached. Detail modal + j/k/Enter navigation + GetEvent($expand=attendees) closed by PR 6b-i (v0.13.x). Sync engine pass, midnight window slide, sidebar-vs-modal layout question, and day/week navigation deferred to PR 6b-ii.
 
-7. **Compose draft path bypasses action queue (spec 15 §5, §8)** — `CreateDraftReply` (`action/draft.go`) is a synchronous one-shot; not in the action queue, not in the `actions` table, not idempotent on replay. The four typed draft actions (`TypeCreateDraft`, `TypeCreateReply`, `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft`) are not in `store.ActionType`. Blocks v0.11.x reliability — a network blip mid-compose loses the draft.
+7. ~~**Compose draft path bypasses action queue (spec 15 §5, §8)**~~ **Closed by PR 7-i (v0.13.x).** `ActionCreateDraftReply` constant added; `Executor.CreateDraftReply` enqueues with status Pending → calls Graph `createReply` → persists `draft_id`+`web_link` via the new `UpdateActionParams` → calls `PatchMessageBody` → marks Done. PATCH-after-success failure leaves the action Failed with `draft_id` intact so PR 7-ii's startup resume path can re-PATCH idempotently. Drain skips the type because stage 1 is non-idempotent. Reply-all / forward / new-message variants deferred to PR 7-iii; crash-recovery resume scan deferred to PR 7-ii. See `docs/plans/spec-15.md` iter 2.
 
 8. **Hybrid search package empty (spec 06)** — `internal/search/` is a 2-line doc stub. The TUI does single-shot `store.Search` with a 2-second timeout; spec promises streaming local + server merge with progressive UI updates. Blocks v0.6.x search-experience parity with Outlook; the deep archive is unsearchable.
 

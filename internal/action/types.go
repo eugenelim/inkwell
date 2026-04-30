@@ -11,10 +11,27 @@ import (
 
 // applyLocal applies the optimistic mutation to the local store. The
 // pre-state snapshot lets [rollbackLocal] reverse it if Graph rejects.
+//
+// Two-step contract: (1) mutate the message row, (2) adjust the
+// affected folders' total_count / unread_count so the sidebar
+// reflects the change at TUI speed instead of waiting for the next
+// sync cycle. The folder-count step is best-effort — failures are
+// swallowed because the next sync overwrites the columns from
+// Graph's authoritative numbers anyway.
 func applyLocal(ctx context.Context, st store.Store, a store.Action, pre *store.Message) error {
 	if pre == nil {
 		return fmt.Errorf("apply local: missing pre-state")
 	}
+	if err := applyLocalMessage(ctx, st, a, pre); err != nil {
+		return err
+	}
+	applyFolderCountChanges(ctx, st, a, pre, +1)
+	return nil
+}
+
+// applyLocalMessage mutates the message row only. Split out from
+// applyLocal so the folder-count step lives in one place.
+func applyLocalMessage(ctx context.Context, st store.Store, a store.Action, pre *store.Message) error {
 	id := pre.ID
 	switch a.Type {
 	case store.ActionMarkRead:
@@ -53,8 +70,84 @@ func applyLocal(ctx context.Context, st store.Store, a store.Action, pre *store.
 		}
 		next := removeCategory(pre.Categories, cat)
 		return st.UpdateMessageFields(ctx, id, store.MessageFields{Categories: &next})
+	case store.ActionCreateDraftReply:
+		// Drafts have no local row to mutate — they only appear in
+		// the messages table after the next Drafts-folder delta sync.
+		// Spec 15 §5: the local apply for drafts is a no-op; the
+		// action's record in the actions table IS the local state.
+		return nil
 	default:
 		return fmt.Errorf("apply local: unsupported action type %q", a.Type)
+	}
+}
+
+// folderCountChange is one folder's total_count / unread_count
+// adjustment. Applied with +1 sign on apply and -1 on rollback so
+// a single helper drives both directions.
+type folderCountChange struct {
+	folderID    string
+	totalDelta  int
+	unreadDelta int
+}
+
+// folderCountChanges returns the count adjustments to apply for the
+// supplied action + pre-snapshot. The adjustments use the snapshot's
+// IsRead / FolderID to know:
+//   - whether `mark_read` actually transitions an unread row (and
+//     thus decrements the source folder's unread_count) or is a
+//     redundant write on an already-read row (no count change),
+//   - what the SOURCE folder of a move/delete was (the destination
+//     is in the action's Params),
+//   - whether the moved/deleted row contributed to unread_count
+//     (and thus needs to follow it across the move).
+//
+// Returns an empty slice for actions that don't affect counts
+// (flag / unflag / categories / draft creation).
+func folderCountChanges(a store.Action, pre *store.Message) []folderCountChange {
+	if pre == nil {
+		return nil
+	}
+	// unreadCarry is +1 if the row was UNread before the action;
+	// it follows the row across a move and matches what gets
+	// decremented when the row leaves a folder.
+	unreadCarry := 0
+	if !pre.IsRead {
+		unreadCarry = 1
+	}
+	switch a.Type {
+	case store.ActionMarkRead:
+		if !pre.IsRead {
+			return []folderCountChange{{folderID: pre.FolderID, unreadDelta: -1}}
+		}
+	case store.ActionMarkUnread:
+		if pre.IsRead {
+			return []folderCountChange{{folderID: pre.FolderID, unreadDelta: +1}}
+		}
+	case store.ActionMove, store.ActionSoftDelete:
+		dest := paramString(a.Params, "destination_folder_id")
+		if dest == "" || dest == pre.FolderID {
+			return nil
+		}
+		return []folderCountChange{
+			{folderID: pre.FolderID, totalDelta: -1, unreadDelta: -unreadCarry},
+			{folderID: dest, totalDelta: +1, unreadDelta: +unreadCarry},
+		}
+	case store.ActionPermanentDelete:
+		return []folderCountChange{
+			{folderID: pre.FolderID, totalDelta: -1, unreadDelta: -unreadCarry},
+		}
+	}
+	return nil
+}
+
+// applyFolderCountChanges fires the deltas computed by
+// folderCountChanges, multiplied by `sign`. Pass +1 from
+// applyLocal, -1 from rollbackLocal. Failures are logged at the
+// store layer (best-effort) — the next sync overwrites these
+// columns from Graph anyway, so any drift heals within one cycle.
+func applyFolderCountChanges(ctx context.Context, st store.Store, a store.Action, pre *store.Message, sign int) {
+	for _, c := range folderCountChanges(a, pre) {
+		_ = st.AdjustFolderCounts(ctx, c.folderID, c.totalDelta*sign, c.unreadDelta*sign)
 	}
 }
 
@@ -84,10 +177,20 @@ func removeCategory(existing []string, cat string) []string {
 
 // rollbackLocal reverses applyLocal using the pre-mutation snapshot.
 // Errors are logged but not returned — rollback is best-effort.
+// Two-step contract mirrors applyLocal: restore the message row,
+// then apply the inverse folder-count deltas so the sidebar
+// matches the user-visible rollback.
 func rollbackLocal(ctx context.Context, st store.Store, a store.Action, pre *store.Message) error {
 	if pre == nil {
 		return nil
 	}
+	err := rollbackLocalMessage(ctx, st, a, pre)
+	applyFolderCountChanges(ctx, st, a, pre, -1)
+	return err
+}
+
+// rollbackLocalMessage restores the message row only.
+func rollbackLocalMessage(ctx context.Context, st store.Store, a store.Action, pre *store.Message) error {
 	switch a.Type {
 	case store.ActionMarkRead, store.ActionMarkUnread:
 		return st.UpdateMessageFields(ctx, pre.ID, store.MessageFields{IsRead: &pre.IsRead})

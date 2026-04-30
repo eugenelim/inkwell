@@ -40,6 +40,14 @@ type BodyOpts struct {
 	Width           int
 	ShowFullHeaders bool
 	Theme           Theme
+	// URLDisplayMaxWidth caps the visible text inside an OSC 8
+	// hyperlink at N cells; the URL portion of the OSC 8 sequence
+	// stays intact so Cmd-click + the URL picker still open the
+	// full URL. End-truncation with `…` keeps the security-
+	// relevant domain prefix visible (phishing detection). 0
+	// disables truncation. Real-tenant complaint: long URLs
+	// blocked vertical scrolling in the viewer.
+	URLDisplayMaxWidth int
 }
 
 // BodyFetcher is the seam to [internal/graph.Client.GetMessageBody].
@@ -123,13 +131,13 @@ func (r *renderer) renderBody(b store.Body, opts BodyOpts) BodyView {
 	}
 	switch strings.ToLower(b.ContentType) {
 	case "html":
-		text, links, err := htmlToText(b.Content, width)
+		text, links, err := htmlToText(b.Content, width, opts.URLDisplayMaxWidth)
 		if err != nil {
 			return BodyView{State: BodyError, Text: "html conversion failed"}
 		}
 		return BodyView{State: BodyReady, Text: text, Links: links}
 	default:
-		text, links := normalisePlain(b.Content, width)
+		text, links := normalisePlain(b.Content, width, opts.URLDisplayMaxWidth)
 		return BodyView{State: BodyReady, Text: text, Links: links}
 	}
 }

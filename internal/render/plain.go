@@ -7,8 +7,10 @@ import (
 
 // normalisePlain folds CRLF, normalises quoting, soft-wraps to width,
 // and extracts numbered links. The link extractor uses the same regex
-// as the HTML path so output is consistent.
-func normalisePlain(content string, width int) (string, []ExtractedLink) {
+// as the HTML path so output is consistent. urlMaxDisplay caps the
+// visible OSC 8 text width (0 = no truncation); the URL portion stays
+// full regardless. See [BodyOpts.URLDisplayMaxWidth].
+func normalisePlain(content string, width, urlMaxDisplay int) (string, []ExtractedLink) {
 	if width < 20 {
 		width = 80
 	}
@@ -34,7 +36,7 @@ func normalisePlain(content string, width int) (string, []ExtractedLink) {
 	// terminals make them clickable so users don't drag-select
 	// across pane borders. Done BEFORE the link block is appended
 	// so the [N] references in the body itself become clickable.
-	body = linkifyURLsInText(body)
+	body = linkifyURLsInText(body, urlMaxDisplay)
 	if len(links) > 0 {
 		body += renderLinkBlock(links)
 	}

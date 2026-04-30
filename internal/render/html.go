@@ -11,8 +11,10 @@ var trackingPixel = regexp.MustCompile(`(?i)<img[^>]*\s(?:width|height)\s*=\s*["
 
 // htmlToText converts HTML to readable text via jaytaylor/html2text,
 // with tracking-pixel <img> tags stripped before conversion. Returns
-// the converted text plus the numbered link block.
-func htmlToText(html string, width int) (string, []ExtractedLink, error) {
+// the converted text plus the numbered link block. urlMaxDisplay is
+// passed through to the OSC 8 hyperlink wrapping (0 = no
+// truncation; see [BodyOpts.URLDisplayMaxWidth]).
+func htmlToText(html string, width, urlMaxDisplay int) (string, []ExtractedLink, error) {
 	cleaned := trackingPixel.ReplaceAllString(html, "")
 	text, err := html2text.FromString(cleaned, html2text.Options{
 		PrettyTables: false,
@@ -21,6 +23,6 @@ func htmlToText(html string, width int) (string, []ExtractedLink, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	out, links := normalisePlain(text, width)
+	out, links := normalisePlain(text, width, urlMaxDisplay)
 	return out, links, nil
 }

@@ -57,6 +57,42 @@ func (s *store) PendingActions(ctx context.Context) ([]Action, error) {
 	return out, rows.Err()
 }
 
+// ListActionsByType returns every action of the supplied type
+// regardless of status, oldest first. Designed for the spec 15
+// crash-recovery path on startup (find all Pending / InFlight
+// CreateDraftReply rows and resume from their recorded draft_id)
+// and for tests that need to inspect terminal-state rows that
+// PendingActions excludes.
+func (s *store) ListActionsByType(ctx context.Context, t ActionType) ([]Action, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, account_id, type, message_ids, COALESCE(params, '{}'), status,
+		       COALESCE(failure_reason, ''), created_at, COALESCE(started_at, 0), COALESCE(completed_at, 0)
+		FROM actions WHERE type = ? ORDER BY created_at`, string(t))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Action
+	for rows.Next() {
+		var a Action
+		var typeStr, statusStr, idsJSON, paramsJSON string
+		var created, started, completed int64
+		if err := rows.Scan(&a.ID, &a.AccountID, &typeStr, &idsJSON, &paramsJSON, &statusStr,
+			&a.FailureReason, &created, &started, &completed); err != nil {
+			return nil, err
+		}
+		a.Type = ActionType(typeStr)
+		a.Status = ActionStatus(statusStr)
+		_ = json.Unmarshal([]byte(idsJSON), &a.MessageIDs)
+		_ = json.Unmarshal([]byte(paramsJSON), &a.Params)
+		a.CreatedAt = time.Unix(created, 0)
+		a.StartedAt = unixToTime(started)
+		a.CompletedAt = unixToTime(completed)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // SweepDoneActions deletes Done / Failed actions whose completed_at
 // is before the supplied timestamp. Used by the maintenance loop
 // (spec 02 §8) to keep the actions table from growing unbounded.
@@ -70,6 +106,21 @@ func (s *store) SweepDoneActions(ctx context.Context, before time.Time) (int64, 
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// UpdateActionParams replaces an existing action's params blob.
+// Used by two-stage actions to record intermediate state (e.g.
+// the server-assigned draft id after createReply succeeds, before
+// the body PATCH that follows) so a crashed second stage can
+// resume idempotently rather than re-fire createReply and
+// generate a duplicate draft.
+func (s *store) UpdateActionParams(ctx context.Context, id string, params map[string]any) error {
+	blob, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE actions SET params = ? WHERE id = ?", string(blob), id)
+	return err
 }
 
 // UpdateActionStatus moves an action through its lifecycle.

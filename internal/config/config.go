@@ -50,6 +50,12 @@ type TriageConfig struct {
 	// UndoStackSize caps the per-session undo stack. 0 = unlimited
 	// (the current default). Spec 07 §11.
 	UndoStackSize int `toml:"undo_stack_size"`
+	// RecentFoldersCount is the cap on the move-picker MRU list
+	// (spec 07 §12.1). The folder picker surfaces the N most-
+	// recently-used move destinations above the alphabetical list
+	// so frequent destinations stay one keystroke away. 0 disables
+	// the recent section entirely. Default 5.
+	RecentFoldersCount int `toml:"recent_folders_count"`
 }
 
 // BulkConfig owns the [bulk] section (spec 09 / 10).

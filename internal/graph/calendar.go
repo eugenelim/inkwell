@@ -25,6 +25,65 @@ type Event struct {
 	WebLink          string
 }
 
+// EventDetail extends Event with the data the spec 12 §7 detail
+// modal renders: full attendee list with response status + the
+// body preview. Returned by GetEvent($expand=attendees).
+type EventDetail struct {
+	Event
+	BodyPreview string
+	Attendees   []EventAttendee
+}
+
+// EventAttendee mirrors a Graph attendee row. Type is "required" /
+// "optional" / "resource"; Status is "accepted" / "declined" /
+// "tentativelyAccepted" / "notResponded" / "none".
+type EventAttendee struct {
+	Name    string
+	Address string
+	Type    string
+	Status  string
+}
+
+// rawEventDetail is the decode shape for GET /me/events/{id}?$expand=attendees.
+type rawEventDetail struct {
+	ID        string `json:"id"`
+	Subject   string `json:"subject"`
+	Organizer struct {
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"organizer"`
+	Start struct {
+		DateTime string `json:"dateTime"`
+		TimeZone string `json:"timeZone"`
+	} `json:"start"`
+	End struct {
+		DateTime string `json:"dateTime"`
+		TimeZone string `json:"timeZone"`
+	} `json:"end"`
+	IsAllDay bool `json:"isAllDay"`
+	Location struct {
+		DisplayName string `json:"displayName"`
+	} `json:"location"`
+	OnlineMeeting struct {
+		JoinURL string `json:"joinUrl"`
+	} `json:"onlineMeeting"`
+	ShowAs      string `json:"showAs"`
+	WebLink     string `json:"webLink"`
+	BodyPreview string `json:"bodyPreview"`
+	Attendees   []struct {
+		Type   string `json:"type"`
+		Status struct {
+			Response string `json:"response"`
+		} `json:"status"`
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"attendees"`
+}
+
 // rawCalendarView is the Graph response shape we decode into.
 type rawCalendarView struct {
 	Value []struct {
@@ -110,4 +169,57 @@ func (c *Client) ListEventsToday(ctx context.Context) ([]Event, error) {
 	start := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
 	end := start.Add(24 * time.Hour)
 	return c.ListEventsBetween(ctx, start, end)
+}
+
+// GetEvent fetches the full detail for a single event including
+// the attendee list and the body preview. Spec 12 §4.3. The
+// attendee status comes from the user's perspective per Graph;
+// "accepted" / "declined" / "tentativelyAccepted" / "notResponded"
+// / "none" / "organizer" are the canonical values.
+func (c *Client) GetEvent(ctx context.Context, id string) (EventDetail, error) {
+	if id == "" {
+		return EventDetail{}, fmt.Errorf("graph: GetEvent: id required")
+	}
+	q := url.Values{}
+	q.Set("$expand", "attendees")
+	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink,bodyPreview,attendees")
+	resp, err := c.Do(ctx, http.MethodGet, "/me/events/"+url.PathEscape(id)+"?"+q.Encode(), nil, nil)
+	if err != nil {
+		return EventDetail{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return EventDetail{}, parseError(resp)
+	}
+	var raw rawEventDetail
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return EventDetail{}, fmt.Errorf("graph: decode event: %w", err)
+	}
+	startT, _ := time.Parse("2006-01-02T15:04:05.0000000", raw.Start.DateTime)
+	endT, _ := time.Parse("2006-01-02T15:04:05.0000000", raw.End.DateTime)
+	det := EventDetail{
+		Event: Event{
+			ID:               raw.ID,
+			Subject:          raw.Subject,
+			OrganizerName:    raw.Organizer.EmailAddress.Name,
+			OrganizerAddress: raw.Organizer.EmailAddress.Address,
+			Start:            startT,
+			End:              endT,
+			IsAllDay:         raw.IsAllDay,
+			Location:         raw.Location.DisplayName,
+			OnlineMeetingURL: raw.OnlineMeeting.JoinURL,
+			ShowAs:           raw.ShowAs,
+			WebLink:          raw.WebLink,
+		},
+		BodyPreview: raw.BodyPreview,
+	}
+	for _, a := range raw.Attendees {
+		det.Attendees = append(det.Attendees, EventAttendee{
+			Name:    a.EmailAddress.Name,
+			Address: a.EmailAddress.Address,
+			Type:    a.Type,
+			Status:  a.Status.Response,
+		})
+	}
+	return det, nil
 }

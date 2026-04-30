@@ -7,8 +7,8 @@ move-with-picker remain deferred (drain-plan PR 4).
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/action/` package compiles with Executor + Drain.
-- [x] Action types implemented: mark_read, mark_unread, flag, unflag, soft_delete, archive (move).
-- [ ] Action types deferred to v0.3.x: permanent_delete (needs confirmation modal), move (needs folder picker), add_category / remove_category.
+- [x] Action types implemented: mark_read, mark_unread, flag, unflag, soft_delete, archive (move), permanent_delete, add_category, remove_category, move (user-folder picker).
+- [ ] Replay-on-startup is the last per-action gap remaining (covered separately under "Replay-on-startup with stale-snapshot semantics" below).
 - [x] Optimistic apply: local store mutates first, Graph dispatched second, rollback on failure.
 - [x] Pre-mutation snapshot per action (read message before mutation, used to compute rollback fields).
 - [x] Action queue persists rows; Drain re-dispatches Pending on each engine cycle.
@@ -20,6 +20,72 @@ move-with-picker remain deferred (drain-plan PR 4).
 - [x] Tests: executor unit tests over httptest Graph, covering mark_read PATCH payload, toggle_flag flip, soft_delete move endpoint, rollback on Graph failure, drain-retries-pending.
 
 ## Iteration log
+
+### Iter 5 — 2026-04-30 (move-with-folder-picker, PR 4c of audit-drain)
+- Slice: spec 07 §6.5 / §12.1 — `m` keybind opens a typed-input
+  filterable folder picker; Enter dispatches `Triage.Move`;
+  recently-used destinations rank first.
+- Files added:
+  - `internal/ui/folder_picker.go` — FolderPickerModel with
+    typed-filter + arrow-only navigation; rows built from
+    FoldersModel.raw + session MRU; Drafts is filtered out
+    (Graph rejects move-into-Drafts for non-draft items);
+    cursor-windowed view caps at 12 visible rows.
+- Files modified:
+  - `internal/action/executor.go`: new `Move(ctx, accID, msgID,
+    destID, alias)` method (mirrors Archive shape; rejects empty
+    destination).
+  - `internal/ui/app.go`: TriageExecutor gains `Move`;
+    Deps.RecentFoldersCount carries the config knob; Model fields
+    `folderPicker`, `pendingMoveMsg`, `recentFolderIDs`;
+    `startMove` opens the picker; `updateFolderPicker` handles
+    filter / arrows / Enter / Esc; View routes FolderPickerMode;
+    `bumpRecentFolder` maintains MRU; `m` handler in dispatchList
+    + dispatchViewer.
+  - `internal/ui/messages.go`: new FolderPickerMode constant.
+  - `cmd/inkwell/cmd_run.go`: triageAdapter forwards Move; Deps
+    wires `cfg.Triage.RecentFoldersCount`.
+  - `internal/config/config.go` + `defaults.go`: TriageConfig gains
+    RecentFoldersCount (default 5).
+- Tests:
+  - executor_test: `TestExecutorMoveToUserFolder` (round-trip
+    with destFolderID + undo entry restores source);
+    `TestExecutorMoveRejectsEmptyDestination`.
+  - dispatch_test: m opens FolderPickerMode + seeds rows;
+    typed-input filters; Enter dispatches Triage.Move with the
+    highlighted row's id+alias and bumps MRU; Esc cancels;
+    arrow keys don't leak into the filter buffer; Enter on empty
+    filter is safe and stays in picker mode; pre-sync (no
+    folders) surfaces a useful error rather than an empty
+    picker; bumpRecentFolder unit test covers MRU promotion +
+    cap; row builder skips Drafts; recents rank first.
+  - app_e2e_test: `TestFolderPickerMOpensModalAndDispatchesMove`
+    visible-delta — `m` paints "Move to:" + filter label +
+    Inbox + Archive; typing "Arc" updates the buffer + keeps
+    Archive visible; Enter clears the modal.
+- Decisions:
+  - Arrow-only navigation (tea.KeyUp / tea.KeyDown) so j/k flow
+    into the typed filter, matching aerc / mutt picker UX. List
+    pane keymap (which binds j/k) is intentionally NOT consulted
+    in FolderPickerMode.
+  - MRU is session-scoped (in-memory) rather than persisted —
+    spec 07 §12.1 says "recently used" not "across sessions",
+    and persistence would tangle with folder-id rewrites that
+    Graph performs on user moves. Keeping it session-scoped
+    sidesteps the staleness class.
+  - Drafts filtered from destinations because moving non-drafts
+    into the Drafts well-known folder generates a Graph 400 the
+    user can't act on. Better to hide the row than serve a
+    confusing failure.
+  - Path-style labels ("Parent / Child / Grandchild") so
+    duplicate child names in different parent chains stay
+    disambiguated. Built once at picker open via
+    `buildFolderPaths`.
+  - Cursor-windowed view (12 visible rows max) so big mailboxes
+    don't blow past the modal height; the typed filter narrows
+    most cases below the cap anyway.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
 
 ### Iter 4 — 2026-04-30 (categories, PR 4b of audit-drain)
 - Slice: spec 07 §6.9 / §6.10 — add_category / remove_category
