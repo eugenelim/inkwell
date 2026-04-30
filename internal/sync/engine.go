@@ -125,9 +125,20 @@ type Options struct {
 	ForegroundInterval time.Duration
 	BackgroundInterval time.Duration
 	Logger             *slog.Logger
-	// SubscribedFolders restricts which well-known names participate
+	// SubscribedFolders restrects which well-known names participate
 	// in delta sync. Empty = the spec §5.1 default set.
 	SubscribedFolders []string
+
+	// Maintenance configures the spec 02 §8 nightly housekeeping
+	// pass: body LRU eviction, done-actions sweep, optional
+	// VACUUM. Zero values mean "use defaults"; setting Interval
+	// to <0 disables maintenance entirely (used by tests that
+	// don't want the timer interfering).
+	MaintenanceInterval  time.Duration
+	BodyCacheMaxCount    int
+	BodyCacheMaxBytes    int64
+	DoneActionsRetention time.Duration
+	VacuumOnMaintenance  bool
 }
 
 func (o *Options) defaults() {
@@ -142,6 +153,20 @@ func (o *Options) defaults() {
 	}
 	if len(o.SubscribedFolders) == 0 {
 		o.SubscribedFolders = DefaultSubscribedFolders()
+	}
+	// Maintenance defaults. Zero means "use these"; <0 disables
+	// (the negative sentinel is for tests that want a quiet engine).
+	if o.MaintenanceInterval == 0 {
+		o.MaintenanceInterval = 6 * time.Hour
+	}
+	if o.BodyCacheMaxCount == 0 {
+		o.BodyCacheMaxCount = 500
+	}
+	if o.BodyCacheMaxBytes == 0 {
+		o.BodyCacheMaxBytes = 200 * 1024 * 1024
+	}
+	if o.DoneActionsRetention == 0 {
+		o.DoneActionsRetention = 7 * 24 * time.Hour
 	}
 }
 
@@ -266,6 +291,17 @@ func (e *engine) Start(ctx context.Context) error {
 			}
 		}()
 		e.loop(ctx)
+	}()
+	// Spec 02 §8 maintenance loop runs in its own goroutine off the
+	// main timer so a slow VACUUM never blocks foreground sync.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				e.logger.Error("engine: panic in maintenance",
+					slog.Any("panic", r))
+			}
+		}()
+		e.runMaintenance(ctx)
 	}()
 	return nil
 }

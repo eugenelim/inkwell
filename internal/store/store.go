@@ -74,6 +74,9 @@ type Store interface {
 	EnqueueAction(ctx context.Context, a Action) error
 	PendingActions(ctx context.Context) ([]Action, error)
 	UpdateActionStatus(ctx context.Context, id string, status ActionStatus, reason string) error
+	// SweepDoneActions deletes done / failed actions older than `before`.
+	// Returns rowsAffected for telemetry. Spec 02 §8.
+	SweepDoneActions(ctx context.Context, before time.Time) (int64, error)
 
 	// Undo
 	PushUndo(ctx context.Context, e UndoEntry) error

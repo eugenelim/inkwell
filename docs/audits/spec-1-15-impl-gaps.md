@@ -26,7 +26,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation: `internal/store/`
 - Status overall: partial (most surfaces present; maintenance + a few methods missing)
 - Implementation gaps:
-  - DoD §10 / §8 maintenance job not implemented. There is no nightly task that runs `EvictBodies`, `DELETE FROM actions WHERE status='done' AND completed_at < now-7d`, `PRAGMA optimize`, or weekly `VACUUM`. `store.Vacuum` exists at `store.go:189` but is never invoked from anywhere in the tree.
+  - ~~Maintenance job not implemented~~ **Closed by PR 11 (v0.13.x).** New `internal/sync/maintenance.go` runs in its own goroutine off the engine's main timer. Each pass: EvictBodies (config caps), SweepDoneActions (config retention), optional Vacuum (off by default). Negative MaintenanceInterval is the test-only disable sentinel.
   - `internal/store/saved_searches.go` has no `delete-by-name` helper despite `Manager.Delete` consuming an ID per spec 11. Existing `DeleteSavedSearch(id)` is correct; flagging because spec 11 §3 wants name-based lookup which requires another method spec 11 doesn't get either way.
 - Design drifts:
   - `EvictBodies` signature drift: spec §5 declares `EvictBodies(ctx context.Context) error` (caller-less budget) but `internal/store/store.go:57` exposes `EvictBodies(ctx, maxCount, maxBytes) (evicted int, err error)`. Acceptable refinement, but no caller anywhere passes the cache config caps from `[cache]` in `internal/config/defaults.go:17-22` into a periodic task. The eviction code is dead at runtime.
@@ -335,7 +335,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | Spec | Status | Gap count | Highest-risk gap |
 |------|--------|-----------|------------------|
 | 01   | fully implemented | 3 | Missing `whoami`/`signout` cmd file refs in cmd_root.go (spec 01 §8 / DoD line 352) |
-| 02   | partial | 4 | Maintenance / `Vacuum` / body LRU eviction never invoked at runtime (§8) |
+| 02   | partial | 3 | maintenance loop closed in v0.13.x; remaining gaps are §9 integration tests + bench-vs-100k drift |
 | 03   | partial | 4 | Priority queue for body fetches (§11) absent; quickStart/pullSince don't see tombstones (deviation tracked) |
 | 04   | partial | 5 | `:save` + `:rule` block on spec 11; other gaps remain (transient_status_ttl, min_terminal, full lifecycle teardown) |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |

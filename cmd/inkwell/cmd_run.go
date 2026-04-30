@@ -124,10 +124,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// Sync engine
 	engine, err = isync.New(gc, st, exec, isync.Options{
-		AccountID:          acc.ID,
-		Logger:             logger,
-		ForegroundInterval: cfg.Sync.ForegroundInterval,
-		BackgroundInterval: cfg.Sync.BackgroundInterval,
+		AccountID:            acc.ID,
+		Logger:               logger,
+		ForegroundInterval:   cfg.Sync.ForegroundInterval,
+		BackgroundInterval:   cfg.Sync.BackgroundInterval,
+		BodyCacheMaxCount:    cfg.Cache.BodyCacheMaxCount,
+		BodyCacheMaxBytes:    cfg.Cache.BodyCacheMaxBytes,
+		DoneActionsRetention: cfg.Cache.DoneActionsRetention,
 	})
 	if err != nil {
 		return fmt.Errorf("sync engine: %w", err)

@@ -300,7 +300,7 @@ config surface.
 | 8  | 06      | not-started | — | — | — |
 | 9  | 08      | not-started | — | — | — |
 | 10 | 05 (+17)| not-started | — | — | — |
-| 11 | 02      | not-started | — | — | — |
+| 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter — |
 | 12 | config  | not-started | — | — | — |
 
 When all rows show "shipped" and the audit doc is empty, this

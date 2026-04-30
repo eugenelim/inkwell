@@ -1,7 +1,10 @@
 # Spec 02 — Local Cache Schema
 
 ## Status
-done — all DoD ticked, all §7 budgets within slack.
+done. §8 maintenance loop (body LRU eviction + done-actions
+sweep + optional Vacuum) shipped v0.13.x (PR 11 of audit-drain).
+Engine starts a separate goroutine off its main timer so
+maintenance never blocks foreground sync.
 
 ## DoD checklist
 - [x] All tables, indexes, FTS triggers from §3 created by `001_initial.sql`.
@@ -22,6 +25,45 @@ done — all DoD ticked, all §7 budgets within slack.
 | Open existing DB (migrations no-op) | 50ms | 11ms | ✓ (4× under) |
 
 ## Iteration log
+
+### Iter 3 — 2026-04-30 (maintenance loop, PR 11 of audit-drain)
+- Slice: spec 02 §8 maintenance pass — body LRU eviction +
+  done-actions sweep + optional Vacuum.
+- Files added/modified:
+  - `internal/sync/maintenance.go` — runMaintenance loop +
+    maintenancePass single-cycle helper. 6h default interval;
+    1min initial delay so startup doesn't hammer disk.
+  - `internal/sync/engine.go` — Options gains
+    MaintenanceInterval / BodyCacheMaxCount /
+    BodyCacheMaxBytes / DoneActionsRetention /
+    VacuumOnMaintenance with sensible defaults. Negative
+    interval is the test-disable sentinel. Start() launches
+    the maintenance goroutine alongside the main loop.
+  - `internal/store/actions.go` — new SweepDoneActions(before)
+    method; deletes done/failed actions whose completed_at <
+    before. Returns rowsAffected.
+  - `internal/store/store.go` — interface gains SweepDoneActions.
+  - `cmd/inkwell/cmd_run.go` — config knobs threaded through.
+- Tests:
+  - LRU eviction respects count cap (20 bodies, cap=10 → ≤10
+    remain).
+  - Sweep with negative retention guarantees a freshly-Done
+    row is removed; pending row survives.
+  - Negative MaintenanceInterval disables the loop (returns
+    immediately).
+- Decisions:
+  - Maintenance runs in its own goroutine, NOT inside the
+    sync runCycle, because Vacuum can take seconds on a
+    large DB and would block foreground sync.
+  - Vacuum off by default — SQLite's VACUUM rewrites the
+    whole DB; the I/O cost is rarely worth the space savings
+    for a typical mailbox. User can opt in via
+    VacuumOnMaintenance.
+  - 6h interval picked as a balance between "too aggressive
+    against I/O" and "actions accumulate visibly". Quarterly
+    review can tune based on logs.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
 
 ### Iter 1 — 2026-04-27
 - Slice: schema migration + types + Open + migrations runner + accounts/folders/messages/bodies/attachments/delta/actions/undo/saved_searches/search.
