@@ -661,7 +661,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// If the action removed the current viewer message from the
 		// active folder (delete, archive, move), clear the viewer and
 		// shift focus per the dispatcher's hint.
-		removed := msg.name == "soft_delete" || msg.name == "archive"
+		removed := msg.name == "soft_delete" || msg.name == "archive" || msg.name == "permanent_delete"
 		if removed && m.viewer.CurrentMessageID() == msg.msgID {
 			m.viewer.SetMessage(store.Message{}) // clears current
 			m.viewer.current = nil
@@ -670,7 +670,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focused = msg.postFocus
 		}
 		// Reload the list so the optimistic mutation (or rollback) is
-		// reflected in the current pane.
+		// reflected in the current pane. When a filter is active the
+		// list pane's FolderID is the sentinel "filter:<pattern>"
+		// which doesn't exist in the store — reloading via
+		// loadMessagesCmd would return zero rows and make the user
+		// think every filtered message disappeared (real-tenant bug
+		// reported v0.13.x). Re-run the filter instead so the new
+		// state is reflected against the same pattern.
+		if m.filterActive {
+			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", msg.name)
+			return m, m.runFilterCmd(m.filterPattern)
+		}
 		if msg.folderID != "" && msg.folderID == m.list.FolderID {
 			return m, m.loadMessagesCmd(msg.folderID)
 		}
