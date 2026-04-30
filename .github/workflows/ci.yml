@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           # Always pull the latest 1.25.x patch so new stdlib CVEs land
@@ -54,7 +54,7 @@ jobs:
   permissions-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: refuse forbidden Graph scopes
         run: |
           set -e
