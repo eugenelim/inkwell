@@ -2188,6 +2188,16 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 	case isync.FolderSyncedEvent:
 		m.lastSyncAt = e.At
 		m.engineActivity = "syncing…"
+		// If the engine just confirmed there's no more older mail
+		// in the user's current folder, mark the list as graph-
+		// exhausted so further j-presses at the cache wall stop
+		// re-firing no-op Backfills. Real-tenant regression
+		// v0.14.x: without this, the list silently froze at the
+		// last cached row.
+		if e.FolderID == m.list.FolderID && e.Added == 0 && m.list.AtCacheWall() {
+			m.list.MarkGraphExhausted()
+			m.engineActivity = "no older messages on the server"
+		}
 		// Refresh the folder list (counts may have changed) and, if
 		// the user is on the synced folder, refresh the message list
 		// too. Spec 04 §10: the UI never blocks; both reloads are Cmds.
