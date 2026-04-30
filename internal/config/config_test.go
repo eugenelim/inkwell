@@ -82,6 +82,34 @@ unsubscribe = "U"
 	require.Equal(t, "r", cfg.Bindings.MarkRead)
 }
 
+// TestLoadParsesNewSections verifies the [triage] / [bulk] /
+// [calendar] sections added in PR 12 round-trip TOML → Config.
+func TestLoadParsesNewSections(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[triage]
+confirm_permanent_delete = false
+undo_stack_size = 100
+
+[bulk]
+progress_threshold = 25
+size_hard_max = 10000
+
+[calendar]
+lookahead_days = 7
+cache_ttl = "30m"
+`))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.Triage.ConfirmPermanentDelete)
+	require.Equal(t, 100, cfg.Triage.UndoStackSize)
+	require.Equal(t, 25, cfg.Bulk.ProgressThreshold)
+	require.Equal(t, 10000, cfg.Bulk.SizeHardMax)
+	require.Equal(t, 7, cfg.Calendar.LookaheadDays)
+	require.Equal(t, "30m0s", cfg.Calendar.CacheTTL.String())
+}
+
 func TestValidateRejectsMaxConcurrentOutOfRange(t *testing.T) {
 	c := Defaults()
 	c.Sync.MaxConcurrent = 99

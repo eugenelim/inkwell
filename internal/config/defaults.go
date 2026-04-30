@@ -80,5 +80,22 @@ func Defaults() *Config {
 			Path:    "",
 			MaxSize: 10,
 		},
+		Triage: TriageConfig{
+			ConfirmPermanentDelete: true,
+			UndoStackSize:          0, // 0 = unlimited; v1 doesn't enforce
+		},
+		Bulk: BulkConfig{
+			ProgressThreshold: 50,
+			PreviewSampleSize: 20,
+			SizeWarnThreshold: 1000,
+			SizeHardMax:       5000,
+			DryRunDefault:     false,
+		},
+		Calendar: CalendarConfig{
+			LookaheadDays: 1,
+			LookbackDays:  0,
+			ShowDeclined:  false,
+			CacheTTL:      15 * time.Minute,
+		},
 	}
 }

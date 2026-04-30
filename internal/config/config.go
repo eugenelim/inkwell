@@ -30,7 +30,57 @@ type Config struct {
 	Bindings      BindingsConfig      `toml:"bindings"`
 	Rendering     RenderingConfig     `toml:"rendering"`
 	Logging       LoggingConfig       `toml:"logging"`
+	Triage        TriageConfig        `toml:"triage"`
+	Bulk          BulkConfig          `toml:"bulk"`
+	Calendar      CalendarConfig      `toml:"calendar"`
 	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+}
+
+// TriageConfig owns the [triage] section (spec 07). Knobs that are
+// already wired through the engine (BodyCacheMax* / DoneActionsRetention)
+// stay under [cache] for back-compat; this section adds the
+// triage-flow controls.
+type TriageConfig struct {
+	// ConfirmThreshold: a single-message triage acts immediately;
+	// no threshold here, kept for forward compat with bulk.
+	// ConfirmPermanentDelete: always true today (the modal is hard-
+	// coded). Surface the knob so a power user can opt out at their
+	// own risk.
+	ConfirmPermanentDelete bool `toml:"confirm_permanent_delete"`
+	// UndoStackSize caps the per-session undo stack. 0 = unlimited
+	// (the current default). Spec 07 §11.
+	UndoStackSize int `toml:"undo_stack_size"`
+}
+
+// BulkConfig owns the [bulk] section (spec 09 / 10).
+type BulkConfig struct {
+	// ProgressThreshold: a bulk operation with N≥this messages
+	// shows the progress modal (spec 10 §7).
+	ProgressThreshold int `toml:"progress_threshold"`
+	// PreviewSampleSize: when the user hits `[p] Preview` on the
+	// confirm modal, show this many messages (spec 10 §5.4).
+	PreviewSampleSize int `toml:"preview_sample_size"`
+	// SizeWarnThreshold / SizeHardMax: spec 09 §11.
+	SizeWarnThreshold int `toml:"size_warn_threshold"`
+	SizeHardMax       int `toml:"size_hard_max"`
+	// DryRunDefault: when true, `:filter --apply` requires `!`
+	// suffix to actually mutate (spec 10 §6).
+	DryRunDefault bool `toml:"dry_run_default"`
+}
+
+// CalendarConfig owns the [calendar] section (spec 12). Matches the
+// existing calendarAdapter TTL constant + the spec §6 layout knobs.
+type CalendarConfig struct {
+	// LookaheadDays / LookbackDays bound the cached window. Spec 12
+	// §5 default is 1 day each side — modal shows today only.
+	LookaheadDays int `toml:"lookahead_days"`
+	LookbackDays  int `toml:"lookback_days"`
+	// ShowDeclined: include events the user has declined. Default
+	// false (spec 12 §6).
+	ShowDeclined bool `toml:"show_declined"`
+	// CacheTTL: how long the modal trusts cached events before
+	// re-fetching from Graph. Matches calendarAdapter's constant.
+	CacheTTL time.Duration `toml:"cache_ttl"`
 }
 
 // SavedSearchConfig is one [[saved_searches]] table entry. The pattern
