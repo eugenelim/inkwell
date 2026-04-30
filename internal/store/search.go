@@ -11,6 +11,16 @@ import (
 // rank order (lower bm25 = better). The Query string is passed through
 // to FTS5 so callers can use FTS5 operators (AND, OR, NEAR, prefix*).
 // Empty Query returns no results.
+//
+// By default, results EXCLUDE messages currently sitting in the
+// well-known "deleteditems" or "junkemail" folders — same UX
+// invariant as SearchByPredicate. Real-tenant regression v0.15.x:
+// after `d` (soft-delete) on a `/<query>` result, the moved
+// message kept matching FTS and re-running the search brought it
+// straight back, making the user think delete didn't work. Users
+// who explicitly want to find a message in trash / spam can pass
+// `q.FolderID = "<deleteditems-id>"`; that exact match takes
+// precedence over the default exclusion.
 func (s *store) Search(ctx context.Context, q SearchQuery) ([]MessageMatch, error) {
 	if strings.TrimSpace(q.Query) == "" {
 		return nil, nil
@@ -30,8 +40,16 @@ func (s *store) Search(ctx context.Context, q SearchQuery) ([]MessageMatch, erro
 		args = append(args, q.AccountID)
 	}
 	if q.FolderID != "" {
+		// Caller explicitly scoped to a folder — honour it and skip
+		// the default trash/spam exclusion (the user opted in).
 		stmt += " AND m.folder_id = ?"
 		args = append(args, q.FolderID)
+	} else if q.AccountID != 0 {
+		stmt += ` AND m.folder_id NOT IN (
+			SELECT id FROM folders
+			WHERE account_id = ? AND well_known_name IN ('deleteditems', 'junkemail')
+		)`
+		args = append(args, q.AccountID)
 	}
 	stmt += " ORDER BY rank LIMIT ?"
 	args = append(args, limit)

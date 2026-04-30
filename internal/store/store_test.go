@@ -151,6 +151,58 @@ func TestSearchByPredicateExcludesDeletedAndJunk(t *testing.T) {
 	require.Equal(t, "f-inbox", out[0].FolderID)
 }
 
+// TestSearchExcludesDeletedAndJunk pins the v0.15.x regression
+// where pressing `d` on a `/<query>` result moved the message to
+// Deleted Items but FTS still returned it, so re-running the
+// search resurrected the row and the user thought delete didn't
+// work. Search default-excludes the well-known deleteditems +
+// junkemail folders. Caller can opt back in by passing the
+// folder ID explicitly.
+func TestSearchExcludesDeletedAndJunk(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-trash", AccountID: acc, DisplayName: "Deleted Items", WellKnownName: "deleteditems", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-junk", AccountID: acc, DisplayName: "Junk Email", WellKnownName: "junkemail", LastSyncedAt: time.Now(),
+	}))
+	for i, fid := range []string{"f-inbox", "f-trash", "f-junk"} {
+		require.NoError(t, s.UpsertMessage(context.Background(), Message{
+			ID:          "m-fts-" + strconv.Itoa(i),
+			AccountID:   acc,
+			FolderID:    fid,
+			Subject:     "ABC quarterly review",
+			BodyPreview: "ABC body preview text",
+			ReceivedAt:  time.Now(),
+		}))
+	}
+
+	hits, err := s.Search(context.Background(), SearchQuery{
+		Query:     "ABC",
+		AccountID: acc,
+		Limit:     50,
+	})
+	require.NoError(t, err)
+	require.Len(t, hits, 1, "Search must default-exclude trash/junk")
+	require.Equal(t, "f-inbox", hits[0].Message.FolderID)
+
+	// Explicit folder scope opts back in — useful for "search inside
+	// my Deleted Items" workflows.
+	trashHits, err := s.Search(context.Background(), SearchQuery{
+		Query:     "ABC",
+		AccountID: acc,
+		FolderID:  "f-trash",
+		Limit:     50,
+	})
+	require.NoError(t, err)
+	require.Len(t, trashHits, 1)
+	require.Equal(t, "f-trash", trashHits[0].Message.FolderID)
+}
+
 // TestMeetingMessageTypeRoundTrip is the regression for the v0.11-era
 // real-tenant bug where the calendar indicator (📅) silently dropped
 // off invites whose subject didn't begin with one of the heuristic
