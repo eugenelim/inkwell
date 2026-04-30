@@ -496,6 +496,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.SetBody(msg.Text, msg.State)
 			m.viewer.SetLinks(msg.Links)
 		}
+		// Stale local id: Graph reassigns message IDs on Move
+		// (soft-delete, archive, user-folder move). The local row
+		// keeps the old ID until the next sync re-discovers the
+		// message in its new folder. Opening it before then 404s
+		// with "ErrorItemNotFound" / "Object not found". Show a
+		// friendlier hint AND drop the stale local row + refresh
+		// so the user is no longer staring at a row that 404s on
+		// every Enter. Real-tenant regression v0.15.x — to be
+		// fixed properly via Graph immutable IDs in v0.16.
+		if msg.State == int(render.BodyError) && isStaleIDError(msg.Text) {
+			m.lastError = fmt.Errorf("message has been moved on the server (local cache stale); refreshing")
+			m.viewer.SetMessage(store.Message{})
+			m.viewer.current = nil
+			folderID := m.list.FolderID
+			cmds := []tea.Cmd{}
+			if !strings.HasPrefix(folderID, "filter:") && folderID != "" {
+				cmds = append(cmds, m.deleteStaleLocalRow(msg.MessageID), m.loadMessagesCmd(folderID))
+			} else if m.filterActive {
+				cmds = append(cmds, m.deleteStaleLocalRow(msg.MessageID), m.runFilterCmd(m.filterPattern))
+			}
+			if len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
+			}
+		}
 		return m, nil
 
 	case ErrorMsg:
@@ -1244,9 +1268,24 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 	case "unfilter":
 		prior := m.priorFolderID
 		m = m.clearFilter()
+		if prior == "" {
+			// Fallback: user ran `:filter` before any folder finished
+			// loading (priorFolderID was captured as ""). Land on the
+			// account's Inbox so :unfilter is never a stuck no-op.
+			// Real-tenant regression v0.15.x.
+			if inbox, ok := m.folders.FindByName("inbox"); ok {
+				prior = inbox.ID
+				m.list.FolderID = inbox.ID
+			}
+		}
 		if prior != "" {
 			return m, m.loadMessagesCmd(prior)
 		}
+		// Still nothing to land on (folders not synced). At minimum,
+		// clear the list so the user isn't staring at stale filter
+		// rows.
+		m.list.SetMessages(nil)
+		m.list.FolderID = ""
 		return m, nil
 	case "cal", "calendar":
 		if m.deps.Calendar == nil {
@@ -2181,6 +2220,46 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State)}
 		}
 		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State)}
+	}
+}
+
+// isStaleIDError reports whether a body-render error text smells
+// like Graph's "ID not found at this location" path — typically a
+// 404 with `ErrorItemNotFound` or `RequestBroker--ParseUri` style
+// payload, OR the human-readable variant. Used by the
+// BodyRenderedMsg handler to recover from stale local rows that
+// Graph has since invalidated (soft-delete / archive / user move).
+func isStaleIDError(s string) bool {
+	low := strings.ToLower(s)
+	switch {
+	case strings.Contains(low, "erroritemnotfound"),
+		strings.Contains(low, "object not found"),
+		strings.Contains(low, "the specified object was not found"),
+		strings.Contains(low, "not found"):
+		return true
+	}
+	return false
+}
+
+// deleteStaleLocalRow returns a tea.Cmd that deletes the local
+// messages row keyed by id. Used after Graph confirms (via 404)
+// that the row's id no longer maps to any server-side message —
+// keeping the row would re-surface the same 404 on every open
+// attempt.
+func (m Model) deleteStaleLocalRow(id string) tea.Cmd {
+	if id == "" || m.deps.Store == nil {
+		return nil
+	}
+	st := m.deps.Store
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := st.DeleteMessage(ctx, id); err != nil {
+			return ErrorMsg{Err: fmt.Errorf("clean stale row: %w", err)}
+		}
+		// Caller batches a loadMessagesCmd / runFilterCmd after this
+		// so no follow-up message is required here.
+		return nil
 	}
 }
 

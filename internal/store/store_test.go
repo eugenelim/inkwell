@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,48 @@ func TestUpsertAndQueryMessages(t *testing.T) {
 	for _, m := range unread {
 		require.False(t, m.IsRead)
 	}
+}
+
+// TestSearchByPredicateExcludesDeletedAndJunk is the v0.15.x
+// regression for the filter UX bug where pressing `d` (soft-
+// delete) on a `:filter [External]` view didn't visually
+// remove the row: the message moved to Deleted Items but kept
+// matching the predicate, so the re-filter post-triage still
+// returned it. SearchByPredicate must default-exclude messages
+// in the well-known deleteditems / junkemail folders so the
+// re-filter result reflects "what's still in active folders".
+func TestSearchByPredicateExcludesDeletedAndJunk(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	// Inbox + Deleted Items + Junk Email folders.
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-trash", AccountID: acc, DisplayName: "Deleted Items", WellKnownName: "deleteditems", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-junk", AccountID: acc, DisplayName: "Junk Email", WellKnownName: "junkemail", LastSyncedAt: time.Now(),
+	}))
+
+	// Same subject in three folders.
+	for i, fid := range []string{"f-inbox", "f-trash", "f-junk"} {
+		require.NoError(t, s.UpsertMessage(context.Background(), Message{
+			ID:          "m-" + strconv.Itoa(i),
+			AccountID:   acc,
+			FolderID:    fid,
+			Subject:     "[External] vendor pricing",
+			FromAddress: "vendor@example.invalid",
+			ReceivedAt:  time.Now(),
+		}))
+	}
+
+	out, err := s.SearchByPredicate(context.Background(), acc,
+		"subject LIKE ?", []any{"%[External]%"}, 100)
+	require.NoError(t, err)
+	require.Len(t, out, 1, "filter must exclude Deleted Items + Junk Email by default")
+	require.Equal(t, "f-inbox", out[0].FolderID)
 }
 
 // TestMeetingMessageTypeRoundTrip is the regression for the v0.11-era

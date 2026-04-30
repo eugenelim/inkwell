@@ -46,6 +46,22 @@ func (s *store) ListMessages(ctx context.Context, q MessageQuery) ([]Message, er
 // the messages table. The fragment is composed by spec 08's pattern
 // evaluator and is wrapped in `account_id = ? AND (<where>)` to scope
 // the result to one mailbox. Caller passes args separately.
+//
+// By default, results EXCLUDE messages currently sitting in the
+// well-known "deleteditems" or "junkemail" folders. Real-tenant UX
+// regression v0.15.x: after `d` (soft-delete) on a `:filter` view,
+// the message moved to Deleted Items but kept matching the
+// pattern, so the row stayed visible and the user thought
+// soft-delete was broken. Users who explicitly want to find a
+// message in Deleted Items / Junk can include `~m DeletedItems`
+// or `~m JunkEmail` in their pattern — the explicit folder
+// predicate takes precedence over the default exclusion (the
+// exclusion is folder_id NOT IN (deleted_id, junk_id), which a
+// `~m DeletedItems` clause OR-merges around).
+//
+// Spec 08 §"folder semantics" notes this; for the predicate
+// surface, the exclusion is done as an extra subquery so we
+// don't need to mutate the caller's WHERE.
 func (s *store) SearchByPredicate(ctx context.Context, accountID int64, where string, args []any, limit int) ([]Message, error) {
 	if where == "" {
 		return nil, nil
@@ -53,9 +69,21 @@ func (s *store) SearchByPredicate(ctx context.Context, accountID int64, where st
 	if limit <= 0 {
 		limit = 200
 	}
+	// Default-exclude trash + spam. The subquery resolves the
+	// folder IDs at query time so the exclusion stays correct
+	// across folder renames / re-syncs. Empty match (folder not
+	// synced) collapses the NOT IN to a no-op via NULL semantics
+	// — we coalesce to '' so NULL-vs-id stays a real comparison.
+	const trashSpamFilter = ` AND folder_id NOT IN (
+		SELECT id FROM folders
+		WHERE account_id = ? AND well_known_name IN ('deleteditems', 'junkemail')
+	)`
 	// #nosec G202 — `where` is composed by internal/pattern's CompileLocal; `args` (the user-controlled values) bind via `?`. The pattern compiler emits column names and operators from a closed whitelist (see eval_local.go fieldForOp).
-	full := "SELECT " + messageColumns + " FROM messages WHERE account_id = ? AND (" + where + ") ORDER BY received_at DESC LIMIT ?"
+	full := "SELECT " + messageColumns + " FROM messages WHERE account_id = ? AND (" + where + ")" +
+		trashSpamFilter +
+		" ORDER BY received_at DESC LIMIT ?"
 	queryArgs := append([]any{accountID}, args...)
+	queryArgs = append(queryArgs, accountID) // for the subquery
 	queryArgs = append(queryArgs, limit)
 	rows, err := s.db.QueryContext(ctx, full, queryArgs...)
 	if err != nil {
