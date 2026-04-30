@@ -107,7 +107,7 @@ func TestSyncFolderEnumerationNullsOutUntrackedParents(t *testing.T) {
 	// Fix (spec 03 §iter-4): NULL out parent_folder_id when the
 	// referenced folder isn't in the response set.
 	eng, srv, st, acc := newSyncTest(t)
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{
 				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
@@ -135,7 +135,7 @@ func TestSyncFolderEnumerationNullsOutUntrackedParents(t *testing.T) {
 
 func TestSyncFolderEnumerationUpsertsAndDeletes(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{
 				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
@@ -153,7 +153,7 @@ func TestSyncFolderEnumerationUpsertsAndDeletes(t *testing.T) {
 
 	// Now drop "Clients" server-side; sync must delete it locally.
 	srv.mux = http.NewServeMux()
-	srv.mux.HandleFunc("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.mux.HandleFunc("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{
 				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
@@ -167,6 +167,73 @@ func TestSyncFolderEnumerationUpsertsAndDeletes(t *testing.T) {
 	got2, err := st.ListFolders(context.Background(), acc)
 	require.NoError(t, err)
 	require.Len(t, got2, 2)
+}
+
+// TestSyncFolderEnumerationPersistsNestedChildren is the spec 03
+// real-tenant regression for the v0.13.x sub-folder bug: pressing
+// `o` on Inbox showed no children because /me/mailFolders is
+// non-recursive — only top-level folders were ever synced. Fix
+// switches the sync helper to /me/mailFolders/delta which returns
+// every folder regardless of depth in one paginated response.
+//
+// Fixture: 4-level hierarchy (Inbox > Projects > Q4 > Decks). All
+// four rows must land in the local store with parent_folder_id
+// chains intact, so flattenFolderTree can render the tree and
+// ToggleExpand finds the children for `o` / Enter.
+func TestSyncFolderEnumerationPersistsNestedChildren(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+				{ID: "f-projects", DisplayName: "Projects", ParentFolderID: "f-inbox"},
+				{ID: "f-q4", DisplayName: "Q4", ParentFolderID: "f-projects"},
+				{ID: "f-decks", DisplayName: "Decks", ParentFolderID: "f-q4"},
+			},
+		})
+	})
+
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
+
+	got, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, got, 4, "all four folders (Inbox + 3 nested levels) must persist")
+
+	byID := make(map[string]store.Folder, len(got))
+	for _, f := range got {
+		byID[f.ID] = f
+	}
+	require.Empty(t, byID["f-inbox"].ParentFolderID, "untracked msgfolderroot NULLed out")
+	require.Equal(t, "f-inbox", byID["f-projects"].ParentFolderID)
+	require.Equal(t, "f-projects", byID["f-q4"].ParentFolderID)
+	require.Equal(t, "f-q4", byID["f-decks"].ParentFolderID, "deepest child preserves chain")
+}
+
+// TestSyncFolderEnumerationSkipsRemovedDeltaEntries guards the
+// future-incremental path: when a persisted delta token leads to
+// a delta page that includes @removed markers (server-side
+// deletions), the sync layer must not try to upsert them. Today
+// we don't persist the token so this never fires in production,
+// but the helper code still has to handle it correctly.
+func TestSyncFolderEnumerationSkipsRemovedDeltaEntries(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Hand-rolled JSON because graph.MailFolder.Removed is a
+		// pointer; the empty struct literal in writeJSON-friendly
+		// form is awkward. The shape mirrors what Graph emits.
+		_, _ = w.Write([]byte(`{
+			"value": [
+				{"id": "f-inbox", "displayName": "Inbox", "wellKnownName": "inbox"},
+				{"id": "f-deleted", "@removed": {"reason": "deleted"}}
+			]
+		}`))
+	})
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
+	got, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "@removed entry must not be upserted")
+	require.Equal(t, "f-inbox", got[0].ID)
 }
 
 func TestSyncFolderQuickStartPersistsMessages(t *testing.T) {
@@ -359,7 +426,7 @@ func TestSyncFolderAppliesRemovedTombstones(t *testing.T) {
 
 func TestRunCycleEmitsCompletedEvent(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"}},
 		})
@@ -410,7 +477,7 @@ func TestEngineActionDrainCalledBeforeFolderSync(t *testing.T) {
 	var folderHit atomic.Int32
 	var drainHit atomic.Int32
 
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		folderHit.Add(1)
 		writeJSON(w, graph.FolderListResponse{Value: nil})
 	})
@@ -444,7 +511,7 @@ func TestRunCycleSerialisesConcurrentCallers(t *testing.T) {
 	var inflight atomic.Int32
 	var maxInflight atomic.Int32
 
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		cur := inflight.Add(1)
 		if cur > maxInflight.Load() {
 			maxInflight.Store(cur)
@@ -504,7 +571,7 @@ func TestParseRetryAfterIsExportedThroughGraphPackageContract(t *testing.T) {
 
 func TestQuickStartBackfillInboxFirst(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{
 				{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive"},
@@ -549,7 +616,7 @@ func TestQuickStartBackfillUsesTop50AndOrderByReceivedDateTime(t *testing.T) {
 	// doesn't support $orderby in v1.0, so we use the non-delta
 	// endpoint to guarantee newest-first.
 	eng, srv, _, _ := newSyncTest(t)
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, graph.FolderListResponse{
 			Value: []graph.MailFolder{{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox"}},
 		})
@@ -678,7 +745,7 @@ func TestEngineGraphClientIntegrationEmitsThrottle(t *testing.T) {
 	srv := newFakeServer()
 	defer srv.Close()
 	var hits atomic.Int32
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		n := hits.Add(1)
 		if n == 1 {
 			w.Header().Set("Retry-After", "1")
@@ -731,7 +798,7 @@ func TestEngineEmitsAuthRequiredOn401(t *testing.T) {
 
 	srv := newFakeServer()
 	defer srv.Close()
-	srv.Handle("/me/mailFolders", func(w http.ResponseWriter, _ *http.Request) {
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		// Always 401 so the auth retry also fails; this is the
 		// "user's tokens were revoked at the tenant" case.
 		w.WriteHeader(http.StatusUnauthorized)

@@ -292,17 +292,33 @@ config surface.
 | 3  | 03      | shipped (v0.13.x) | main | spec 03 §3 ThrottledEvent + AuthRequiredEvent | docs/plans/spec-03.md iter 8 |
 | 4a | 07      | shipped (v0.13.x) | main | spec 07 §6.7 permanent_delete | docs/plans/spec-07.md iter 3 |
 | 4b | 07      | shipped (v0.13.x) — categories closed; move-with-picker carved as PR 4c | main | spec 07 §6.9 / §6.10 add_category / remove_category | docs/plans/spec-07.md iter 4 |
-| 4c | 07      | not-started (move-with-folder-picker) | — | — | — |
+| 4c | 07      | shipped (v0.13.x) | main | spec 07 §6.5 / §12.1 move-with-folder-picker | docs/plans/spec-07.md iter 5 |
 | 5  | 04      | shipped (v0.13.x) | main | spec 04 §6.4 :refresh / :folder / :open / :backfill / :search | docs/plans/spec-04.md iter 10 |
 | 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
 | 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter 2 |
-| 6b | 12      | not-started (sync pass / window slide / detail modal / pane layout) | — | — | — |
-| 7  | 15      | not-started | — | — | — |
+| 6b-i | 12    | shipped (v0.13.x) | main | spec 12 §6.2 j/k/Enter + §4.3 GetEvent + §7 detail modal | docs/plans/spec-12.md iter 3 |
+| 6b-ii | 12   | not-started (sync pass / window slide / pane layout / day-week nav) | — | — | — |
+| 7-i | 15    | shipped (v0.13.x) | main | spec 15 §5 / §8 "drafts bypass action queue" | docs/plans/spec-15.md iter 2 |
+| 7-ii | 15   | not-started (compose_sessions migration + crash-recovery resume prompt) | — | — | — |
+| 7-iii | 15  | not-started (R / F / m skeletons + ReplyAll / Forward / NewMessage action types) | — | — | — |
 | 8  | 06      | not-started | — | — | — |
 | 9  | 08      | not-started | — | — | — |
 | 10 | 05 (+17)| not-started | — | — | — |
 | 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter 3 |
 | 12 | config  | partial (v0.13.x) — runtime-consumed [triage]/[bulk]/[calendar] sections shipped; aspirational sections (`[search]`, `[batch]`, `[saved_search]`, `[mailbox_settings]`, `[cli]`, `[pattern]`) wait for the specs that consume them | main | spec 02 §17 / spec 04 §17 / spec 12 §config | docs/plans/spec-04.md notes |
+
+## Real-tenant gaps (outside the audit)
+
+These are bugs surfaced by real-tenant smoke or user reports that
+weren't in the original spec 1–15 audit. They drain alongside the
+audit-drain queue with the same bookkeeping discipline (commit
+message lists what's closed; spec plan file gains an iter entry).
+
+| PR | Spec(s) | Status | Branch | Bug closed | Plan file updated |
+|----|---------|--------|--------|------------|-------------------|
+| RT-1 | 03 | shipped (v0.13.x) | main | nested folders never synced (`/me/mailFolders` is non-recursive); `o`/Enter on Inbox showed no children even when server-side children existed. Switched `syncFolders` to `/me/mailFolders/delta` which returns the full tree flat. Delta token persistence deferred. | docs/plans/spec-03.md iter 9 |
+| RT-2 | 05 | shipped (v0.13.x) | main | OSC 8 hyperlinks that wrap across visual rows highlighted only the hovered row on Cmd-click hover. Added a stable `id=u<fnv32>` parameter so terminals (Ghostty, iTerm2, kitty, wezterm, ghostty) group every fragment of the same URL as one logical link. Same id used for repeat occurrences in the same body — hovering any one highlights all. | (no spec plan; behaviour-only fix in `internal/render/links.go`; covered by render unit tests) |
+| RT-3 | 04 | shipped (v0.13.x) | main | List-pane rows containing the 📅 invite glyph (1 rune, 2 cells) or CJK names overshot the configured pane width because `truncate()` sliced by rune count instead of visual cell width. The right-edge characters spilled past the pane until the user resized the terminal (Ghostty regression). Fix: `truncate` now walks runes accumulating `runewidth.RuneWidth()` and stops at the cell budget. | (no spec plan; UI-layer fix in `internal/ui/panes.go`; covered by dispatch unit tests) |
 
 When all rows show "shipped" and the audit doc is empty, this
 plan file (`audit-drain.md`) gets a final commit deleting it

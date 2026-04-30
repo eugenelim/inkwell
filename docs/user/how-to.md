@@ -18,11 +18,12 @@ Highlight a message in the list pane. Then press:
 | `f`   | Toggle flag                           |
 | `d`   | Soft-delete (move to Deleted Items)   |
 | `a`   | Archive                               |
+| `m`   | Move to a folder (picker; type filter; Enter selects) |
 
-`f` / `d` / `a` also work in the **viewer pane** (so you can read,
-decide, delete without going back). Delete and archive pop you back
-to the list automatically — you immediately see what's next. Mark-
-read and flag stay in place.
+`f` / `d` / `a` / `m` also work in the **viewer pane** (so you can
+read, decide, delete without going back). Delete, archive, and move
+pop you back to the list automatically — you immediately see what's
+next. Mark-read and flag stay in place.
 
 `r` / `R` are reserved in the viewer pane for the future reply /
 reply-all bindings (spec 15) and don't currently mark-read there.
@@ -66,6 +67,11 @@ confirm modal warns you.
 Manage folders without leaving inkwell. Focus the folders pane
 (`1`), then:
 
+- **`o`** (or space) — expand / collapse the focused folder.
+  Inbox is auto-expanded on first launch; everything else starts
+  collapsed. The full folder tree (sub-folders, sub-sub-folders,
+  any depth) syncs from Microsoft Graph and renders with
+  indentation per level.
 - **`N`** — create a new folder under the focused one. With no
   selection or focus on a top-level folder, creates a top-level.
   Type the name + Enter.
@@ -168,7 +174,11 @@ with attachments) use `:filter` instead.
 ## Open the calendar
 
 `:cal` → modal shows today's events: time range, subject, organizer,
-location/online-meeting link. Esc to close.
+location/online-meeting link. `j`/`k` walk the events; `Enter` on
+a focused event opens a detail modal showing attendees (with
+accepted/tentative/declined glyphs), the body preview, and the
+meeting URL. From the detail modal, `o` opens the event in Outlook,
+`l` joins the online meeting, `Esc` returns to the list.
 
 `Calendars.Read` only — to accept, decline, or modify, use Outlook.
 

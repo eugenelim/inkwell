@@ -8,24 +8,28 @@ import (
 	"net/http"
 )
 
-// ListFolders enumerates all mailFolders for the signed-in user. It
-// follows nextLinks until exhausted. Spec §7 calls this on every sync
-// cycle; <100 folders is typical.
+// ListFoldersDelta enumerates every mail folder — including
+// nested children — in a single paginated response. Uses
+// /me/mailFolders/delta which returns the full folder tree flat
+// regardless of depth, sidestepping the v0.x non-recursive
+// limitation of /me/mailFolders.
 //
-// We do NOT $select wellKnownName despite it being documented on the
-// mailFolder resource. v0.2.4's real-tenant smoke caught Graph 400'ing
-// with "Could not find a property named 'wellKnownName' on type
-// 'microsoft.graph.mailFolder'" on at least one tenant. The property
-// IS available via the per-folder accessor (GET /me/mailFolders/{name})
-// but not via $select on the list endpoint for every tenant.
+// The delta endpoint also returns a deltaLink the caller can
+// pass back on a subsequent call for incremental updates
+// (server-side deletions arrive as @removed markers). v0.13.x
+// doesn't persist the deltaLink yet — every sync cycle calls
+// fresh, which is fine because folder lists are small (typically
+// <100 folders) and one extra GET per cycle is unmeasurable
+// against the per-folder message-delta calls. A future iter
+// adds a meta column for the deltaLink and switches to the
+// incremental path.
 //
-// Workaround: ListFolders returns folders with WellKnownName empty;
-// the sync layer infers it from DisplayName via a heuristic that
-// works for English tenants. See internal/sync/folders.go.
-// Localisation is a future iter — see spec 03 §7.
-func (c *Client) ListFolders(ctx context.Context) ([]MailFolder, error) {
-	url := "/me/mailFolders?$top=100"
-
+// @removed entries (from a future incremental path) are skipped
+// here; the caller's UpsertFolder + delete-missing-folders pass
+// already handles deletions correctly when a fresh full list
+// arrives.
+func (c *Client) ListFoldersDelta(ctx context.Context) ([]MailFolder, error) {
+	url := "/me/mailFolders/delta"
 	var out []MailFolder
 	for url != "" {
 		resp, err := c.Do(ctx, http.MethodGet, url, nil, nil)
@@ -33,15 +37,25 @@ func (c *Client) ListFolders(ctx context.Context) ([]MailFolder, error) {
 			return nil, err
 		}
 		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
 			return nil, parseError(resp)
 		}
-		var page FolderListResponse
+		var page struct {
+			Value     []MailFolder `json:"value"`
+			NextLink  string       `json:"@odata.nextLink,omitempty"`
+			DeltaLink string       `json:"@odata.deltaLink,omitempty"`
+		}
 		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("graph: decode folders: %w", err)
+			return nil, fmt.Errorf("graph: decode folders delta: %w", err)
 		}
 		_ = resp.Body.Close()
-		out = append(out, page.Value...)
+		for _, f := range page.Value {
+			if f.Removed != nil {
+				continue
+			}
+			out = append(out, f)
+		}
 		url = page.NextLink
 	}
 	return out, nil

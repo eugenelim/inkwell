@@ -87,6 +87,42 @@ func TestFolderRoundTripAndDeleteCascades(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+// TestAdjustFolderCountsClampsAtZero is the safety invariant for
+// the optimistic count adjustment: if the server-side count was
+// stale and an optimistic decrement would drive the column
+// negative, the SQL clamps at 0. The next sync overwrites with
+// Graph's authoritative value anyway, so 0 (vs the actual server
+// value) is at worst a sub-cycle visual quirk.
+func TestAdjustFolderCountsClampsAtZero(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+	require.NoError(t, s.UpsertFolder(context.Background(), Folder{
+		ID: "f-stale", AccountID: acc, DisplayName: "Stale",
+		TotalCount: 1, UnreadCount: 0, LastSyncedAt: time.Now(),
+	}))
+
+	// Decrement past zero — clamp must hold.
+	require.NoError(t, s.AdjustFolderCounts(context.Background(), "f-stale", -5, -3))
+
+	folders, err := s.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, folders, 1)
+	require.Equal(t, 0, folders[0].TotalCount, "total clamped at 0 after over-decrement")
+	require.Equal(t, 0, folders[0].UnreadCount, "unread clamped at 0 after over-decrement")
+}
+
+// TestAdjustFolderCountsNoOpForUnknownFolder confirms the helper
+// silently no-ops when the folder ID isn't present locally — the
+// optimistic apply path can fire it for both source and
+// destination without checking which exists, and a destination
+// the user just synced (or hasn't) won't break the call.
+func TestAdjustFolderCountsNoOpForUnknownFolder(t *testing.T) {
+	s := OpenTestStore(t)
+	_ = SeedAccount(t, s)
+	// folder "f-ghost" doesn't exist; UPDATE matches 0 rows.
+	require.NoError(t, s.AdjustFolderCounts(context.Background(), "f-ghost", -1, -1))
+}
+
 func TestUpsertAndQueryMessages(t *testing.T) {
 	s := OpenTestStore(t)
 	acc := SeedAccount(t, s)

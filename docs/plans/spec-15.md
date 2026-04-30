@@ -1,12 +1,16 @@
 # Spec 15 — Compose / Reply (drafts only)
 
 ## Status
-in-progress (CI scope: viewer-pane reply via `$EDITOR` shipped post-v0.10.0; reply-all, forward, new message, attachments, compose-session crash recovery deferred).
+in-progress. Viewer-pane reply via `$EDITOR` shipped post-v0.10.0;
+drafts now flow through the action queue with two-stage idempotent
+dispatch (PR 7-i v0.13.x). Reply-all / forward / new message
+skeletons (PR 7-iii) and the `compose_sessions` crash-recovery
+resume prompt (PR 7-ii) remain deferred.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/compose/`: template (reply skeleton), parse (RFC2822-style headers), editor (tempfile + `$INKWELL_EDITOR` / `$EDITOR` / nano fallback).
 - [x] `internal/graph/drafts.go`: `CreateReply` (POST /me/messages/{id}/createReply) + `PatchMessageBody` (PATCH /me/messages/{id}) with To / Cc / Bcc / Subject / body update.
-- [x] `internal/action/draft.go`: `CreateDraftReply` orchestrates the two Graph calls and returns `{ID, WebLink}`.
+- [x] `internal/action/draft.go`: `CreateDraftReply` orchestrates the two Graph calls and returns `{ID, WebLink}`. **PR 7-i (v0.13.x)** — orchestration now flows through the action queue: enqueue with full Params (source_id, body, recipients, subject), call createReply, persist the returned draft_id+web_link via `UpdateActionParams`, then PATCH. Failed status persists with the recorded draft_id so PR 7-ii's resume path can re-PATCH idempotently rather than fire a duplicate createReply. Drain skips the type so the engine doesn't blindly retry a non-idempotent stage 1.
 - [x] UI: viewer-pane `r` triggers `startReplyCmd` → `composeStartedMsg` → `tea.ExecProcess(editor)` → `composeEditedMsg` → `saveDraftCmd` → `draftSavedMsg`.
 - [x] Outlook hand-off: status bar shows `✓ draft saved · press s to open in Outlook`. `s` runs `open <webLink>` (macOS) or `xdg-open <webLink>` (Linux).
 - [x] Tempfile cleanup on save success or parse failure.
@@ -23,6 +27,93 @@ in-progress (CI scope: viewer-pane reply via `$EDITOR` shipped post-v0.10.0; rep
 - [ ] Lint guard for `Mail.Send` strings — deferred. Spec invariant remains: no code path asks for or uses `Mail.Send`. Belt-and-suspenders CI script lands when convenient.
 
 ## Iteration log
+
+### Iter 2 — 2026-04-30 (drafts via action queue, PR 7-i of audit-drain)
+- Trigger: spec 15 §5 / §8 audit row — drafts bypassed the action
+  queue entirely. A network blip mid-compose lost the draft
+  silently; the actions table had no row to surface in `:filter`
+  / debug; crash recovery (PR 7-ii) had no audit trail to read.
+- Slice:
+  - `internal/store/types.go`: new `ActionCreateDraftReply` enum
+    constant with a comment naming the spec rationale.
+  - `internal/store/store.go` + `actions.go`: new
+    `UpdateActionParams(ctx, id, params)` (mid-flight params
+    rewrite for two-stage dispatch) and `ListActionsByType(ctx,
+    type)` (terminal-state inspection PR 7-ii's resume path
+    needs — `PendingActions` excludes Done/Failed).
+  - `internal/action/draft.go`: full rewrite of
+    `CreateDraftReply`. Now signature takes `accountID` (FK
+    requirement). Flow: Enqueue(Pending) → graph.CreateReply →
+    UpdateActionParams(draft_id, web_link) → graph.PatchMessageBody
+    → UpdateActionStatus(Done|Failed). The PATCH-failure path
+    still returns DraftResult{ID, WebLink} so the caller can
+    paint "press s to open in Outlook" — existing UX contract
+    preserved.
+  - `internal/action/types.go::applyLocal`: ActionCreateDraftReply
+    branch returns nil (no local row to mutate; drafts only
+    materialize after Drafts-folder delta).
+  - `internal/action/executor.go::Drain`: skips
+    ActionCreateDraftReply rows. Createreply is non-idempotent;
+    blind retry produces duplicate drafts. PR 7-ii's startup
+    resume path is the right place for stage-aware retry logic.
+  - `internal/ui/app.go::DraftCreator`: interface signature gains
+    `accountID int64`.
+  - `cmd/inkwell/cmd_run.go::draftAdapter`: signature update.
+  - `internal/ui/compose.go::saveDraftCmd`: pulls accountID from
+    `m.deps.Account` and threads it through.
+- Tests:
+  - `executor_test.go`:
+    - `TestCreateDraftReplyEnqueuesActionAndPersistsDraftID`
+      (happy path: action transitions Pending → Done; draft_id
+      + web_link round-trip).
+    - `TestCreateDraftReplyKeepsDraftIDOnPATCHFailure` (the
+      crash-recovery shape: stage 1 succeeds, stage 2 fails;
+      action is Failed BUT params still carry draft_id + web_link
+      so PR 7-ii can resume).
+    - `TestCreateDraftReplyMarksFailedOnCreateReplyFailure` (pure
+      stage-1 failure: no draft_id persisted, action Failed).
+    - `TestDrainSkipsCreateDraftReply` (engine drain doesn't
+      re-fire stage 1; action stays Pending in the table for
+      startup resume).
+- Decisions:
+  - Two-stage dispatch with mid-flight params persistence is the
+    cleanest path to idempotent resume. Alternative considered:
+    pre-allocate the draft id client-side. Rejected — Graph
+    generates the id; we can't bypass that.
+  - SkipUndo set to true on the action because drafts aren't
+    reversible from the undo stack — the user finishes the draft
+    (or discards) in Outlook. Without this, `u` after a save
+    would find the draft action and try to invert it.
+  - PATCH failure with draft_id recorded still returns the
+    DraftResult so the caller can paint "press s to open in
+    Outlook" — the user's body didn't apply but the draft IS on
+    the server with Graph's auto-generated headers; better than
+    a hard error that loses access to the partially-saved
+    draft.
+  - `accountID` propagation through DraftCreator: the actions
+    table FKs account_id to accounts. The other executor
+    methods (MarkRead, SoftDelete, etc.) all take accountID
+    explicitly; matching that pattern keeps the surface
+    consistent and avoids an Executor-side store lookup.
+  - Did not add a "draft local row" optimistic insert. Spec §8
+    suggests one, but real-world drafts are immediately
+    overwritten by the Drafts-folder delta sync that runs on
+    the next cycle. Adding a temp row would require ID
+    rewriting on delta arrival, which we don't do for any
+    other surface.
+- Result: full -race + -tags=e2e suite green; 4 new tests pass;
+  no existing tests broken by the signature change.
+
+  **Deferred to PR 7-ii:** compose_sessions table migration,
+  startup-time scan of Pending CreateDraftReply rows, resume
+  prompt that re-PATCHes when draft_id is set or re-fires
+  createReply when not.
+
+  **Deferred to PR 7-iii:** ActionCreateDraft / ActionCreateReplyAll
+  / ActionCreateForward / ActionDiscardDraft enum constants;
+  `R` (reply-all) / `f` (forward, viewer pane) / `m` (new
+  message) keybindings; ReplyAllSkeleton / ForwardSkeleton /
+  NewSkeleton template functions.
 
 ### Iter 1 — 2026-04-29 (reply via $EDITOR)
 - Slice: foundation packages (compose / graph drafts / executor) + UI wiring + cmd_run adapter, all in one cut.

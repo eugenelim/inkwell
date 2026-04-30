@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"hash/fnv"
 	"regexp"
 	"strings"
 )
@@ -58,26 +59,55 @@ func renderLinkBlock(links []ExtractedLink) string {
 	return b.String()
 }
 
-// osc8 wraps text in the OSC 8 hyperlink escape sequence.
+// osc8 wraps text in the OSC 8 hyperlink escape sequence with a
+// deterministic `id=` parameter derived from the URL itself.
 //
-//	\e]8;;<url>\e\\ <text> \e]8;;\e\\
+//	\e]8;id=u<hash>;<url>\e\\ <text> \e]8;;\e\\
 //
-// Supporting terminals render text as a clickable link to url. Non-
-// supporting terminals strip the escapes; text shows through.
+// The `id` parameter is **load-bearing** for hover behaviour when
+// the URL spans multiple visual rows: lipgloss wraps long lines to
+// the viewer pane width, and without `id` the terminal treats each
+// row's segment as a separate hyperlink (only the row under the
+// cursor highlights). Setting a stable `id` per URL groups every
+// rendered fragment as one logical link, so hovering any row of a
+// wrapped URL highlights the entire URL — and all repeat
+// occurrences of the same URL in the body highlight together.
+//
+// Supporting terminals render text as a clickable link to url.
+// Non-supporting terminals (Apple Terminal.app, older xterm) strip
+// the escapes; text shows through.
 func osc8(url, text string) string {
 	const (
-		osc8Start = "\x1b]8;;"
+		osc8Start = "\x1b]8;"
 		osc8End   = "\x1b\\"
 	)
-	return osc8Start + url + osc8End + text + osc8Start + osc8End
+	id := osc8LinkID(url)
+	return osc8Start + "id=" + id + ";" + url + osc8End + text + osc8Start + ";" + osc8End
+}
+
+// osc8LinkID returns a short stable id for a URL. fnv-32 keeps the
+// string ≤8 hex chars (well under terminals' 250-byte id limit per
+// the OSC 8 spec) and the same URL always produces the same id, so
+// repeat occurrences in the same body behave as one hyperlink for
+// hover.
+func osc8LinkID(url string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(url))
+	return fmt.Sprintf("u%x", h.Sum32())
 }
 
 // linkifyURLsInText scans body for bare URLs and wraps them with
-// OSC 8 escapes in place. Used after HTML→text conversion so the
-// rare inline URL that didn't get converted to a `[N]` reference
-// still becomes clickable. Caller-controlled by the
-// [ui].clickable_links config (default "auto" → on).
-func linkifyURLsInText(body string) string {
+// OSC 8 escapes in place. urlMaxDisplay caps the visible link text
+// at N cells with end-truncation (`https://example.com/auth/…`);
+// the URL portion of the OSC 8 sequence stays intact so Cmd-click
+// + the URL picker still open the full URL. 0 disables truncation.
+//
+// End-truncation (vs middle-truncation) is the deliberate choice
+// for security: the domain prefix stays visible so users can spot
+// a phishing URL at a glance. The full URL is also retained in the
+// trailing `Links:` block produced by [renderLinkBlock] so the
+// user has one always-untruncated source of truth.
+func linkifyURLsInText(body string, urlMaxDisplay int) string {
 	return urlPattern.ReplaceAllStringFunc(body, func(u string) string {
 		trimmed := trimTrailingPunct(u)
 		if trimmed == "" {
@@ -85,6 +115,28 @@ func linkifyURLsInText(body string) string {
 		}
 		// Preserve any trailing punctuation we didn't consume.
 		suffix := u[len(trimmed):]
-		return osc8(trimmed, trimmed) + suffix
+		display := truncateURLForDisplay(trimmed, urlMaxDisplay)
+		return osc8(trimmed, display) + suffix
 	})
+}
+
+// truncateURLForDisplay returns the visible text for an OSC 8
+// hyperlink display. When maxDisplay > 0 and the URL exceeds it,
+// the result is the URL's first maxDisplay-1 cells followed by `…`
+// (total cells == maxDisplay). 0 or a non-truncating cap returns
+// the URL unchanged. URLs are mostly ASCII so rune count == cell
+// count; for the rare wide-character URL the rune-cap remains a
+// safe upper bound.
+func truncateURLForDisplay(url string, maxDisplay int) string {
+	if maxDisplay <= 0 {
+		return url
+	}
+	runes := []rune(url)
+	if len(runes) <= maxDisplay {
+		return url
+	}
+	if maxDisplay == 1 {
+		return "…"
+	}
+	return string(runes[:maxDisplay-1]) + "…"
 }

@@ -36,6 +36,15 @@ type Store interface {
 	UpsertFolder(ctx context.Context, f Folder) error
 	DeleteFolder(ctx context.Context, id string) error
 	UpdateFolderDisplayName(ctx context.Context, id, displayName string) error
+	// AdjustFolderCounts applies signed deltas to folders.total_count
+	// and folders.unread_count atomically (clamped at 0 — never goes
+	// negative). Used by the optimistic-apply path in
+	// `internal/action` so the sidebar's folder counts move at TUI
+	// speed; the next sync cycle's UpsertFolder call rewrites the
+	// authoritative value from Graph and any drift heals itself.
+	// No-op when the row doesn't exist locally (caller doesn't need
+	// to special-case unsynced destination folders).
+	AdjustFolderCounts(ctx context.Context, folderID string, totalDelta, unreadDelta int) error
 
 	// Messages
 	GetMessage(ctx context.Context, id string) (*Message, error)
@@ -74,7 +83,19 @@ type Store interface {
 	// Actions
 	EnqueueAction(ctx context.Context, a Action) error
 	PendingActions(ctx context.Context) ([]Action, error)
+	// ListActionsByType returns every action of the supplied type
+	// regardless of status (oldest first). PR 7-ii's crash-recovery
+	// path uses this on startup to find Pending / InFlight
+	// CreateDraftReply rows that need stage-aware resume; tests use
+	// it to inspect Failed rows (which PendingActions excludes).
+	ListActionsByType(ctx context.Context, t ActionType) ([]Action, error)
 	UpdateActionStatus(ctx context.Context, id string, status ActionStatus, reason string) error
+	// UpdateActionParams replaces an action's Params blob. Used by
+	// two-stage actions (e.g. ActionCreateDraftReply) that need to
+	// record intermediate state — the draft id returned by
+	// /me/messages/{src}/createReply — so a crashed second stage
+	// can resume idempotently rather than create a duplicate draft.
+	UpdateActionParams(ctx context.Context, id string, params map[string]any) error
 	// SweepDoneActions deletes done / failed actions older than `before`.
 	// Returns rowsAffected for telemetry. Spec 02 §8.
 	SweepDoneActions(ctx context.Context, before time.Time) (int64, error)

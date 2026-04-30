@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -1105,25 +1106,79 @@ func isLikelyMeeting(subject string) bool {
 }
 
 // isMeetingMessage decides whether to render the 📅 indicator.
-// Canonical Graph signal first (any non-empty value other than the
-// "none" sentinel means the message IS a meeting), heuristic fallback
-// for legacy rows whose meeting_message_type column is empty.
+// Three signals, in priority order:
+//
+//  1. Canonical Graph signal (`MeetingMessageType` non-empty). Today
+//     this column is empty for every row because the field was
+//     dropped from $select after a real-tenant 400 (see
+//     `internal/graph/types.go::EnvelopeSelectFields`); kept here
+//     so a future tenant-cast-form $select revives it without
+//     code churn.
+//  2. Subject prefix heuristic — catches meeting RESPONSES /
+//     CANCELLATIONS (`Accepted:`, `Declined:`, `Canceled:`, etc.).
+//     Misses meeting REQUESTS whose subject is just the meeting
+//     title with no prefix.
+//  3. BodyPreview shape — catches the meeting REQUEST case the
+//     subject heuristic misses. Outlook auto-generates a
+//     structured preview ("When: <date>\nWhere: <location>") on
+//     every server-side invite. The When+Where pair within the
+//     first ~200 chars is a high-precision signal.
+//
+// Limitation: English-locale only. Non-English Outlook deployments
+// emit the same preview with localised labels ("Cuándo:" /
+// "Quand :" / etc.); those fall through and miss the indicator.
+// Same constraint as the existing subject heuristic. Locale-aware
+// detection lifts with the type-cast $select in a future release.
 func isMeetingMessage(msg store.Message) bool {
 	switch strings.ToLower(strings.TrimSpace(msg.MeetingMessageType)) {
 	case "":
-		// No canonical signal — fall through to subject heuristic.
+		// No canonical signal — fall through to heuristics.
 	case "none":
 		// Graph explicitly says "not a meeting"; trust it over the
-		// subject heuristic (which would otherwise false-positive on
+		// heuristics (which would otherwise false-positive on
 		// any "Meeting: Q4 sync" plain mail).
 		return false
 	default:
 		return true
 	}
-	return isLikelyMeeting(msg.Subject)
+	if isLikelyMeeting(msg.Subject) {
+		return true
+	}
+	return hasInviteBodyPreview(msg.BodyPreview)
 }
 
-// truncate cuts s to width characters.
+// hasInviteBodyPreview detects Outlook's auto-generated meeting-
+// invite body preview shape. Real invites always include both
+// "When:" and "Where:" labels in close proximity within the
+// preview block. Checking for both (not either) keeps false
+// positives down — a regular email might mention "When I get
+// back" or "Where do you want to meet" but rarely both as
+// labelled headers.
+//
+// We scan the first ~200 chars only (the Outlook preview header
+// block is short). Limiting the scan window keeps the heuristic
+// from false-positiving on long emails that happen to contain
+// both words elsewhere in the body.
+func hasInviteBodyPreview(preview string) bool {
+	if preview == "" {
+		return false
+	}
+	head := preview
+	if len(head) > 200 {
+		head = head[:200]
+	}
+	lower := strings.ToLower(head)
+	return strings.Contains(lower, "when:") && strings.Contains(lower, "where:")
+}
+
+// truncate cuts s to fit `width` terminal cells. Width is measured
+// in cells, NOT runes — emoji (📅 = 2 cells) and CJK characters
+// (e.g. 李 = 2 cells) make rune count and cell count diverge. The
+// previous rune-slice implementation overshot for those inputs:
+// taking N runes of an emoji-prefixed line consumed N+1 cells, the
+// list pane's lipgloss Width(W) didn't clip back, and the right
+// edge characters spilled off the right edge until the user
+// resized the terminal (real-tenant Ghostty regression).
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -1131,11 +1186,17 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	r := []rune(s)
-	if len(r) > width {
-		return string(r[:width])
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := runewidth.RuneWidth(r)
+		if used+w > width {
+			break
+		}
+		b.WriteRune(r)
+		used += w
 	}
-	return s
+	return b.String()
 }
 
 // relativeWhen returns "Mon 14:32" or "2026-04-25".

@@ -139,11 +139,15 @@ matches.
 ## Step 7 — Glance at your calendar
 
 Press `:`, type `cal`, Enter. A modal pops up showing today's
-events with start/end times, organizer, and meeting URL if there is
-one. Press Esc to close.
+events with start/end times, organizer, and meeting URL if there
+is one. `j` / `k` move the cursor between events; `Enter` opens
+the focused event's detail modal (full attendee list with
+accepted / tentative / declined glyphs, body preview, links). From
+the detail modal, `o` opens the event in Outlook web, `l` joins
+the online meeting. `Esc` closes either modal.
 
-inkwell can't accept, decline, or modify events — that's `Calendars.Read`
-only. For those, finish in Outlook.
+inkwell can't accept, decline, or modify events — that's
+`Calendars.Read` only. For those, finish in Outlook.
 
 ## What's next
 

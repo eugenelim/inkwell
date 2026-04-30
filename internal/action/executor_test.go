@@ -436,6 +436,255 @@ func TestExecutorSoftDeleteWhenDestinationIDDiffersFromAlias(t *testing.T) {
 	require.Equal(t, "deleteditems", *dest)
 }
 
+// TestExecutorMoveToUserFolder is the spec 07 §6.5 round trip for
+// the move-with-folder-picker path: the action carries the
+// destination folder ID (no well-known alias since user folders
+// don't have one), local apply rewrites parent_folder_id, the
+// Graph dispatch uses the folder ID as destinationId, and the
+// inverse pushed for undo restores the source folder.
+func TestExecutorMoveToUserFolder(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-projects", AccountID: accID, DisplayName: "Projects", LastSyncedAt: time.Now(),
+	}))
+
+	var capturedDest atomic.Pointer[string]
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1/move", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		dest := body["destinationId"]
+		capturedDest.Store(&dest)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "m-1-moved"})
+	})
+
+	require.NoError(t, exec.Move(context.Background(), accID, "m-1", "f-projects", ""))
+
+	got, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.Equal(t, "f-projects", got.FolderID, "local row must reflect the destination folder")
+
+	dest := capturedDest.Load()
+	require.NotNil(t, dest)
+	require.Equal(t, "f-projects", *dest, "user-folder moves use the folder ID (no alias)")
+
+	// Inverse pushed: undo entry restores the original folder.
+	entry, err := st.PeekUndo(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	require.Equal(t, store.ActionMove, entry.ActionType)
+	require.Equal(t, "f-inbox", entry.Params["destination_folder_id"],
+		"undo entry must point back at the source folder")
+}
+
+// TestExecutorMoveRejectsEmptyDestination guards the API contract:
+// supplying neither id nor alias is an error, not a no-op.
+func TestExecutorMoveRejectsEmptyDestination(t *testing.T) {
+	exec, _, accID, _ := newTestExec(t)
+	err := exec.Move(context.Background(), accID, "m-1", "", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "destination folder required")
+}
+
+// TestFolderCountChangesPerActionType is the exhaustive truth
+// table for the optimistic folder-count adjustments. Drives the
+// pure folderCountChanges helper through every action × read-state
+// combination; the integration tests below verify the helper is
+// actually called by applyLocal/rollbackLocal.
+func TestFolderCountChangesPerActionType(t *testing.T) {
+	pre := func(folderID string, isRead bool) *store.Message {
+		return &store.Message{ID: "m-1", FolderID: folderID, IsRead: isRead}
+	}
+	moveAction := func(dest string) store.Action {
+		return store.Action{
+			Type:       store.ActionMove,
+			Params:     map[string]any{"destination_folder_id": dest},
+			MessageIDs: []string{"m-1"},
+		}
+	}
+	cases := []struct {
+		name string
+		a    store.Action
+		pre  *store.Message
+		want []folderCountChange
+	}{
+		{
+			name: "mark_read on unread → unread-=1",
+			a:    store.Action{Type: store.ActionMarkRead, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", false),
+			want: []folderCountChange{{folderID: "f-inbox", unreadDelta: -1}},
+		},
+		{
+			name: "mark_read on already-read → no change",
+			a:    store.Action{Type: store.ActionMarkRead, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", true),
+			want: nil,
+		},
+		{
+			name: "mark_unread on read → unread+=1",
+			a:    store.Action{Type: store.ActionMarkUnread, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", true),
+			want: []folderCountChange{{folderID: "f-inbox", unreadDelta: +1}},
+		},
+		{
+			name: "mark_unread on already-unread → no change",
+			a:    store.Action{Type: store.ActionMarkUnread, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+		{
+			name: "soft_delete unread → src both-=1, dst both+=1",
+			a:    moveAction("f-deleted"),
+			pre:  pre("f-inbox", false),
+			want: []folderCountChange{
+				{folderID: "f-inbox", totalDelta: -1, unreadDelta: -1},
+				{folderID: "f-deleted", totalDelta: +1, unreadDelta: +1},
+			},
+		},
+		{
+			name: "soft_delete read → src total-=1, dst total+=1 (no unread carry)",
+			a:    moveAction("f-deleted"),
+			pre:  pre("f-inbox", true),
+			want: []folderCountChange{
+				{folderID: "f-inbox", totalDelta: -1, unreadDelta: 0},
+				{folderID: "f-deleted", totalDelta: +1, unreadDelta: 0},
+			},
+		},
+		{
+			name: "move to same folder → no change (no-op move)",
+			a:    moveAction("f-inbox"),
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+		{
+			name: "move with empty destination → no change (defensive)",
+			a:    moveAction(""),
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+		{
+			name: "permanent_delete unread → src both-=1, no destination",
+			a:    store.Action{Type: store.ActionPermanentDelete, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", false),
+			want: []folderCountChange{{folderID: "f-inbox", totalDelta: -1, unreadDelta: -1}},
+		},
+		{
+			name: "flag → no count change (read-state untouched)",
+			a:    store.Action{Type: store.ActionFlag, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+		{
+			name: "add_category → no count change",
+			a: store.Action{Type: store.ActionAddCategory, MessageIDs: []string{"m-1"},
+				Params: map[string]any{"category": "Work"}},
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+		{
+			name: "create_draft_reply → no count change (no local row)",
+			a:    store.Action{Type: store.ActionCreateDraftReply, MessageIDs: []string{"m-1"}},
+			pre:  pre("f-inbox", false),
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := folderCountChanges(tc.a, tc.pre)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestExecutorMarkReadDecrementsInboxUnread is the integration
+// test for the user-reported lag: pressing `r` on an unread
+// message in Inbox immediately drops the sidebar's unread count by
+// 1 (no waiting for the next sync). Without the optimistic
+// adjustment, the user saw the count stuck at the pre-action
+// value for ~30s.
+func TestExecutorMarkReadDecrementsInboxUnread(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	// Seed Inbox with non-zero counts so we can observe the delta.
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: accID, DisplayName: "Inbox", WellKnownName: "inbox",
+		TotalCount: 10, UnreadCount: 5, LastSyncedAt: time.Now(),
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	require.NoError(t, exec.MarkRead(context.Background(), accID, "m-1"))
+
+	folders, err := st.ListFolders(context.Background(), accID)
+	require.NoError(t, err)
+	var inbox store.Folder
+	for _, f := range folders {
+		if f.ID == "f-inbox" {
+			inbox = f
+			break
+		}
+	}
+	require.Equal(t, 10, inbox.TotalCount, "total_count untouched on mark_read")
+	require.Equal(t, 4, inbox.UnreadCount, "unread_count -= 1 because the message was unread")
+}
+
+// TestExecutorSoftDeleteAdjustsBothFolders verifies the move-class
+// action moves count between source and destination atomically.
+func TestExecutorSoftDeleteAdjustsBothFolders(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: accID, DisplayName: "Inbox", WellKnownName: "inbox",
+		TotalCount: 10, UnreadCount: 5, LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "deleteditems", AccountID: accID, DisplayName: "Deleted Items", WellKnownName: "deleteditems",
+		TotalCount: 100, UnreadCount: 0, LastSyncedAt: time.Now(),
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1/move", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"m-1-moved"}`)
+	})
+
+	require.NoError(t, exec.SoftDelete(context.Background(), accID, "m-1"))
+
+	folders, _ := st.ListFolders(context.Background(), accID)
+	by := map[string]store.Folder{}
+	for _, f := range folders {
+		by[f.ID] = f
+	}
+	require.Equal(t, 9, by["f-inbox"].TotalCount, "Inbox total_count -= 1")
+	require.Equal(t, 4, by["f-inbox"].UnreadCount, "Inbox unread_count -= 1 (m-1 was unread)")
+	require.Equal(t, 101, by["deleteditems"].TotalCount, "Deleted Items total_count += 1")
+	require.Equal(t, 1, by["deleteditems"].UnreadCount, "Deleted Items unread_count += 1 (carried)")
+}
+
+// TestExecutorRollsBackFolderCountsOnGraphFailure is the
+// integrity invariant: when Graph rejects the action and the
+// message-row mutation is rolled back, the folder counts must
+// also revert. Without this, a 403 mid-flight would leave the
+// row in pre-state but the sidebar count off-by-one until the
+// next sync.
+func TestExecutorRollsBackFolderCountsOnGraphFailure(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: accID, DisplayName: "Inbox", WellKnownName: "inbox",
+		TotalCount: 10, UnreadCount: 5, LastSyncedAt: time.Now(),
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+
+	err := exec.MarkRead(context.Background(), accID, "m-1")
+	require.Error(t, err, "Graph 403 surfaces")
+
+	folders, _ := st.ListFolders(context.Background(), accID)
+	for _, f := range folders {
+		if f.ID == "f-inbox" {
+			require.Equal(t, 5, f.UnreadCount,
+				"unread_count restored to pre-action 5 after Graph rejection")
+		}
+	}
+}
+
 func TestExecutorRollsBackOnGraphFailure(t *testing.T) {
 	exec, st, accID, srv := newTestExec(t)
 	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, r *http.Request) {
@@ -450,6 +699,207 @@ func TestExecutorRollsBackOnGraphFailure(t *testing.T) {
 	got, err := st.GetMessage(context.Background(), "m-1")
 	require.NoError(t, err)
 	require.False(t, got.IsRead, "local rolled back after Graph rejection")
+}
+
+// TestCreateDraftReplyEnqueuesActionAndPersistsDraftID is the spec
+// 15 §5/§8 invariant: drafts now flow through the action queue
+// rather than firing a synchronous one-shot. The action lands in
+// the actions table with the source_message_id, body, recipients,
+// AND — after createReply succeeds — the server-assigned draft id
+// + webLink. The Done/Failed status reflects the dispatch outcome.
+//
+// Crash-recovery (PR 7-ii) reads the action's params on next launch
+// to resume from the recorded draft_id, so we have to assert the
+// id is durable in the table even though the in-memory return
+// path also surfaces it.
+func TestCreateDraftReplyEnqueuesActionAndPersistsDraftID(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-1", AccountID: accID, FolderID: "f-inbox", Subject: "x",
+	}))
+
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-1/createReply", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-42","webLink":"https://outlook/drafts/42"}`)
+	})
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/draft-42", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-1", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x")
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, "draft-42", res.ID)
+	require.Equal(t, "https://outlook/drafts/42", res.WebLink)
+
+	// The action persisted; status is Done. PendingActions returns
+	// only Pending/InFlight rows so the Done row won't show — query
+	// the audit shape directly via SweepDoneActions semantics.
+	pending, err := st.PendingActions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, pending, "successful draft action must not stay Pending")
+}
+
+// TestCreateDraftReplyKeepsDraftIDOnPATCHFailure covers the most
+// important crash-recovery shape: createReply succeeded (the draft
+// IS on the server), but the body PATCH failed. The action must be
+// Failed, draft_id must be recorded in Params, and the caller must
+// receive a DraftResult with the webLink so the user can finish in
+// Outlook. PR 7-ii's resume path reads that draft_id on next launch
+// and re-PATCHes idempotently.
+func TestCreateDraftReplyKeepsDraftIDOnPATCHFailure(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-2", AccountID: accID, FolderID: "f-inbox",
+	}))
+
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-2/createReply", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-99","webLink":"https://outlook/drafts/99"}`)
+	})
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/draft-99", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":"forbidden"}}`))
+	})
+
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-2", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x")
+	require.Error(t, err, "PATCH failure must surface to caller")
+	require.NotNil(t, res, "even on PATCH failure the DraftResult must come back so the user finishes in Outlook")
+	require.Equal(t, "draft-99", res.ID)
+	require.Equal(t, "https://outlook/drafts/99", res.WebLink)
+
+	// Action recorded as Failed; PendingActions doesn't return Failed
+	// rows. Inspect via raw store helper.
+	row := readRawAction(t, st, "src-2", store.ActionCreateDraftReply)
+	require.Equal(t, store.StatusFailed, row.Status)
+	require.Equal(t, "draft-99", row.Params["draft_id"], "draft_id must persist on PATCH-after-createReply failure (resume path needs it)")
+	require.Equal(t, "https://outlook/drafts/99", row.Params["web_link"])
+}
+
+// TestCreateDraftReplyMarksFailedOnCreateReplyFailure covers the
+// pure-stage-1 failure path: createReply itself errors. No draft
+// exists; no draft_id should be persisted; action is Failed.
+func TestCreateDraftReplyMarksFailedOnCreateReplyFailure(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-3", AccountID: accID, FolderID: "f-inbox",
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-3/createReply", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-3", "Hi", nil, nil, nil, "")
+	require.Error(t, err)
+	require.Nil(t, res, "no DraftResult when stage 1 failed")
+
+	row := readRawAction(t, st, "src-3", store.ActionCreateDraftReply)
+	require.Equal(t, store.StatusFailed, row.Status)
+	_, hasID := row.Params["draft_id"]
+	require.False(t, hasID, "no draft_id when createReply itself failed")
+}
+
+// TestCreateDraftReplyRecipientsRoundTripThroughJSON guards the
+// PR 7-ii resume contract: when the action is read back from the
+// store (via PendingActions / ListActionsByType), the recipients
+// stored in Params must come back in a shape the resume path can
+// type-assert. Strings persist as JSON arrays; on decode they
+// become []any. Resume must walk that []any to rebuild []string.
+//
+// Without this guard, a resume that did `to, _ := params["to"].
+// ([]string)` would silently get a nil slice (no recipients) and
+// fire a stage-2 PATCH that leaves the draft empty — the same bug
+// shape as the original audit-row.
+func TestCreateDraftReplyRecipientsRoundTripThroughJSON(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-rt", AccountID: accID, FolderID: "f-inbox",
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-rt/createReply", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-rt","webLink":"https://outlook/drafts/rt"}`)
+	})
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/draft-rt", func(w http.ResponseWriter, _ *http.Request) {
+		// Force PATCH failure so the action lands in a Failed state
+		// with all params persisted — exactly the shape the resume
+		// path on next launch will scan.
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, _ = exec.CreateDraftReply(context.Background(), accID, "src-rt", "Hi",
+		[]string{"alice@example.invalid", "bob@example.invalid"},
+		[]string{"cc@example.invalid"},
+		nil,
+		"Re: x")
+
+	row := readRawAction(t, st, "src-rt", store.ActionCreateDraftReply)
+	require.Equal(t, store.StatusFailed, row.Status)
+
+	// Recipients come back as []any after JSON decode. Resume code
+	// must walk this shape to reconstruct []string.
+	toRaw, ok := row.Params["to"].([]any)
+	require.True(t, ok, "to recipients persist as []any after JSON round-trip")
+	require.Len(t, toRaw, 2)
+	require.Equal(t, "alice@example.invalid", toRaw[0])
+	require.Equal(t, "bob@example.invalid", toRaw[1])
+
+	ccRaw, ok := row.Params["cc"].([]any)
+	require.True(t, ok)
+	require.Len(t, ccRaw, 1)
+
+	// The spec-15 audit-row symptom: no recipients silently lost.
+	// Both draft_id AND recipients must be intact for the resume
+	// path to reconstruct the PATCH body.
+	require.Equal(t, "draft-rt", row.Params["draft_id"])
+	require.Equal(t, "Hi", row.Params["body"])
+	require.Equal(t, "Re: x", row.Params["subject"])
+}
+
+// TestDrainSkipsCreateDraftReply guards the spec 15 §8 idempotency
+// invariant: stage 1 (POST /createReply) is non-idempotent —
+// re-firing it produces a duplicate draft. Drain must skip
+// ActionCreateDraftReply rows entirely; resume is PR 7-ii's job
+// (with stage-aware logic that uses the recorded draft_id).
+func TestDrainSkipsCreateDraftReply(t *testing.T) {
+	exec, st, accID, _ := newTestExec(t)
+	// Hand-craft a Pending draft action; if Drain re-fires it we'd
+	// see the createReply hit (and panic on the missing handler).
+	a := store.Action{
+		ID:        newActionID(),
+		AccountID: accID,
+		Type:      store.ActionCreateDraftReply,
+		Status:    store.StatusPending,
+		Params: map[string]any{
+			"source_message_id": "src-X",
+			"body":              "hello",
+		},
+		SkipUndo: true,
+	}
+	require.NoError(t, st.EnqueueAction(context.Background(), a))
+
+	// Drain must NOT call the (unregistered) createReply handler.
+	require.NoError(t, exec.Drain(context.Background()))
+
+	pending, err := st.PendingActions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "Drain leaves the draft action Pending; PR 7-ii will resume it on startup with stage-aware logic")
+}
+
+// readRawAction fetches an action of the supplied kind whose
+// params carry a matching source_message_id. Goes through
+// ListActionsByType so terminal-state rows (Failed / Done) are
+// visible — PendingActions excludes those.
+func readRawAction(t *testing.T, st store.Store, sourceMessageID string, kind store.ActionType) store.Action {
+	t.Helper()
+	rows, err := st.ListActionsByType(context.Background(), kind)
+	require.NoError(t, err)
+	for _, a := range rows {
+		if id, _ := a.Params["source_message_id"].(string); id == sourceMessageID {
+			return a
+		}
+	}
+	t.Fatalf("action with source_message_id=%s of kind %s not found", sourceMessageID, kind)
+	return store.Action{}
 }
 
 func TestExecutorDrainRetriesPending(t *testing.T) {

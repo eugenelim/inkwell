@@ -689,6 +689,9 @@ func (s *e2eTriageStub) ToggleFlag(_ context.Context, _ int64, _ string, _ bool)
 }
 func (s *e2eTriageStub) SoftDelete(_ context.Context, _ int64, _ string) error { return nil }
 func (s *e2eTriageStub) Archive(_ context.Context, _ int64, _ string) error    { return nil }
+func (s *e2eTriageStub) Move(_ context.Context, _ int64, _, _, _ string) error {
+	return nil
+}
 func (s *e2eTriageStub) PermanentDelete(_ context.Context, _ int64, _ string) error {
 	return nil
 }
@@ -905,6 +908,152 @@ func TestFullscreenBodyZHidesPanesAndShowsHint(t *testing.T) {
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
 		return contains(s, "Folders") && !contains(s, "exit fullscreen")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestCalendarJKEnterE2E is the spec 12 §6.2 / §7 visible-delta
+// test (CLAUDE.md §5.4): :cal opens the list modal; j moves the
+// ▶ cursor to the second event row; Enter loads the detail modal
+// with attendees + body preview painted; Esc returns to the list.
+// Without this, the dispatch test could pass while the rendered
+// frame shows nothing changing — the v0.2.6 regression class.
+func TestCalendarJKEnterE2E(t *testing.T) {
+	m, _ := newE2EModel(t)
+	now := time.Now().UTC()
+	stub := &e2eCalendarStub{
+		events: []CalendarEvent{
+			{ID: "e-1", Subject: "Standup", Start: now.Add(time.Hour), End: now.Add(time.Hour + 30*time.Minute)},
+			{ID: "e-2", Subject: "Q4 review", Start: now.Add(3 * time.Hour), End: now.Add(4 * time.Hour)},
+		},
+		detail: CalendarEventDetail{
+			CalendarEvent: CalendarEvent{
+				ID: "e-2", Subject: "Q4 review",
+				Start: now.Add(3 * time.Hour), End: now.Add(4 * time.Hour),
+				WebLink: "https://outlook/event/2",
+			},
+			BodyPreview: "Reviewing the deck before the call.",
+			Attendees: []CalendarAttendee{
+				{Name: "Alice Smith", Address: "alice@example.invalid", Status: "accepted"},
+				{Name: "Bob Acme", Address: "bob@example.invalid", Status: "tentativelyAccepted"},
+			},
+		},
+	}
+	m.deps.Calendar = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open :cal — modal lists today's events.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	for _, r := range "cal" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Standup") && contains(s, "Q4 review") && contains(s, "navigate")
+	}, teatest.WithDuration(2*time.Second))
+
+	// j moves the cursor to "Q4 review".
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return cursorOnLineWith(string(out), "Q4 review")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Enter opens the detail modal with attendees + body preview.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Q4 review") &&
+			contains(s, "Alice Smith") &&
+			contains(s, "Bob Acme") &&
+			contains(s, "Reviewing the deck") &&
+			contains(s, "Outlook")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Esc returns to the list — Standup row visible again, attendees gone.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Standup") && !contains(s, "Alice Smith")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Esc again to leave the calendar list, then `q` to quit. (Esc
+	// in CalendarMode returns to NormalMode; q in NormalMode quits.)
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// e2eCalendarStub satisfies CalendarFetcher for the e2e test.
+type e2eCalendarStub struct {
+	events []CalendarEvent
+	detail CalendarEventDetail
+}
+
+func (s *e2eCalendarStub) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
+	return s.events, nil
+}
+func (s *e2eCalendarStub) GetEvent(_ context.Context, _ string) (CalendarEventDetail, error) {
+	return s.detail, nil
+}
+
+// TestFolderPickerMOpensModalAndDispatchesMove is the spec 07
+// §6.5 / §12.1 e2e visible-delta test: pressing `m` paints the
+// "Move to:" picker; typing narrows the row list; Enter dispatches
+// the move and the picker closes. Without this test the picker
+// could pass dispatch tests while the modal renders no visible
+// change to a real user (v0.2.6 regression class).
+func TestFolderPickerMOpensModalAndDispatchesMove(t *testing.T) {
+	m, _ := newE2EModel(t)
+	stub := &e2eTriageStub{}
+	m.deps.Triage = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus list, press `m`.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+
+	// Visible delta #1: "Move to:" picker appears with the filter
+	// label and the helper line. Both Inbox and Archive must be
+	// visible before the user types anything.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Move to:") &&
+			contains(s, "filter:") &&
+			contains(s, "Inbox") &&
+			contains(s, "Archive") &&
+			contains(s, "type to filter")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Type "Arc" — the filter should narrow to Archive only. We
+	// don't assert the absence of "Inbox" in raw output because the
+	// status bar also paints folder names; instead we assert the
+	// filter buffer renders + Archive is still in the modal.
+	for _, r := range "Arc" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "filter: Arc") && contains(s, "Archive")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Enter dispatches the move; the picker disappears.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return !contains(s, "Move to:") && !contains(s, "filter: Arc")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

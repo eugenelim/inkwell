@@ -87,6 +87,7 @@ func Defaults() *Config {
 		Triage: TriageConfig{
 			ConfirmPermanentDelete: true,
 			UndoStackSize:          0, // 0 = unlimited; v1 doesn't enforce
+			RecentFoldersCount:     5,
 		},
 		Bulk: BulkConfig{
 			ProgressThreshold: 50,

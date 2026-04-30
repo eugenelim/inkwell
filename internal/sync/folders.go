@@ -41,6 +41,14 @@ func inferWellKnownName(displayName string) string {
 // syncFolders enumerates all mailFolders, upserts them, and deletes any
 // folders that no longer exist server-side (cascades messages).
 //
+// Uses the delta endpoint (graph.ListFoldersDelta) so nested
+// child folders are returned in one flat response — /me/mailFolders
+// alone is non-recursive and surfaces only top-level folders. Real-
+// tenant regression v0.13.x: users couldn't see Inbox children
+// (Projects / Q4 / etc.) because the legacy ListFolders helper
+// only walked the top level. The delta endpoint returns the whole
+// tree regardless of depth.
+//
 // Two transformations on the Graph response:
 //
 //  1. parent_folder_id NULL-out: Graph returns top-level folders with
@@ -56,7 +64,7 @@ func inferWellKnownName(displayName string) string {
 //     well-known names — they sort alphabetically and the Inbox-default
 //     picker falls back to display-name match (case-insensitive).
 func (e *engine) syncFolders(ctx context.Context) error {
-	remote, err := e.gc.ListFolders(ctx)
+	remote, err := e.gc.ListFoldersDelta(ctx)
 	if err != nil {
 		return err
 	}
