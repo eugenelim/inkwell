@@ -41,6 +41,26 @@ Then `;d` → confirm with `y`.
 common interpretation of "<30 days". For "older than 30 days" use
 `~d >30d`.
 
+## Undo a triage action
+
+Pressed `d` on the wrong message? Marked something read by accident?
+Press `u` to roll the last triage back. Pairs:
+
+- mark-read ↔ mark-unread
+- flag ↔ unflag
+- soft-delete → restored to the original folder
+- archive → restored to the original folder
+- add-category ↔ remove-category
+
+The stack is session-scoped (cleared on app restart) and currently
+unbounded — every triage action you do in a session is undoable in
+reverse order. Pressing `u` on an empty stack paints "nothing to
+undo" in the status bar; no error.
+
+`U` (capital) is unsubscribe, not undo — see below. Permanent
+delete (`D`, when shipped) is intentionally NOT undoable; the
+confirm modal warns you.
+
 ## Get off a mailing list
 
 Open any newsletter, then press `U` (or run `:unsub`). inkwell reads

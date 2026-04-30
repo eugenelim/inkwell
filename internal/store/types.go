@@ -148,6 +148,12 @@ type Action struct {
 	CreatedAt     time.Time
 	StartedAt     time.Time
 	CompletedAt   time.Time
+	// SkipUndo marks an action that came from the undo stack itself
+	// (Executor.Undo). Without it, applying an undo would push the
+	// inverse-of-the-inverse and `u` would toggle infinitely instead
+	// of stepping back through history. Spec 07 §11.2.
+	// Not persisted — runtime-only.
+	SkipUndo bool `json:"-"`
 }
 
 // UndoEntry is a session-scoped reversible action descriptor.

@@ -53,7 +53,23 @@ type TriageExecutor interface {
 	ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error
 	SoftDelete(ctx context.Context, accountID int64, messageID string) error
 	Archive(ctx context.Context, accountID int64, messageID string) error
+	// Undo pops the most recent UndoEntry and applies the inverse
+	// action. Returns a UndoneAction describing what just got rolled
+	// back so the UI can paint a status message ("undid: deleted").
+	// Returns the typed UndoEmpty when the stack is empty.
+	Undo(ctx context.Context, accountID int64) (UndoneAction, error)
 }
+
+// UndoneAction is the UI-facing summary of a successful Undo. Mirrors
+// store.UndoEntry without leaking the type into the UI consumer site.
+type UndoneAction struct {
+	Label      string // human-readable description ("deleted", "marked read")
+	MessageIDs []string
+}
+
+// UndoEmpty is the sentinel error returned when the undo stack is
+// empty.
+var UndoEmpty = errors.New("undo: stack empty")
 
 // BulkResult mirrors action.BatchResult — defined here so the UI
 // doesn't import internal/action's full type surface.
@@ -547,6 +563,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.clearFilter()
 		if m.priorFolderID != "" {
 			return m, m.loadMessagesCmd(m.priorFolderID)
+		}
+		return m, nil
+
+	case undoDoneMsg:
+		if msg.err != nil {
+			if errors.Is(msg.err, UndoEmpty) {
+				m.lastError = nil
+				m.engineActivity = "nothing to undo"
+				return m, nil
+			}
+			m.lastError = fmt.Errorf("undo: %w", msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		m.engineActivity = fmt.Sprintf("↶ undid: %s", msg.undone.Label)
+		// Reload the list so the rolled-back state is visible (an
+		// undo of soft-delete must repopulate the row in its
+		// original folder).
+		if msg.folderID != "" && msg.folderID == m.list.FolderID {
+			return m, m.loadMessagesCmd(msg.folderID)
 		}
 		return m, nil
 
@@ -1311,8 +1347,33 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startUnsubscribe(sel.ID)
+	case key.Matches(msg, m.keymap.Undo):
+		return m.runUndo()
 	}
 	return m, nil
+}
+
+// runUndo dispatches the spec 07 §11 undo flow. Returns a Cmd that
+// pops + applies the most recent UndoEntry; result lands as
+// undoDoneMsg. Errors (empty stack, dispatch failure) surface to
+// the status bar.
+func (m Model) runUndo() (tea.Model, tea.Cmd) {
+	if m.deps.Triage == nil {
+		m.lastError = fmt.Errorf("undo: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	folderID := m.list.FolderID
+	cmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		undone, err := m.deps.Triage.Undo(ctx, accountID)
+		return undoDoneMsg{undone: undone, folderID: folderID, err: err}
+	}
+	return m, cmd
 }
 
 // startUnsubscribe begins the spec 16 U flow for a message id. If
@@ -1362,6 +1423,17 @@ type triageDoneMsg struct {
 	postFocus Pane
 	msgID     string
 	err       error
+}
+
+// undoDoneMsg is the result of TriageExecutor.Undo. On success
+// `undone` carries the UI label ("deleted", "marked read", etc.)
+// for the status bar. On error, the err field is set; an empty
+// stack surfaces a friendly "nothing to undo" message rather than
+// a red error.
+type undoDoneMsg struct {
+	undone   UndoneAction
+	folderID string
+	err      error
 }
 
 // unsubResolvedMsg is the result of UnsubscribeService.Resolve. The
@@ -1516,6 +1588,8 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.viewer.current; cur != nil {
 			return m.startUnsubscribe(cur.ID)
 		}
+	case key.Matches(msg, m.keymap.Undo):
+		return m.runUndo()
 	}
 	return m, nil
 }

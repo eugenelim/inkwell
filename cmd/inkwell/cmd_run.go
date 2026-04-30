@@ -156,7 +156,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Renderer:      renderer,
 		Logger:        logger,
 		Account:       acc,
-		Triage:        exec,
+		Triage:        triageAdapter{exec: exec},
 		Bulk:          bulkAdapter{exec: exec},
 		Calendar:      calendarAdapter{gc: gc},
 		Mailbox:       mailboxAdapter{gc: gc},
@@ -200,6 +200,44 @@ func openLogFile(ownUPN string, level slog.Level) (*slog.Logger, io.Closer, erro
 type noopCloser struct{}
 
 func (noopCloser) Close() error { return nil }
+
+// triageAdapter bridges *action.Executor → ui.TriageExecutor. The
+// non-undo methods are direct passthroughs; Undo translates
+// store.UndoEntry → ui.UndoneAction and store.ErrNotFound →
+// ui.UndoEmpty so the UI doesn't import internal/store types
+// beyond what's already exposed.
+type triageAdapter struct{ exec *action.Executor }
+
+func (t triageAdapter) MarkRead(ctx context.Context, accountID int64, messageID string) error {
+	return t.exec.MarkRead(ctx, accountID, messageID)
+}
+
+func (t triageAdapter) MarkUnread(ctx context.Context, accountID int64, messageID string) error {
+	return t.exec.MarkUnread(ctx, accountID, messageID)
+}
+
+func (t triageAdapter) ToggleFlag(ctx context.Context, accountID int64, messageID string, currentlyFlagged bool) error {
+	return t.exec.ToggleFlag(ctx, accountID, messageID, currentlyFlagged)
+}
+
+func (t triageAdapter) SoftDelete(ctx context.Context, accountID int64, messageID string) error {
+	return t.exec.SoftDelete(ctx, accountID, messageID)
+}
+
+func (t triageAdapter) Archive(ctx context.Context, accountID int64, messageID string) error {
+	return t.exec.Archive(ctx, accountID, messageID)
+}
+
+func (t triageAdapter) Undo(ctx context.Context, accountID int64) (ui.UndoneAction, error) {
+	entry, err := t.exec.Undo(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ui.UndoneAction{}, ui.UndoEmpty
+		}
+		return ui.UndoneAction{}, err
+	}
+	return ui.UndoneAction{Label: entry.Label, MessageIDs: entry.MessageIDs}, nil
+}
 
 // bulkAdapter bridges action.BatchResult slices into ui.BulkResult
 // slices. The two structs are intentionally identical in shape; this

@@ -522,6 +522,9 @@ func (s stubTriageDelete) SoftDelete(_ context.Context, _ int64, _ string) error
 	return nil
 }
 func (s stubTriageDelete) Archive(context.Context, int64, string) error { return nil }
+func (s stubTriageDelete) Undo(context.Context, int64) (UndoneAction, error) {
+	return UndoneAction{}, UndoEmpty
+}
 
 type stubTriageFlag struct{ onCall func() }
 
@@ -533,6 +536,9 @@ func (s stubTriageFlag) ToggleFlag(_ context.Context, _ int64, _ string, _ bool)
 }
 func (s stubTriageFlag) SoftDelete(context.Context, int64, string) error { return nil }
 func (s stubTriageFlag) Archive(context.Context, int64, string) error    { return nil }
+func (s stubTriageFlag) Undo(context.Context, int64) (UndoneAction, error) {
+	return UndoneAction{}, UndoEmpty
+}
 
 // atomicBool is a tiny helper since sync/atomic.Bool is fine but adds
 // another import; this stays test-local.
@@ -762,6 +768,74 @@ func (s *stubUnsubService) OneClickPOST(_ context.Context, url string) error {
 	s.postCalls++
 	s.postURL = url
 	return s.postErr
+}
+
+// stubTriageWithUndo extends the existing stub-triage pattern to
+// satisfy the spec-07-§11 surface. Records calls so dispatch tests
+// can assert which path fired.
+type stubTriageWithUndo struct {
+	undoCalls   int
+	undoneLabel string
+	undoErr     error
+}
+
+func (s *stubTriageWithUndo) MarkRead(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+func (s *stubTriageWithUndo) MarkUnread(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+func (s *stubTriageWithUndo) ToggleFlag(_ context.Context, _ int64, _ string, _ bool) error {
+	return nil
+}
+func (s *stubTriageWithUndo) SoftDelete(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+func (s *stubTriageWithUndo) Archive(_ context.Context, _ int64, _ string) error { return nil }
+func (s *stubTriageWithUndo) Undo(_ context.Context, _ int64) (UndoneAction, error) {
+	s.undoCalls++
+	if s.undoErr != nil {
+		return UndoneAction{}, s.undoErr
+	}
+	return UndoneAction{Label: s.undoneLabel, MessageIDs: []string{"m-1"}}, nil
+}
+
+// TestUndoKeyDispatchesUndoCmd is the spec-07-§11 dispatch invariant:
+// pressing `u` in the list pane returns runUndo's Cmd, which calls
+// Triage.Undo. Visible-delta covered by app_e2e_test.go.
+func TestUndoKeyDispatchesUndoCmd(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{undoneLabel: "marked read"}
+	m.deps.Triage = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = m2.(Model)
+	require.NotNil(t, cmd, "u must return runUndo Cmd")
+
+	// Drive the Cmd inline. The result lands as undoDoneMsg.
+	msg := cmd()
+	m2, _ = m.Update(msg)
+	m = m2.(Model)
+	require.Equal(t, 1, stub.undoCalls)
+	require.Contains(t, m.engineActivity, "undid")
+	require.Contains(t, m.engineActivity, "marked read")
+	require.Nil(t, m.lastError)
+}
+
+// TestUndoKeyEmptyStackSurfacesFriendlyMessage covers the empty-stack
+// path: UndoEmpty must NOT show as an error (m.lastError stays nil),
+// just a transient "nothing to undo" status.
+func TestUndoKeyEmptyStackSurfacesFriendlyMessage(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubTriageWithUndo{undoErr: UndoEmpty}
+	m.deps.Triage = stub
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+	require.Nil(t, m.lastError, "empty stack must NOT surface as a red error")
+	require.Equal(t, "nothing to undo", m.engineActivity)
 }
 
 // TestUnsubscribeKeyResolvesAndOpensConfirmModal drives the spec 16
