@@ -53,6 +53,7 @@ pattern via the filter machinery.
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
+| `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
 **Smart-scroll**: when you reach the last 20 messages of the loaded
@@ -78,6 +79,7 @@ pull more from Graph.
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `a`       | Archive (focus pops back to list)                             |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
+| `u`       | Undo the most recent triage action                            |
 
 **Compact headers** (default): only From / Date / Subject + first 3
 recipients with "+ N more". On a 50-attendee thread, the body

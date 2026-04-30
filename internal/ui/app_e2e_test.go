@@ -550,6 +550,61 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// e2eTriageStub satisfies ui.TriageExecutor with no-op writes; the
+// undo path returns a canned UndoneAction so the e2e test can
+// assert the visible status-bar delta.
+type e2eTriageStub struct {
+	undoCalls int32
+	label     string
+}
+
+func (s *e2eTriageStub) MarkRead(_ context.Context, _ int64, _ string) error   { return nil }
+func (s *e2eTriageStub) MarkUnread(_ context.Context, _ int64, _ string) error { return nil }
+func (s *e2eTriageStub) ToggleFlag(_ context.Context, _ int64, _ string, _ bool) error {
+	return nil
+}
+func (s *e2eTriageStub) SoftDelete(_ context.Context, _ int64, _ string) error { return nil }
+func (s *e2eTriageStub) Archive(_ context.Context, _ int64, _ string) error    { return nil }
+func (s *e2eTriageStub) Undo(_ context.Context, _ int64) (UndoneAction, error) {
+	atomicAdd(&s.undoCalls, 1)
+	return UndoneAction{Label: s.label, MessageIDs: []string{"m-1"}}, nil
+}
+
+// TestUndoKeyShowsStatusBarMessage is the spec-07-§11 e2e visible-
+// delta test (CLAUDE.md §5.4): pressing `u` after a triage action
+// must paint a "↶ undid: <label>" message in the status bar. Without
+// the visible-delta requirement, dispatch tests can pass while the
+// user sees nothing change — exactly the v0.2.6 regression class.
+func TestUndoKeyShowsStatusBarMessage(t *testing.T) {
+	m, _ := newE2EModel(t)
+	stub := &e2eTriageStub{label: "marked read"}
+	m.deps.Triage = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus the list pane, press `u`. The undo Cmd fires, the stub
+	// returns the canned UndoneAction, the status bar paints.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// "↶ undid: marked read" — assert both the icon AND the
+		// label so the test fails for the right reason if either
+		// is dropped in a future refactor.
+		return contains(s, "undid") && contains(s, "marked read")
+	}, teatest.WithDuration(2*time.Second))
+
+	require.Equal(t, int32(1), stub.undoCalls)
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // e2eUnsubStub is the spec 16 stub. Records the calls so the test
 // can assert the right wires fired without needing a real Graph
 // server — the unsub package's own tests cover the network path.

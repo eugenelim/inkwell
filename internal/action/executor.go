@@ -169,7 +169,54 @@ func (e *Executor) run(ctx context.Context, a store.Action) error {
 	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
 		e.logger.Warn("action: status update failed", "action_id", a.ID, "err", err)
 	}
+	// Spec 07 §11 — push an inverse-action descriptor so the next `u`
+	// keystroke can roll this back. Only the first-dispatch path
+	// (run) pushes; Drain replays don't (the entry is already on the
+	// stack from the user's first attempt). Non-reversible actions
+	// (permanent_delete) skip the push.
+	if !a.SkipUndo {
+		if entry, ok := Inverse(a, pre); ok {
+			if err := e.st.PushUndo(ctx, entry); err != nil {
+				// Push failure isn't fatal to the action itself —
+				// the user's data is in the desired state. Log + move on.
+				e.logger.Warn("action: undo push failed", "action_id", a.ID, "err", err)
+			}
+		}
+	}
 	return nil
+}
+
+// Undo pops the most recent UndoEntry and applies it as a fresh
+// action. Inverse pairs are symmetric (mark_read ↔ mark_unread, flag
+// ↔ unflag, move ↔ move-back, add_category ↔ remove_category), so
+// undo is just executing the inverse-shaped action with SkipUndo set
+// — otherwise pressing u twice would restore the original instead of
+// toggling. Returns store.ErrNotFound when the stack is empty.
+func (e *Executor) Undo(ctx context.Context, accountID int64) (store.UndoEntry, error) {
+	entry, err := e.st.PopUndo(ctx)
+	if err != nil {
+		return store.UndoEntry{}, err
+	}
+	if entry == nil {
+		return store.UndoEntry{}, store.ErrNotFound
+	}
+	a := store.Action{
+		ID:         newActionID(),
+		AccountID:  accountID,
+		Type:       entry.ActionType,
+		MessageIDs: entry.MessageIDs,
+		Params:     entry.Params,
+		SkipUndo:   true, // don't push the inverse of the inverse.
+	}
+	// run() requires a single-message action; UndoEntry covers that
+	// invariant because every action we push is single-message.
+	if err := e.run(ctx, a); err != nil {
+		// Re-push the entry so the user can retry. PopUndo already
+		// removed it.
+		_ = e.st.PushUndo(ctx, *entry)
+		return store.UndoEntry{}, err
+	}
+	return *entry, nil
 }
 
 // Drain implements sync.ActionDrainer. The sync engine calls this at

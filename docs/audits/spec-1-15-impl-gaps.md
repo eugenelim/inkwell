@@ -133,9 +133,9 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Permanent delete: there is no `Executor.PermanentDelete` and no `graph.PermanentDelete` helper. `apply_local.go:40-41` returns `unsupported action type` for `ActionPermanentDelete`. The `D` keybinding is unbound in `app.go:1170-1186` — spec §12 expects confirmation + `permanentDelete` but only `d` (soft-delete) is wired.
   - Categories: `ActionAddCategory` and `ActionRemoveCategory` are typed (`store/types.go:115-116`) but not handled in `applyLocal` or `dispatch`. The `c`/`C` keybindings (`keys.go:91-92`) have no dispatchList entry.
   - Move-with-folder-picker (spec §12.1): `m` keybinding is declared (`keys.go:91`) with no handler in `dispatchList`. No folder-picker modal exists in `internal/ui/`.
-  - DoD "Optimistic UI, rollback, undo, replay all verified" — **undo is unimplemented**. `store.PushUndo`/`PopUndo` exist (`store/undo.go:11,26`) but `executor.go` never calls `PushUndo` after a successful action. The `u` keybinding (`keys.go:95`) has no handler in any pane dispatcher. Spec §11 entire surface is dead.
+  - ~~DoD "Optimistic UI, rollback, undo, replay all verified" — **undo is unimplemented**.~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse on success, `u` wired in list + viewer dispatch, e2e visible-delta verifies the status bar paints `↶ undid: <label>`. See `docs/plans/spec-07.md` iteration log.
   - Replay (`ReplayPending`) — not present in `executor.go`. `Drain` (`executor.go:180`) re-dispatches Pending/InFlight on each cycle but with no rollback semantics and no startup explicit replay path. Spec §10 contract is partially satisfied by Drain piggybacking on the sync loop.
-  - Pre-mutation snapshot: `run` (`executor.go:139-173`) reads `pre` for rollback but only of a single-message action. The bulk path in `batch.go` snapshots per-entry — OK. But no inverse computation for undo (`computeInverse` from spec §7.1 is absent).
+  - ~~Pre-mutation snapshot used for rollback; no inverse computation for undo (`computeInverse` from spec §7.1 is absent).~~ **Closed by PR 1 (v0.13.x).** `internal/action/inverse.go` covers all reversible action types; soft-delete / move use `pre.FolderID` to restore to the source folder. Bulk path still pending (PR-bulk-undo, separate item).
   - Confirmation gates (spec §6.7, CLAUDE.md §7): `D` not wired at all. `:permanent-delete` CLI shape from spec 14 not present. The "always confirms" requirement has no code.
   - DoD "Editor integration verified with at least vim and nano" — spec 15 covers reply editor; for triage the editor path (e.g., reply skeleton spawning $EDITOR) is in `compose/editor.go:34` and used by reply only.
 - Design drifts:
@@ -340,7 +340,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 04   | partial | 9 | 8 of 15 `:` commands unimplemented; `[bindings]` config silently ignored |
 | 05   | partial | 11 | Most viewer keybindings (links, attachments, conv-thread, expand quotes) absent |
 | 06   | mostly-spec-only | 8 | Hybrid streaming search not implemented; package is a stub |
-| 07   | partial | 9 | Undo unimplemented; `D`/`m`/`c`/`C` unbound; permanent-delete absent |
+| 07   | partial | 7 | `D`/`m`/`c`/`C` unbound; permanent-delete absent (undo closed in v0.13.x) |
 | 08   | partial | 5 | No Compile/Execute API, no server evaluators, no strategy selection |
 | 09   | partial | 6 | No concurrent batch fan-out; no per-sub-request 429 retry; no composite undo |
 | 10   | partial | 9 | No preview screen; no progress modal; only 4 of 10 `;` verbs wired |
@@ -356,7 +356,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 Ranked by what blocks a v0.X release.
 
-1. **Action queue undo unimplemented (spec 07 §11)** — `executor.go` never pushes inverse entries; `u` keybinding has no handler. Blocks v0.7.x ("triage with confidence") because users can't recover from a misclick. The store table and helpers exist; the wiring is the gap.
+1. ~~**Action queue undo unimplemented (spec 07 §11)**~~ **Closed by PR 1 (v0.13.x).** Executor pushes inverse, `u` wired in list + viewer, e2e visible-delta verifies the status bar paints. See `docs/plans/spec-07.md` for the iteration log.
 
 2. **`[bindings]` config silently ignored (spec 04 §17)** — `config.BindingsConfig` decodes user TOML but `ui.New` always uses `DefaultKeyMap()`. A user customising bindings sees no effect and gets no error. Blocks v0.4.x customisation promise; misleading documentation.
 

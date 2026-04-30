@@ -287,7 +287,7 @@ config surface.
 
 | PR | Spec(s) | Status | Branch | Audit rows closed | Plan file updated |
 |----|---------|--------|--------|-------------------|-------------------|
-| 1  | 07      | not-started | — | — | — |
+| 1  | 07      | shipped (v0.13.x) | main | spec 07 §11 undo + §7.1 inverse | docs/plans/spec-07.md iter 2 |
 | 2  | 04      | not-started | — | — | — |
 | 3  | 03      | not-started | — | — | — |
 | 4  | 07      | not-started | — | — | — |

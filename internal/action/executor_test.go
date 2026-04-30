@@ -98,6 +98,71 @@ func TestExecutorMarkReadMutatesLocalAndCallsGraph(t *testing.T) {
 	require.Len(t, pending, 0, "Done actions are not Pending")
 }
 
+// TestExecutorMarkReadPushesUndoEntry is the spec 07 §11 invariant:
+// a successful action pushes its inverse onto the undo stack so the
+// next `u` keystroke can roll it back.
+func TestExecutorMarkReadPushesUndoEntry(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	var captured atomic.Pointer[map[string]any]
+	installPatchHandler(t, srv, &captured)
+
+	require.NoError(t, exec.MarkRead(context.Background(), accID, "m-1"))
+
+	entry, err := st.PeekUndo(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	require.Equal(t, store.ActionMarkUnread, entry.ActionType,
+		"undo of mark_read must be mark_unread")
+	require.Equal(t, []string{"m-1"}, entry.MessageIDs)
+}
+
+// TestExecutorUndoRollsBackMarkRead drives the full round-trip:
+// MarkRead → undo → message back to unread, both locally and via
+// Graph. The visible-delta is local IsRead flipping false again
+// after the undo dispatch lands.
+func TestExecutorUndoRollsBackMarkRead(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	var captured atomic.Pointer[map[string]any]
+	installPatchHandler(t, srv, &captured)
+
+	require.NoError(t, exec.MarkRead(context.Background(), accID, "m-1"))
+	got, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.True(t, got.IsRead)
+
+	entry, err := exec.Undo(context.Background(), accID)
+	require.NoError(t, err)
+	require.Equal(t, store.ActionMarkUnread, entry.ActionType)
+
+	got, err = st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.False(t, got.IsRead, "undo must flip IsRead back to false")
+
+	// Stack is now empty — pressing u again must surface ErrNotFound,
+	// which the UI translates into "nothing to undo".
+	_, err = exec.Undo(context.Background(), accID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// TestExecutorUndoDoesNotRecursivelyPush is the spec 07 §11.2
+// invariant: applying an undo entry sets SkipUndo so the executor
+// doesn't push the inverse-of-the-inverse. Without this, pressing
+// `u` would toggle infinitely instead of stepping back.
+func TestExecutorUndoDoesNotRecursivelyPush(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	var captured atomic.Pointer[map[string]any]
+	installPatchHandler(t, srv, &captured)
+
+	require.NoError(t, exec.MarkRead(context.Background(), accID, "m-1"))
+	_, err := exec.Undo(context.Background(), accID)
+	require.NoError(t, err)
+
+	// After the undo, the stack must be empty — no inverse-of-the-
+	// inverse landed on top.
+	_, err = st.PeekUndo(context.Background())
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
 func TestExecutorToggleFlagFlipsState(t *testing.T) {
 	exec, st, accID, srv := newTestExec(t)
 	var captured atomic.Pointer[map[string]any]
