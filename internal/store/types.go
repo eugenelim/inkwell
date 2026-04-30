@@ -166,6 +166,35 @@ type UndoEntry struct {
 	CreatedAt  time.Time
 }
 
+// Event is a cached calendar event (spec 12). Times are UTC; the UI
+// converts to the mailbox time zone at render. Mirrors the subset
+// of /me/calendarView fields the read-only calendar surfaces.
+type Event struct {
+	ID               string
+	AccountID        int64
+	Subject          string
+	OrganizerName    string
+	OrganizerAddress string
+	Start            time.Time
+	End              time.Time
+	IsAllDay         bool
+	Location         string
+	OnlineMeetingURL string
+	ShowAs           string // "free" | "busy" | "tentative" | "oof" | "workingElsewhere"
+	WebLink          string
+	CachedAt         time.Time
+}
+
+// EventQuery narrows ListEvents results.
+type EventQuery struct {
+	AccountID int64
+	// Start / End define a half-open [Start, End) window in UTC.
+	// Zero values mean unbounded on that side.
+	Start time.Time
+	End   time.Time
+	Limit int
+}
+
 // SavedSearch persists a named pattern for the sidebar virtual folder.
 type SavedSearch struct {
 	ID        int64

@@ -243,7 +243,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation: `internal/graph/calendar.go` + `ui/calendar.go`
 - Status overall: partial
 - Implementation gaps:
-  - DoD "`events` and `event_attendees` tables created via migration `002`." Migration `002_meeting_message_type.sql` does NOT add these tables. **The whole calendar schema (§3) is missing.** No `events` table, no `event_attendees` table, no indexes (`idx_events_start`, `idx_events_account_start`, `idx_events_series`, `idx_attendees_event`). Calendar data is fetched live and not persisted.
+  - ~~The whole calendar schema (§3) is missing~~ **Closed by PR 6a (v0.13.x).** Migration `004_events.sql` adds the events table with `idx_events_start` + `idx_events_account_start`. The `event_attendees` table is deferred (no detail modal yet); when PR 6b lands the attendees expansion, migration 005 adds it. Calendar adapter now reads cache first, fetches on miss/staleness, persists on success. Stale-data fallback when Graph fails.
   - DoD "Calendar sync runs on the same cadence as mail." — `engine.go` has no `SyncCalendar` method. The sync state machine has only `StateDrainingActions` and `StateSyncingFolders` (`engine.go:71-74`). Spec §5 "third state syncing calendar" never exists.
   - Calendar delta sync (`/me/calendarView/delta`, §4.2) — not present.
   - Window slide at midnight (§5.1) — no goroutine.
@@ -345,7 +345,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 | 09   | partial | 6 | No concurrent batch fan-out; no per-sub-request 429 retry; no composite undo |
 | 10   | partial | 9 | No preview screen; no progress modal; only 4 of 10 `;` verbs wired |
 | 11   | mostly-spec-only | 9 | Whole `Manager` API absent; saved-search counts/refresh/CRUD unimplemented |
-| 12   | partial | 8 | `events` table never migrated; calendar persisted nowhere; sync engine has no calendar pass |
+| 12   | partial | 7 | events table + persistence shipped v0.13.x; sync engine pass / window slide / detail modal / pane layout still pending |
 | 13   | partial | 8 | Only enable/disable toggle; no schedule/audience/messages editing; no `:settings` |
 | 14   | mostly-spec-only | 10 | ~70% of CLI surface missing (rule/calendar/ooo/settings/message/export/daemon) |
 | 15   | partial | 8 | Drafts bypass the action queue; no `compose_sessions` migration; reply-only |
@@ -366,7 +366,7 @@ Ranked by what blocks a v0.X release.
 
 5. ~~**7 of 15 `:` commands unimplemented (spec 04 §6.4)**~~ Five closed by PR 5 (v0.13.x): `:refresh`, `:folder`, `:open`, `:backfill`, `:search`. The remaining two (`:save`, `:rule`) depend on spec 11's saved-search Manager; tracked under PR 5b alongside the spec 11 implementation. See `docs/plans/spec-04.md` iter 10.
 
-6. **Calendar schema not migrated (spec 12 §3)** — migration 002 is `meeting_message_type`, not the calendar tables. Calendar is fetched live from Graph each time `:cal` opens; no offline support; no delta sync. Blocks v0.10.x calendar feature when offline / when sync engine should refresh in background.
+6. ~~**Calendar schema not migrated (spec 12 §3)**~~ Schema + persistence closed by PR 6a (v0.13.x); migration 004 adds the events table. The `:cal` modal now serves from cache first with TTL refresh; offline use works once events have been cached. Sync engine pass, midnight window slide, detail modal, and pane-vs-modal layout question deferred to PR 6b.
 
 7. **Compose draft path bypasses action queue (spec 15 §5, §8)** — `CreateDraftReply` (`action/draft.go`) is a synchronous one-shot; not in the action queue, not in the `actions` table, not idempotent on replay. The four typed draft actions (`TypeCreateDraft`, `TypeCreateReply`, `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft`) are not in `store.ActionType`. Blocks v0.11.x reliability — a network blip mid-compose loses the draft.
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite" // sql driver registration
 )
@@ -18,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -79,6 +80,12 @@ type Store interface {
 	PopUndo(ctx context.Context) (*UndoEntry, error)
 	PeekUndo(ctx context.Context) (*UndoEntry, error)
 	ClearUndo(ctx context.Context) error
+
+	// Calendar events (spec 12)
+	PutEvent(ctx context.Context, e Event) error
+	PutEvents(ctx context.Context, events []Event) error
+	ListEvents(ctx context.Context, q EventQuery) ([]Event, error)
+	DeleteEventsBefore(ctx context.Context, accountID int64, before time.Time) error
 
 	// Saved searches
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)

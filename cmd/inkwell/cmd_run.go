@@ -168,7 +168,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Account:       acc,
 		Triage:        triageAdapter{exec: exec},
 		Bulk:          bulkAdapter{exec: exec},
-		Calendar:      calendarAdapter{gc: gc},
+		Calendar:      calendarAdapter{gc: gc, st: st, accountID: acc.ID},
 		Mailbox:       mailboxAdapter{gc: gc},
 		Drafts:        draftAdapter{exec: exec},
 		Unsubscribe:   newUnsubAdapter(st, gc, version),
@@ -318,17 +318,68 @@ func (m mailboxAdapter) SetAutoReply(ctx context.Context, enabled bool, internal
 	})
 }
 
-// calendarAdapter bridges graph.Client.ListEventsToday → ui.CalendarEvent.
-// Same shape, decoupled types so ui doesn't import internal/graph.
-type calendarAdapter struct{ gc *graph.Client }
+// calendarAdapter bridges graph + store → ui.CalendarFetcher. Spec
+// 12 §5: read from cache first so the modal renders offline; if
+// the cache is empty for today's window, fetch from Graph and
+// persist for next time. Stale cache (>15min) also re-fetches.
+//
+// Persisting on fetch closes the spec-12 audit gap "calendar
+// persisted nowhere" without yet wiring the engine's third sync
+// state — that's PR 6b's scope.
+type calendarAdapter struct {
+	gc        *graph.Client
+	st        store.Store
+	accountID int64
+}
+
+const calendarCacheTTL = 15 * time.Minute
 
 func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEvent, error) {
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	cached, _ := c.st.ListEvents(ctx, store.EventQuery{
+		AccountID: c.accountID,
+		Start:     startOfDay,
+		End:       endOfDay,
+	})
+
+	// Cache hit AND fresh? Serve from local. Stale or empty → fetch.
+	fresh := len(cached) > 0
+	for _, e := range cached {
+		if now.Sub(e.CachedAt) > calendarCacheTTL {
+			fresh = false
+			break
+		}
+	}
+	if fresh {
+		return convertStoreEvents(cached), nil
+	}
+
+	// Cache miss / stale: fetch from Graph and persist.
 	es, err := c.gc.ListEventsToday(ctx)
 	if err != nil {
+		// Graph failed; if we have any cached rows, surface those
+		// so the user sees the last-known state rather than an
+		// empty modal. Stale-data fallback per spec 12 §5.
+		if len(cached) > 0 {
+			return convertStoreEvents(cached), nil
+		}
 		return nil, err
 	}
-	out := make([]ui.CalendarEvent, len(es))
-	for i, e := range es {
+	storeEvents := convertGraphEvents(c.accountID, es)
+	if err := c.st.PutEvents(ctx, storeEvents); err != nil {
+		// Persist failure isn't fatal — the user gets the data
+		// for this session; next launch refetches.
+		c.gc.Logger().Warn("calendar: persist failed", "err", err.Error())
+	}
+	return convertStoreEventsFromGraph(es), nil
+}
+
+func convertStoreEvents(events []store.Event) []ui.CalendarEvent {
+	out := make([]ui.CalendarEvent, len(events))
+	for i, e := range events {
 		out[i] = ui.CalendarEvent{
 			Subject:          e.Subject,
 			OrganizerName:    e.OrganizerName,
@@ -340,7 +391,47 @@ func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEven
 			OnlineMeetingURL: e.OnlineMeetingURL,
 		}
 	}
-	return out, nil
+	return out
+}
+
+func convertStoreEventsFromGraph(events []graph.Event) []ui.CalendarEvent {
+	out := make([]ui.CalendarEvent, len(events))
+	for i, e := range events {
+		out[i] = ui.CalendarEvent{
+			Subject:          e.Subject,
+			OrganizerName:    e.OrganizerName,
+			OrganizerAddress: e.OrganizerAddress,
+			Start:            e.Start,
+			End:              e.End,
+			IsAllDay:         e.IsAllDay,
+			Location:         e.Location,
+			OnlineMeetingURL: e.OnlineMeetingURL,
+		}
+	}
+	return out
+}
+
+func convertGraphEvents(accountID int64, events []graph.Event) []store.Event {
+	out := make([]store.Event, len(events))
+	now := time.Now()
+	for i, e := range events {
+		out[i] = store.Event{
+			ID:               e.ID,
+			AccountID:        accountID,
+			Subject:          e.Subject,
+			OrganizerName:    e.OrganizerName,
+			OrganizerAddress: e.OrganizerAddress,
+			Start:            e.Start,
+			End:              e.End,
+			IsAllDay:         e.IsAllDay,
+			Location:         e.Location,
+			OnlineMeetingURL: e.OnlineMeetingURL,
+			ShowAs:           e.ShowAs,
+			WebLink:          e.WebLink,
+			CachedAt:         now,
+		}
+	}
+	return out
 }
 
 // bindingsToOverrides translates config.BindingsConfig (TOML-typed)

@@ -294,7 +294,8 @@ config surface.
 | 4b | 07      | not-started (categories + move-with-picker) | — | — | — |
 | 5  | 04      | shipped (v0.13.x) | main | spec 04 §6.4 :refresh / :folder / :open / :backfill / :search | docs/plans/spec-04.md iter 10 |
 | 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
-| 6  | 12      | not-started | — | — | — |
+| 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter — |
+| 6b | 12      | not-started (sync pass / window slide / detail modal / pane layout) | — | — | — |
 | 7  | 15      | not-started | — | — | — |
 | 8  | 06      | not-started | — | — | — |
 | 9  | 08      | not-started | — | — | — |
