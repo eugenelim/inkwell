@@ -110,6 +110,36 @@ cache_ttl = "30m"
 	require.Equal(t, "30m0s", cfg.Calendar.CacheTTL.String())
 }
 
+// TestRenderingURLDisplayMaxWidthRoundTrip verifies the
+// `[rendering].url_display_max_width` key parses through TOML and
+// preserves the explicit-zero (truncation disabled) override —
+// distinguishing user-set 0 from "unset → fall back to default".
+// Without explicit values the default (60) ships from
+// internal/config/defaults.go.
+func TestRenderingURLDisplayMaxWidthRoundTrip(t *testing.T) {
+	def := Defaults()
+	require.Equal(t, 60, def.Rendering.URLDisplayMaxWidth, "default cap = 60 cells")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[rendering]
+url_display_max_width = 0
+`))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 0, cfg.Rendering.URLDisplayMaxWidth,
+		"explicit 0 must round-trip — disables truncation entirely")
+
+	require.NoError(t, writeFile(path, `
+[rendering]
+url_display_max_width = 80
+`))
+	cfg, err = Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 80, cfg.Rendering.URLDisplayMaxWidth)
+}
+
 func TestValidateRejectsMaxConcurrentOutOfRange(t *testing.T) {
 	c := Defaults()
 	c.Sync.MaxConcurrent = 99

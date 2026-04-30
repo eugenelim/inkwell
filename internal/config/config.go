@@ -178,6 +178,14 @@ type RenderingConfig struct {
 	ShowFullHeaders bool   `toml:"show_full_headers"`
 	OpenBrowserCmd  string `toml:"open_browser_cmd"`
 	HTMLMaxBytes    int    `toml:"html_max_bytes"`
+	// URLDisplayMaxWidth caps the visible OSC 8 hyperlink text in
+	// the viewer body at N cells with end-truncation
+	// (`https://example.com/auth/…`). The OSC 8 url-portion stays
+	// full so Cmd-click + the URL picker still open the full URL,
+	// and the trailing `Links:` block always shows untruncated
+	// URLs. 0 disables truncation. Default 60 (set in
+	// internal/config/defaults.go).
+	URLDisplayMaxWidth int `toml:"url_display_max_width"`
 }
 
 // LoggingConfig owns the [logging] section.

@@ -162,6 +162,11 @@ type Deps struct {
 	// §12.1). 0 disables the recent section. Falls back to 5 when
 	// unset.
 	RecentFoldersCount int
+	// URLDisplayMaxWidth threads `[rendering].url_display_max_width`
+	// to the renderer. Long URLs in the viewer body display-truncate
+	// at N cells; the OSC 8 url portion stays full. 0 disables
+	// truncation. Falls back to 60 when unset.
+	URLDisplayMaxWidth int
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -2455,12 +2460,17 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		// URLDisplayMaxWidth: 60 truncates long URLs in the body to
-		// 60 visible cells with end-truncation (`https://host/path/…`)
-		// so they don't dominate vertical space. Cmd-click + `o`
-		// (URL picker) + the trailing `Links:` block all retain the
-		// full URL.
-		opts := render.BodyOpts{Width: 80, Theme: render.DefaultTheme(), URLDisplayMaxWidth: 60}
+		// URLDisplayMaxWidth truncates long URLs in the body so they
+		// don't dominate vertical space. Cmd-click + `o` (URL picker)
+		// + the trailing `Links:` block all retain the full URL.
+		// Threaded from `[rendering].url_display_max_width` via Deps;
+		// 0 disables truncation explicitly. The production wire-up
+		// in cmd_run.go forwards the config value (default 60).
+		opts := render.BodyOpts{
+			Width:              80,
+			Theme:              render.DefaultTheme(),
+			URLDisplayMaxWidth: m.deps.URLDisplayMaxWidth,
+		}
 		view, err := r.Body(ctx, &msg, opts)
 		if err != nil {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
