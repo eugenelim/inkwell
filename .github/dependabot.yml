@@ -2,12 +2,26 @@
 #
 # Weekly updates: keeps the dependency graph fresh enough that
 # govulncheck rarely has to fail builds for a long-known CVE, and
-# rare enough that PR review noise stays manageable. Patch versions
-# auto-merge in the future once branch protection is configured;
-# for now every PR goes through manual review.
+# rare enough that PR review noise stays manageable.
 #
-# Dev-only deps (test fixtures, regenerable code) ship grouped per
-# minor version so a Tuesday morning isn't 12 separate PRs.
+# **Why everything is grouped.** Without grouping, Dependabot opens
+# one PR per dependency. When two PRs touch overlapping lines (e.g.
+# every CI job has both `actions/checkout` and `actions/setup-go`
+# in adjacent step lines, so two simultaneous bumps share neighbour
+# lines), merging the first creates a 3-way conflict for every
+# subsequent PR. With ~6 actions in our workflows × 4 actions
+# Dependabot is currently watching, that's a guaranteed recurring
+# rebase chore. Grouping into one weekly PR per ecosystem
+# eliminates the conflict by construction: Dependabot rebases the
+# single PR once and we merge it once.
+#
+# Lesson from v0.13.x post-mortem: the first weekly run shipped 4
+# separate github-actions PRs (checkout, setup-go, upload-artifact,
+# goreleaser). Three merged cleanly; the fourth needed manual
+# rebase + force-push because checkout's bump had moved the
+# neighbour line setup-go was anchoring against. Cost: 15 minutes
+# of cherry-picking conflict markers. That's the maximum tolerated
+# cost; this config prevents it.
 
 version: 2
 updates:
@@ -18,19 +32,29 @@ updates:
       day: monday
       time: "06:00"
       timezone: Etc/UTC
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "chore(deps)"
     groups:
-      # Group the bubbletea / lipgloss / bubbles family — they
-      # release together and a single PR is easier to review than
-      # three.
+      # Group everything by default. Sub-groupings below carve out
+      # the families we know move together (charm releases lipgloss
+      # + bubbles + bubbletea simultaneously; golang.org/x/* often
+      # bumps in lockstep with stdlib floors). A blanket group
+      # avoids the per-PR-conflict pattern; the family groups make
+      # the diff easier to review when several charm packages bump
+      # at once.
       charm:
         patterns:
           - "github.com/charmbracelet/*"
-      # Group the Go-toolchain ecosystem (golang.org/x/* etc.).
       gostdlibx:
         patterns:
+          - "golang.org/x/*"
+      # Catch-all for everything else (single weekly PR).
+      gomod-other:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "github.com/charmbracelet/*"
           - "golang.org/x/*"
 
   - package-ecosystem: github-actions
@@ -40,6 +64,13 @@ updates:
       day: monday
       time: "06:00"
       timezone: Etc/UTC
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     commit-message:
       prefix: "chore(actions)"
+    groups:
+      # ALL github-actions bumps in one weekly PR — actions tend to
+      # appear together in step blocks, so per-PR bumps create the
+      # conflict pattern documented in the comment above.
+      github-actions-all:
+        patterns:
+          - "*"
