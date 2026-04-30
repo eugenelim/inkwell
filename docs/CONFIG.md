@@ -128,6 +128,7 @@ Controls how message bodies are displayed.
 | `large_attachment_warn_mb` | int | `25` | 1–1000 | Show a confirmation prompt before downloading attachments larger than this. |
 | `strip_patterns` | list of regex strings | `[]` (defaults shipped in code) | regex | Regex patterns to strip from rendered email bodies. Defaults cover common Outlook noise (external email banners, "trouble viewing" preludes). |
 | `external_converter_timeout` | duration | `"5s"` | 1s–60s | Timeout when `html_converter = "external"`. On timeout, falls back to in-process renderer. |
+| `url_display_max_width` | int | `60` | `0`, 30–300 | Cap the visible OSC 8 hyperlink text in the viewer body at N cells with end-truncation (`https://example.com/auth/…`). The OSC 8 url-portion stays full so Cmd-click + the URL picker (`o`) + the trailing `Links:` block still resolve to the full URL. `0` disables truncation (URLs render full inline). |
 
 **Owner spec:** 05.
 

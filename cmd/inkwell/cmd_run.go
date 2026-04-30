@@ -179,6 +179,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		SavedSearches:      saved,
 		Bindings:           bindingsToOverrides(cfg.Bindings),
 		RecentFoldersCount: cfg.Triage.RecentFoldersCount,
+		URLDisplayMaxWidth: cfg.Rendering.URLDisplayMaxWidth,
 	})
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
