@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 )
@@ -169,7 +170,24 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 		if override == "" {
 			return
 		}
-		*target = key.NewBinding(key.WithKeys(override))
+		// Override strings are comma-separated for alternates so
+		// `Up: "k,up"` binds both `k` and the up arrow. Without this
+		// split, defaults like `Up: "k"` (config-shipped) would
+		// overwrite the much-richer DefaultKeyMap default
+		// `["k","up"]` and arrow-key navigation would silently
+		// disappear — the regression a real-tenant user reported on
+		// v0.13.x.
+		parts := strings.Split(override, ",")
+		keys := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if k := strings.TrimSpace(p); k != "" {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) == 0 {
+			return
+		}
+		*target = key.NewBinding(key.WithKeys(keys...))
 	}
 	apply(&km.Quit, o.Quit)
 	apply(&km.Help, o.Help)

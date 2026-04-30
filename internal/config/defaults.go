@@ -46,14 +46,18 @@ func Defaults() *Config {
 			FocusViewer:     "3",
 			NextPane:        "tab",
 			PrevPane:        "shift+tab",
-			Up:              "k",
-			Down:            "j",
-			Left:            "h",
-			Right:           "l",
-			PageUp:          "ctrl+u",
-			PageDown:        "ctrl+d",
-			Home:            "g",
-			End:             "G",
+			// Movement keys ship with both vi-style + arrow alternates
+			// (and PageUp/PageDown with both ctrl- + paging variants)
+			// so non-vim users aren't forced into hjkl. Comma-
+			// separated values are parsed by ApplyBindingOverrides.
+			Up:              "k,up",
+			Down:            "j,down",
+			Left:            "h,left",
+			Right:           "l,right",
+			PageUp:          "ctrl+u,pgup",
+			PageDown:        "ctrl+d,pgdown",
+			Home:            "g,home",
+			End:             "G,end",
 			Open:            "enter",
 			MarkRead:        "r",
 			MarkUnread:      "R",
