@@ -20,15 +20,18 @@ import (
 	ilog "github.com/eugenelim/inkwell/internal/log"
 )
 
-// TestEnvelopeSelectFieldsIncludesMeetingMessageType is the regression
-// for the v0.11 bug where the calendar-invite indicator missed real
-// invites. The list pane now drives off Graph's meetingMessageType
-// (spec 02 v2 schema), so the $select MUST request that field —
-// without it, the column stays NULL and the indicator silently
-// reverts to the subject-prefix heuristic that started this bug.
-func TestEnvelopeSelectFieldsIncludesMeetingMessageType(t *testing.T) {
-	require.Contains(t, EnvelopeSelectFields, "meetingMessageType",
-		"$select must include meetingMessageType — see spec 02 v2 migration")
+// TestEnvelopeSelectFieldsExcludesMeetingMessageType is the
+// inverse-regression for the v0.15.1 hotfix: Graph rejects
+// `meetingMessageType` in `$select` on
+// `/me/mailFolders/{id}/messages` because the property exists only
+// on the `microsoft.graph.eventMessage` derived type. Including it
+// returned 400 RequestBroker--ParseUri on real tenants and broke
+// every Backfill call. The 📅 indicator falls back to the
+// subject-prefix heuristic until a future release uses the cast
+// form `microsoft.graph.eventMessage/meetingMessageType`.
+func TestEnvelopeSelectFieldsExcludesMeetingMessageType(t *testing.T) {
+	require.NotContains(t, EnvelopeSelectFields, "meetingMessageType",
+		"$select must NOT include meetingMessageType — Graph rejects it on the polymorphic Message endpoint")
 }
 
 // TestMessageDeserializesMeetingMessageType ensures the JSON tag is
