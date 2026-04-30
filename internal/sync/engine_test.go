@@ -209,6 +209,45 @@ func TestSyncFolderEnumerationPersistsNestedChildren(t *testing.T) {
 	require.Equal(t, "f-q4", byID["f-decks"].ParentFolderID, "deepest child preserves chain")
 }
 
+// TestSyncFolderEnumerationPersistsArchiveChildren is the
+// real-tenant regression for "Archive shows 'no subfolders to
+// expand here' even when Outlook for Mac shows children". Mirrors
+// the Inbox case but rooted at Archive (well-known name
+// "archive") to prove the sync path doesn't special-case Inbox —
+// every parent + child chain is persisted regardless of root.
+//
+// Fixture: msgfolderroot > Inbox + Archive (top-level), Archive >
+// 2024 > Q4 (nested under Archive). All four rows must land with
+// parent chains intact so the UI tree renders Archive as a
+// parent and `o` expands it.
+func TestSyncFolderEnumerationPersistsArchiveChildren(t *testing.T) {
+	eng, srv, st, acc := newSyncTest(t)
+	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, graph.FolderListResponse{
+			Value: []graph.MailFolder{
+				{ID: "f-inbox", DisplayName: "Inbox", WellKnownName: "inbox", ParentFolderID: "msgfolderroot"},
+				{ID: "f-archive", DisplayName: "Archive", WellKnownName: "archive", ParentFolderID: "msgfolderroot"},
+				{ID: "f-archive-2024", DisplayName: "2024", ParentFolderID: "f-archive"},
+				{ID: "f-archive-2024-q4", DisplayName: "Q4", ParentFolderID: "f-archive-2024"},
+			},
+		})
+	})
+	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
+
+	got, err := st.ListFolders(context.Background(), acc)
+	require.NoError(t, err)
+	require.Len(t, got, 4, "Archive's children must persist alongside Inbox's")
+	byID := map[string]store.Folder{}
+	for _, f := range got {
+		byID[f.ID] = f
+	}
+	require.Empty(t, byID["f-archive"].ParentFolderID, "Archive's msgfolderroot parent NULLed")
+	require.Equal(t, "f-archive", byID["f-archive-2024"].ParentFolderID,
+		"Archive's child preserves the parent link")
+	require.Equal(t, "f-archive-2024", byID["f-archive-2024-q4"].ParentFolderID,
+		"Archive's grandchild preserves the parent chain")
+}
+
 // TestSyncFolderEnumerationSkipsRemovedDeltaEntries guards the
 // future-incremental path: when a persisted delta token leads to
 // a delta page that includes @removed markers (server-side
