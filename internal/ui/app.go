@@ -1086,6 +1086,87 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		// current keymap so user overrides surface immediately.
 		m.mode = HelpMode
 		return m, nil
+	case "refresh":
+		// Same as Ctrl+R — kick a sync cycle. Spec 04 §6.4.
+		// Wake() is the right hook (single-shot, debounced) rather
+		// than SyncAll() which can overlap with the loop's own
+		// timer-driven cycle.
+		if m.deps.Engine != nil {
+			m.deps.Engine.Wake()
+			m.engineActivity = "syncing…"
+		}
+		return m, nil
+	case "folder":
+		// `:folder <name>` jumps the list pane to the folder whose
+		// DisplayName or WellKnownName matches. Spec 04 §6.4.
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("folder: usage `:folder <name>` (DisplayName or well-known like inbox/archive)")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "folder"))
+		f, ok := m.folders.FindByName(name)
+		if !ok {
+			m.lastError = fmt.Errorf("folder: %q not found in sidebar", name)
+			return m, nil
+		}
+		m.list.FolderID = f.ID
+		m.focused = ListPane
+		return m, m.loadMessagesCmd(f.ID)
+	case "open":
+		// `:open` opens the focused message's webLink in the system
+		// browser. Spec 04 §6.4. Best-effort fire-and-forget; if
+		// the user's $BROWSER fails, the URL is on the status bar
+		// for them to copy.
+		var link string
+		if cur := m.viewer.current; cur != nil {
+			link = cur.WebLink
+		} else if sel, ok := m.list.Selected(); ok {
+			link = sel.WebLink
+		}
+		if link == "" {
+			m.lastError = fmt.Errorf("open: no message focused (or webLink not yet synced)")
+			return m, nil
+		}
+		go openInBrowser(link)
+		m.engineActivity = "opened in browser"
+		return m, nil
+	case "backfill":
+		// `:backfill` triggers spec 03's Backfill(folderID, until)
+		// to pull older messages past the local cache wall. Defaults
+		// to the focused folder's oldest cached `received_at` as
+		// the `until` bound — same shape as the smart-scroll auto-
+		// trigger, just user-initiated.
+		if m.deps.Engine == nil {
+			m.lastError = fmt.Errorf("backfill: not wired (CLI mode or unsigned)")
+			return m, nil
+		}
+		folderID := m.list.FolderID
+		if strings.HasPrefix(folderID, "filter:") || folderID == "" {
+			m.lastError = fmt.Errorf("backfill: focus a folder (not a filter view) first")
+			return m, nil
+		}
+		until := m.list.OldestReceivedAt()
+		m.engineActivity = "backfilling older messages…"
+		go func() { _ = m.deps.Engine.Backfill(context.Background(), folderID, until) }()
+		return m, nil
+	case "search":
+		// `:search <query>` enters search mode pre-populated with
+		// the query string and runs it. Spec 04 §6.4. Mirrors `/`
+		// + typing + Enter as a single-step command; useful for
+		// scripted invocation from the cmd-bar.
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("search: usage `:search <query>` (FTS over local cache)")
+			return m, nil
+		}
+		query := strings.TrimSpace(strings.TrimPrefix(line, "search"))
+		if !m.searchActive {
+			m.priorFolderID = m.list.FolderID
+		}
+		m.searchActive = true
+		m.searchQuery = query
+		m.list.FolderID = searchFolderID(query)
+		m.focused = ListPane
+		return m, m.runSearchCmd(query)
 	case "ooo", "outofoffice", "oof":
 		if m.deps.Mailbox == nil {
 			m.lastError = fmt.Errorf("ooo: not wired (CLI mode or unsigned)")

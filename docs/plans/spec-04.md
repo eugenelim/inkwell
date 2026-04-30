@@ -26,6 +26,41 @@ remain deferred to spec 05; manual TUI smoke per CLAUDE.md §5.5.
 
 ## Iteration log
 
+### Iter 10 — 2026-04-30 (5 missing : commands, PR 5 of audit-drain)
+- Slice: `:refresh`, `:folder <name>`, `:open`, `:backfill`,
+  `:search <query>`. Spec 04 §6.4 invariants — five of seven
+  unhandled commands closed in one PR.
+- Files modified:
+  - `internal/ui/app.go::dispatchCommand` — five new case
+    branches. `:refresh` → `Engine.Wake()`. `:folder <name>` →
+    `FoldersModel.FindByName` + loadMessagesCmd + focus → list.
+    `:open` → openInBrowser of viewer-or-list webLink.
+    `:backfill` → `Engine.Backfill(folderID, oldestReceived)`;
+    refuses `filter:<pattern>` sentinel folder IDs with a
+    friendly error. `:search <query>` → searchActive flip +
+    runSearchCmd (mirrors `/<query>` + Enter).
+  - `internal/ui/panes.go::FoldersModel.FindByName` — new
+    helper, case-insensitive match on DisplayName or
+    WellKnownName. First match wins.
+- Tests: 5 new dispatch tests (`:refresh` wakes engine;
+  `:folder Archive` jumps; `:folder Nonexistent` errors;
+  `:backfill` refuses filter view; `:search forecast` seeds
+  query + active flag).
+- Decisions:
+  - Used `Wake` (single-shot, debounced) for `:refresh`
+    instead of `SyncAll` — Wake doesn't overlap the loop's own
+    timer-driven cycle (the v0.9.x cycle-storm pattern).
+  - `:backfill` defaults to the oldest cached received_at as
+    the `until` bound — same shape as the smart-scroll auto-
+    trigger, just user-initiated. The error gate against
+    `filter:` sentinels avoids the v0.13.x triage-on-filter
+    bug class.
+  - `:save` and `:rule` are NOT in this PR — both depend on
+    spec 11's saved-search Manager which is currently a stub.
+    Carved out as PR 5b.
+- Result: gosec 0 issues, govulncheck 0 vulns, all packages
+  green under -race + -tags=e2e.
+
 ### Iter 9 — 2026-04-30 (bindings + help overlay, PR 2 of audit-drain)
 - Slice: spec 04 §17 invariant ([bindings] silently ignored —
   closed) + §12 full help overlay + §6.4 :help command.

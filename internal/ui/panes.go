@@ -262,6 +262,25 @@ func (m FoldersModel) SelectedSavedSearch() (SavedSearch, bool) {
 	return SavedSearch{Name: it.savedName, Pattern: it.savedPattern}, true
 }
 
+// FindByName returns the folder whose DisplayName or WellKnownName
+// matches `name` case-insensitively. Used by `:folder <name>` to
+// jump the list pane without requiring the user to know the
+// tenant-specific folder ID. Sidebar order is preserved on
+// duplicates: the first match wins.
+func (m FoldersModel) FindByName(name string) (store.Folder, bool) {
+	target := strings.ToLower(strings.TrimSpace(name))
+	if target == "" {
+		return store.Folder{}, false
+	}
+	for _, f := range m.raw {
+		if strings.ToLower(f.DisplayName) == target ||
+			strings.ToLower(f.WellKnownName) == target {
+			return f, true
+		}
+	}
+	return store.Folder{}, false
+}
+
 // SelectByID moves the cursor onto the folder with the given id.
 // No-op if not present.
 func (m *FoldersModel) SelectByID(id string) {

@@ -126,6 +126,11 @@ and don't currently mark-read. Use the list pane for that.
 | `:signout`                    | Confirm modal → clears tokens + local cache                     |
 | `:filter <pattern>`           | Narrow message list to pattern matches                          |
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
+| `:refresh`                    | Force a sync cycle now (same as `Ctrl+R`)                       |
+| `:folder <name>`              | Jump the list pane to a folder (DisplayName or well-known like `inbox`) |
+| `:search <query>`             | Run an FTS search and show hits (same as `/<query>`)            |
+| `:open`                       | Open the focused message's webLink in the system browser       |
+| `:backfill`                   | Pull older messages past the cache wall for the focused folder |
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
 | `:ooo` / `:outofoffice`       | Open the out-of-office modal (view + toggle on/off)             |
 | `:unsub` / `:unsubscribe`     | Unsubscribe from the focused message (same flow as `U` keybinding) |
