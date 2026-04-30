@@ -49,7 +49,7 @@ func inferWellKnownName(displayName string) string {
 // only walked the top level. The delta endpoint returns the whole
 // tree regardless of depth.
 //
-// Two transformations on the Graph response:
+// Three transformations on the Graph response:
 //
 //  1. parent_folder_id NULL-out: Graph returns top-level folders with
 //     parentFolderId pointing to the mailbox root (msgfolderroot), a
@@ -57,12 +57,23 @@ func inferWellKnownName(displayName string) string {
 //     FK would reject this. We collect the response's ID set and NULL
 //     any parent that isn't in it.
 //
-//  2. wellKnownName inference: Graph 400's some tenants when we $select
-//     wellKnownName on the LIST endpoint, so we don't request it. We
-//     infer it from the DisplayName via [inferWellKnownName] which has
-//     the canonical English mapping. Non-English tenants get empty
-//     well-known names — they sort alphabetically and the Inbox-default
-//     picker falls back to display-name match (case-insensitive).
+//  2. wellKnownName inference (TOP-LEVEL ONLY): Graph 400's some
+//     tenants when we $select wellKnownName on the LIST endpoint, so
+//     we don't request it. We infer from the DisplayName via
+//     [inferWellKnownName] which has the canonical English mapping.
+//     **Critical: only applied to top-level folders.** Real-tenant
+//     v0.16.0 regression: a user with a nested folder literally
+//     named "Inbox" (very common — old-mail archives, year-indexed
+//     organisation, shared-mailbox mounts) would otherwise have the
+//     heuristic infer wellKnownName="inbox" for the child too,
+//     conflicting with the real top-level Inbox on the
+//     `(account_id, well_known_name)` unique index.
+//
+//  3. wellKnownName dedup: even on top-level folders, if Graph returns
+//     two rows claiming the same wellKnownName (shared-mailbox mounts,
+//     search folders, tenant quirks), only the first wins. Subsequent
+//     rows keep their own ID but lose the wellKnownName — better than
+//     aborting the whole sync on the unique-index conflict.
 func (e *engine) syncFolders(ctx context.Context) error {
 	remote, err := e.gc.ListFoldersDelta(ctx)
 	if err != nil {
@@ -72,6 +83,10 @@ func (e *engine) syncFolders(ctx context.Context) error {
 	for _, f := range remote {
 		known[f.ID] = true
 	}
+	// Track wellKnownName values we've already used in this sync so a
+	// second clashing row drops its wellKnownName instead of failing
+	// the unique constraint.
+	usedWellKnown := make(map[string]bool, len(remote))
 	seen := make(map[string]bool, len(remote))
 	for _, f := range remote {
 		seen[f.ID] = true
@@ -80,8 +95,19 @@ func (e *engine) syncFolders(ctx context.Context) error {
 			parent = ""
 		}
 		wkn := f.WellKnownName
-		if wkn == "" {
+		// Only top-level folders can carry an inferred wellKnownName.
+		// A nested folder named "Inbox" is the user's filing label,
+		// not Outlook's mailbox-root inbox.
+		if wkn == "" && parent == "" {
 			wkn = inferWellKnownName(f.DisplayName)
+		}
+		// Dedup: first wins, later rows lose the wellKnownName.
+		if wkn != "" {
+			if usedWellKnown[wkn] {
+				wkn = ""
+			} else {
+				usedWellKnown[wkn] = true
+			}
 		}
 		if err := e.st.UpsertFolder(ctx, store.Folder{
 			ID:             f.ID,
