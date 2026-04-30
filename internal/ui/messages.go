@@ -30,6 +30,7 @@ const (
 	OOFMode
 	ComposeConfirmMode
 	HelpMode
+	CategoryInputMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update

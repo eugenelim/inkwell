@@ -291,7 +291,8 @@ config surface.
 | 2  | 04      | shipped (v0.13.x) | main | spec 04 §17 [bindings] + §12 help overlay + §6.4 :help | docs/plans/spec-04.md iter 9 |
 | 3  | 03      | shipped (v0.13.x) | main | spec 03 §3 ThrottledEvent + AuthRequiredEvent | docs/plans/spec-03.md iter 8 |
 | 4a | 07      | shipped (v0.13.x) | main | spec 07 §6.7 permanent_delete | docs/plans/spec-07.md iter 3 |
-| 4b | 07      | not-started (categories + move-with-picker) | — | — | — |
+| 4b | 07      | shipped (v0.13.x) — categories closed; move-with-picker carved as PR 4c | main | spec 07 §6.9 / §6.10 add_category / remove_category | docs/plans/spec-07.md iter 4 |
+| 4c | 07      | not-started (move-with-folder-picker) | — | — | — |
 | 5  | 04      | shipped (v0.13.x) | main | spec 04 §6.4 :refresh / :folder / :open / :backfill / :search | docs/plans/spec-04.md iter 10 |
 | 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
 | 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter — |

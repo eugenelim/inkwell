@@ -51,6 +51,8 @@ pattern via the filter machinery.
 | `d`       | Soft-delete (move to Deleted Items)                           |
 | `D`       | Permanent delete (with confirm; bypasses Deleted Items; **NOT undoable**) |
 | `a`       | Archive (move to Archive folder)                              |
+| `c`       | Add category (prompts for the name)                           |
+| `C`       | Remove category (prompts for the name)                        |
 | `;`       | Begin bulk chord (only when a filter is active)               |
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
@@ -81,6 +83,8 @@ pull more from Graph.
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `D`       | Permanent delete (with confirm; **NOT undoable**)             |
 | `a`       | Archive (focus pops back to list)                             |
+| `c`       | Add category (prompts for the name)                           |
+| `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `u`       | Undo the most recent triage action                            |
 

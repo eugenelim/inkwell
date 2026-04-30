@@ -99,6 +99,81 @@ func TestExecutorMarkReadMutatesLocalAndCallsGraph(t *testing.T) {
 	require.Len(t, pending, 0, "Done actions are not Pending")
 }
 
+// TestExecutorAddCategoryAppendsAndPatchesGraph verifies the spec
+// 07 §6.9 round trip: a new category is appended to the local row
+// (case-insensitive dedup), Graph receives a PATCH with the full
+// post-state list, and the inverse pushed onto the undo stack is
+// remove_category for the same name.
+func TestExecutorAddCategoryAppendsAndPatchesGraph(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	// Seed the message with an existing category so we can verify
+	// dedup + append-not-replace.
+	require.NoError(t, st.UpdateMessageFields(context.Background(), "m-1", store.MessageFields{
+		Categories: &[]string{"Existing"},
+	}))
+
+	var got []string
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		raw, _ := body["categories"].([]any)
+		got = make([]string, len(raw))
+		for i, v := range raw {
+			got[i], _ = v.(string)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	require.NoError(t, exec.AddCategory(context.Background(), accID, "m-1", "Q4"))
+	require.Equal(t, []string{"Existing", "Q4"}, got,
+		"PATCH must carry the full post-state list, not a delta")
+
+	// Local row reflects the append.
+	row, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Existing", "Q4"}, row.Categories)
+
+	// Undo entry is the inverse (remove_category for the same name).
+	entry, err := st.PeekUndo(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, store.ActionRemoveCategory, entry.ActionType)
+	require.Equal(t, "Q4", entry.Params["category"])
+}
+
+// TestExecutorAddCategoryDedupsCaseInsensitively verifies the
+// Outlook semantic: tagging with an existing category (regardless
+// of case) is a no-op locally.
+func TestExecutorAddCategoryDedupsCaseInsensitively(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpdateMessageFields(context.Background(), "m-1", store.MessageFields{
+		Categories: &[]string{"q4"},
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	require.NoError(t, exec.AddCategory(context.Background(), accID, "m-1", "Q4"))
+	row, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"q4"}, row.Categories,
+		"existing case-insensitive match must NOT be appended")
+}
+
+// TestExecutorRemoveCategoryDropsFromList covers spec 07 §6.10.
+func TestExecutorRemoveCategoryDropsFromList(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpdateMessageFields(context.Background(), "m-1", store.MessageFields{
+		Categories: &[]string{"Q4", "Important"},
+	}))
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	require.NoError(t, exec.RemoveCategory(context.Background(), accID, "m-1", "Q4"))
+	row, err := st.GetMessage(context.Background(), "m-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Important"}, row.Categories)
+}
+
 // TestExecutorPermanentDeleteHitsGraphAndRemovesLocally is the spec
 // 07 §6.7 invariant: the executor calls POST
 // /me/messages/{id}/permanentDelete, the local row is removed, and
