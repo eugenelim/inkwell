@@ -733,22 +733,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.SetAttachments(msg.Attachments)
 			m.viewer.SetConversationThread(msg.Conversation, msg.MessageID)
 		}
-
-	case SaveAttachmentDoneMsg:
-		if msg.Err != nil {
-			m.lastError = fmt.Errorf("save %s: %w", msg.Name, msg.Err)
-		} else {
-			m.engineActivity = fmt.Sprintf("saved → %s", msg.Path)
-		}
-		return m, nil
-
-	case OpenAttachmentDoneMsg:
-		if msg.Err != nil {
-			m.lastError = fmt.Errorf("open %s: %w", msg.Name, msg.Err)
-		} else {
-			m.engineActivity = fmt.Sprintf("opened %s", msg.Name)
-		}
-		return m, nil
 		// Stale local id: Graph reassigns message IDs on Move
 		// (soft-delete, archive, user-folder move). The local row
 		// keeps the old ID until the next sync re-discovers the
@@ -772,6 +756,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(cmds) > 0 {
 				return m, tea.Batch(cmds...)
 			}
+		}
+		return m, nil
+
+	case SaveAttachmentDoneMsg:
+		if msg.Err != nil {
+			m.lastError = fmt.Errorf("save %s: %w", msg.Name, msg.Err)
+		} else {
+			m.engineActivity = fmt.Sprintf("saved → %s", msg.Path)
+		}
+		return m, nil
+
+	case OpenAttachmentDoneMsg:
+		if msg.Err != nil {
+			m.lastError = fmt.Errorf("open %s: %w", msg.Name, msg.Err)
+		} else {
+			m.engineActivity = fmt.Sprintf("opened %s", msg.Name)
 		}
 		return m, nil
 
