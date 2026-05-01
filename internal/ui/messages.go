@@ -82,9 +82,15 @@ type BodyLink struct {
 
 // BodyRenderedMsg is delivered after a body fetch (or cache hit) has
 // produced text and link table. The viewer pane consumes it.
+//
+// Attachments carries the attachment metadata for the message
+// (spec 05 §5.2 / §8). Empty when the message has none. The viewer
+// renders an "Attachments:" block between headers and body so the
+// reader sees what's attached before scrolling into the message.
 type BodyRenderedMsg struct {
-	MessageID string
-	Text      string
-	Links     []BodyLink
-	State     int // mirrors render.BodyState
+	MessageID   string
+	Text        string
+	Links       []BodyLink
+	State       int // mirrors render.BodyState
+	Attachments []store.Attachment
 }

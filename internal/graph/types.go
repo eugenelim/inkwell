@@ -69,9 +69,29 @@ type Message struct {
 	LastModifiedDateTime    time.Time   `json:"lastModifiedDateTime,omitempty"`
 	MeetingMessageType      string      `json:"meetingMessageType,omitempty"`
 	Body                    *Body       `json:"body,omitempty"`
+	// Attachments is populated by GetMessageBody via $expand=attachments
+	// (spec 05 §5.2). Empty otherwise. Only metadata fields are
+	// modelled — the raw bytes are fetched on-demand by the save /
+	// open path (PR 10).
+	Attachments []Attachment `json:"attachments,omitempty"`
 	// Removed is set by the delta endpoint when a message has been
 	// deleted from the folder. Receivers treat as a tombstone.
 	Removed *RemovedMarker `json:"@removed,omitempty"`
+}
+
+// Attachment mirrors Graph's fileAttachment / itemAttachment subset
+// inkwell renders (name, size, content-type, inline flag, contentId).
+// We don't recurse into itemAttachment's nested item — v1 lists the
+// envelope only.
+type Attachment struct {
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	ContentType  string `json:"contentType,omitempty"`
+	Size         int64  `json:"size,omitempty"`
+	IsInline     bool   `json:"isInline,omitempty"`
+	ContentID    string `json:"contentId,omitempty"`
+	ODataType    string `json:"@odata.type,omitempty"`
+	LastModified string `json:"lastModifiedDateTime,omitempty"`
 }
 
 // RemovedMarker is the tombstone payload Graph emits in delta responses.

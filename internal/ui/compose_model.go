@@ -65,6 +65,14 @@ type ComposeSnapshot struct {
 type ComposeModel struct {
 	Kind     ComposeKind
 	SourceID string
+	// SessionID identifies this compose session in the
+	// `compose_sessions` table (spec 15 §7 / PR 7-ii crash
+	// recovery). Set by startCompose on entry; persists across
+	// the lifetime of the modal; consumed by saveComposeCmd /
+	// discardComposeCmd to mark confirmed_at so the resume scan
+	// ignores the row on next launch. Empty before crash-recovery
+	// shipped (spec-15 v1) — code paths must guard.
+	SessionID string
 
 	to      textinput.Model
 	cc      textinput.Model
@@ -132,22 +140,128 @@ func (m *ComposeModel) ApplyReplySkeleton(src store.Message, renderedBody string
 	m.SourceID = src.ID
 	m.SetTo(src.FromAddress)
 	m.SetCc("")
-	subj := src.Subject
-	if !hasReplyPrefix(subj) {
-		subj = "Re: " + subj
-	} else {
-		// Normalise to canonical "Re: " casing.
-		subj = "Re: " + strings.TrimSpace(subj[3:])
-	}
-	m.SetSubject(subj)
-
-	// Reuse the existing template to format the body block. It
-	// emits a multi-line string that begins with header lines (To/
-	// Cc/Subject + blank separator) followed by the quote chain.
-	// We drop the header lines because the in-modal form renders
-	// them separately.
+	m.SetSubject(replyPrefix(src.Subject))
 	full := compose.ReplySkeleton(src, renderedBody)
 	m.SetBody(stripSkeletonHeaders(full))
+}
+
+// ApplyReplyAllSkeleton populates the form for a reply-all. Like
+// ApplyReplySkeleton but pre-fills To with src.From + remaining
+// To recipients (excluding userUPN to avoid the user emailing
+// themselves) and Cc with src.Cc (also userUPN-filtered). Spec 15
+// §6.2 / PR 7-iii.
+func (m *ComposeModel) ApplyReplyAllSkeleton(src store.Message, renderedBody, userUPN string) {
+	m.Kind = ComposeKindReplyAll
+	m.SourceID = src.ID
+
+	to := dedupReplyAddresses(append([]store.EmailAddress{
+		{Address: src.FromAddress},
+	}, src.ToAddresses...), userUPN)
+	cc := dedupReplyAddresses(src.CcAddresses, userUPN)
+	m.SetTo(joinReplyAddrs(to))
+	m.SetCc(joinReplyAddrs(cc))
+	m.SetSubject(replyPrefix(src.Subject))
+
+	full := compose.ReplyAllSkeleton(src, renderedBody, userUPN)
+	m.SetBody(stripSkeletonHeaders(full))
+}
+
+// ApplyForwardSkeleton populates the form for a forward. To/Cc
+// start empty (the user fills the recipients); Subject is prefixed
+// "Fwd:"; body opens with the canonical "Forwarded message" header
+// block. Spec 15 §6.2 / PR 7-iii.
+func (m *ComposeModel) ApplyForwardSkeleton(src store.Message, renderedBody string) {
+	m.Kind = ComposeKindForward
+	m.SourceID = src.ID
+	m.SetTo("")
+	m.SetCc("")
+	m.SetSubject(forwardPrefix(src.Subject))
+
+	full := compose.ForwardSkeleton(src, renderedBody)
+	m.SetBody(stripSkeletonHeaders(full))
+}
+
+// ApplyNewSkeleton blanks the form for a brand-new message. Focus
+// shifts to the To field rather than Body because the user's first
+// task is recipient entry (no source-sender to pre-fill from).
+// Spec 15 §6 / PR 7-iii.
+func (m *ComposeModel) ApplyNewSkeleton() {
+	m.Kind = ComposeKindNew
+	m.SourceID = ""
+	m.SetTo("")
+	m.SetCc("")
+	m.SetSubject("")
+	m.SetBody("")
+	m.setFocus(ComposeFieldTo)
+}
+
+// replyPrefix returns the subject decorated with "Re: ". A subject
+// already prefixed (any casing) is normalised to canonical "Re: "
+// without stacking.
+func replyPrefix(subj string) string {
+	if !hasReplyPrefix(subj) {
+		return "Re: " + subj
+	}
+	return "Re: " + strings.TrimSpace(subj[3:])
+}
+
+// forwardPrefix returns the subject decorated with "Fwd: ".
+// Recognises both "Fwd:" and "Fw:" prefixes (Outlook uses Fw:,
+// Gmail/Apple use Fwd:); normalises to "Fwd:".
+func forwardPrefix(subj string) string {
+	low := strings.ToLower(strings.TrimSpace(subj))
+	switch {
+	case strings.HasPrefix(low, "fwd:"):
+		return "Fwd: " + strings.TrimSpace(subj[4:])
+	case strings.HasPrefix(low, "fw:"):
+		return "Fwd: " + strings.TrimSpace(subj[3:])
+	}
+	return "Fwd: " + subj
+}
+
+// dedupReplyAddresses returns the slice with the user's own UPN
+// removed (case-insensitive) and duplicates collapsed. Empty UPN
+// disables self-filter. Defined here (vs delegating to the
+// internal/compose helper) so the UI doesn't need to import
+// internal/compose unexported helpers.
+func dedupReplyAddresses(in []store.EmailAddress, userUPN string) []store.EmailAddress {
+	if len(in) == 0 {
+		return nil
+	}
+	self := strings.ToLower(strings.TrimSpace(userUPN))
+	seen := make(map[string]bool, len(in))
+	out := make([]store.EmailAddress, 0, len(in))
+	for _, a := range in {
+		key := strings.ToLower(strings.TrimSpace(a.Address))
+		if key == "" {
+			continue
+		}
+		if self != "" && key == self {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, a)
+	}
+	return out
+}
+
+// joinReplyAddrs renders the dedup'd address list as a single
+// comma-separated string for a textinput field. Display names
+// are dropped; Outlook re-resolves on send.
+func joinReplyAddrs(rs []store.EmailAddress) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(rs))
+	for _, a := range rs {
+		if a.Address != "" {
+			out = append(out, a.Address)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // hasReplyPrefix recognises the canonical reply prefixes case-

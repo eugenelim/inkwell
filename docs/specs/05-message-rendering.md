@@ -226,16 +226,56 @@ For `body.contentType == "text"`:
 
 ## 8. Attachment rendering
 
-Below the body, a section:
+**Layout (v0.13.x): between the headers and body**, not below.
+Real-tenant feedback (2026-05-01) flagged that an attachment block
+appended after the body is invisible until the user scrolls to the
+end — and most marketing / corporate emails have long bodies, so
+"the user never sees the filenames" became a common surprise. mutt,
+neomutt, and alpine all surface attachments above (or alongside)
+the body for the same reason: discoverability beats reading-flow
+preservation. inkwell follows that convention.
 
 ```
-Attachments:
-  [a] Q4-forecast.pptx (4.2 MB)
-  [b] meeting-notes.docx (87 KB)
-  [c] chart.png (inline, 124 KB)
+From:    Bob Acme <bob@vendor.invalid>
+Date:    Fri, 01 May 2026 10:32:00 GMT
+Subject: Q4 deck
+
+Attach:  3 files · 4.4 MB
+  Q4-forecast.pptx · 4.2MB · application/vnd.…presentation
+  meeting-notes.docx · 87.0KB · application/vnd.…wordprocessing
+  chart.png · 124.0KB · image/png (inline)
+
+Hi team, attaching the deck for the Q4 review…
 ```
 
-Letters `[a]`, `[b]`, etc. are accelerator keys. In viewer focus:
+The summary line (`3 files · 4.4 MB`) gives the count + total weight
+at a glance even when the per-file lines scroll off-screen on a
+narrow viewer. Each per-file line carries name, human-readable
+size, and content-type so the user can spot a `.exe` at the level
+of the fold rather than after clicking through.
+
+**v0.13.x scope: visibility only.** The list renders names, sizes,
+content-types, and the `(inline)` flag for `cid:`-referenced
+images. Save / open / accelerator-letter keybindings ride on the
+broader spec 05 §12 viewer-keys work (audit-drain PR 10) — those
+land alongside the `internal/graph/GetAttachment` helper and the
+path-traversal guard called out in spec 17 §4.4. Until then, the
+user reads what's attached, then opens the message in Outlook
+(`o`) to pull the file.
+
+### 8.0 Future: accelerator keys (PR 10)
+
+Once PR 10 ships, each per-file line is prefixed with an
+accelerator letter:
+
+```
+  [a] Q4-forecast.pptx · 4.2MB · application/vnd.…presentation
+  [b] meeting-notes.docx · 87.0KB · application/vnd.…wordprocessing
+  [c] chart.png · 124.0KB · image/png (inline)
+```
+
+Letters `[a]`, `[b]`, etc. become single-key shortcuts in viewer
+focus:
 
 - `a`, `b`, … → `:save` the attachment to `[rendering].attachment_save_dir`.
 - `Shift+A`, `Shift+B`, … → `:open` the attachment (downloads to temp file, hands off to `open(1)`).

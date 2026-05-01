@@ -100,3 +100,104 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
 - Slice: `internal/render/graphfetcher.go` — small adapter struct holding `*graph.Client`, implementing `FetchBody(ctx, messageID) (FetchedBody, error)` by calling `c.GetMessageBody(ctx, id)` and mapping `graph.Message.Body.{ContentType,Content}` → `render.FetchedBody`.
 - This file lives in `internal/render` (not `internal/graph`) because rendering is the consumer-side; the dependency direction is render → graph, which is allowed by ARCH §2 layering.
 - Tests: stubBodyFetcher already covers the rendering side. The adapter itself is mostly a type conversion; covered by smoke (the v0.2.0 release will exercise it on first message-open).
+
+### Iter 5 — 2026-05-01 (URL extraction hardening + attachment visibility)
+- Trigger: two real-tenant complaints landed in the same session:
+  1. Tracking link cut off mid-URL. The corporate digest URL
+     `https://host:10020/euweb/digest?…&msg_id=(V_<hash>)&c=tenant&…`
+     was truncated at the first `)`. A second corporate tracker
+     URL was truncated at a hard newline before `&tranId=…`. Both
+     made click-throughs land on a useless prefix. The URL regex
+     stop-set excluded `)` and `]` (good for `(URL)` wrappers,
+     bad for tracker URLs that legitimately carry balanced
+     `(...)` or `[...]` in the query). Long URLs that the
+     sender's MUA hard-wraps at column 78 dropped everything
+     after the newline because the regex is per-line.
+  2. Attachments invisible. The list pane showed the `📎` glyph
+     but the viewer pane never listed filenames. mutt and alpine
+     both surface attachments above the body for the same
+     discoverability reason; spec 05 §8 had specced "below the
+     body" — wrong, because long bodies push the block off-screen
+     so users never see what's attached.
+
+- Slice (URL hardening):
+  - `internal/render/links.go::urlPattern` switched from
+    `https?://[^\s)\]]+` to `https?://\S+` (greedy through any
+    non-whitespace).
+  - New `trimUnbalancedTrailing(u)` that strips trailing `)`,
+    `]`, `>` whose counts inside the URL don't balance —
+    rebalances `(URL)` / `[URL]` / `<URL>` wrapper cases without
+    eating legitimate balanced parens / brackets in tracker
+    query strings.
+  - New `unwrapBrokenURLs(body)` runs at the top of
+    `normalisePlain` (before the line-split loop): joins URL
+    fragments split across `\n` when the next line starts with
+    a strict URL-symbol char (`&`, `?`, `/`, `#`, `=`, `%`, `+`,
+    `(`, `[`). Conservative continuation set so plain prose lines
+    starting with alphanumerics aren't merged.
+
+- Tests (URL):
+  - `TestExtractLinksKeepsBalancedParensInQuery` — 2nd user URL
+    round-trips whole.
+  - `TestExtractLinksStripsUnbalancedTrailingWrappers` — 5
+    cases (`(URL)`, `[URL]`, `<URL>`, `((URL))`, `URL.`).
+  - `TestUnwrapBrokenURLsJoinsHardWrappedTrackerURL` — 1st user
+    URL with explicit `\n` between `%5D` and `&tranId=…` — full
+    URL stitched + extracted.
+  - `TestUnwrapBrokenURLsLeavesNonURLContinuationsAlone` —
+    plain-prose lines stay separate.
+
+- Slice (attachment visibility):
+  - `internal/graph/types.go` — new `Attachment` type modelling
+    Graph's `id, name, contentType, size, isInline, contentId`
+    subset; `Message.Attachments` field.
+  - `internal/graph/messages.go::GetMessageBody` — URL gains
+    `&$expand=attachments($select=id,name,contentType,size,isInline,contentId)`.
+    `contentBytes` deliberately NOT in the $select — body fetch
+    is hot-path and base64 bytes would blow the latency budget;
+    bytes get pulled on demand by the eventual save / open path.
+  - `internal/render/render.go` — `FetchedBody` gains
+    `Attachments []FetchedAttachment`. `FetchBodyAsync` upserts
+    via `store.UpsertAttachments` so subsequent viewer opens
+    read from cache.
+  - `internal/render/graphfetcher.go` — populates
+    `FetchedBody.Attachments` from the graph response.
+  - `internal/ui/messages.go::BodyRenderedMsg` — gains
+    `Attachments []store.Attachment`.
+  - `internal/ui/app.go::openMessageCmd` — loads attachments
+    via `store.ListAttachments` after body resolves; threads
+    them through the message.
+  - `internal/ui/panes.go::ViewerModel` — gains `attachments`
+    field + `SetAttachments` / `Attachments()` accessors.
+  - `internal/ui/panes.go::View` — renders `Attach: 3 files ·
+    4.4 MB` summary line + per-file lines (`name · size ·
+    content-type` with `(inline)` flag) between headers and
+    body.
+
+- Spec amend: §8 rewritten to reflect "between headers and
+  body" placement + v0.13.x visibility-only scope. Accelerator
+  letters `[a]` / `[b]` and save/open keybindings explicitly
+  carved into a §8.0 PR-10 future-work block — the spec stays a
+  single source of truth without lying about what shipped.
+
+- Audit-doc: §5.2 "body $select drift" partially closed (the
+  `$expand=attachments` half); `internetMessageHeaders` half
+  remains tracked under PR 10. §8 row partially closed
+  (visibility shipped; accelerator letters / save / open / the
+  graph helper / spec 17 §4.4 path-traversal guard remain under
+  PR 10).
+
+- Result: full `go test -race` green for `internal/render`,
+  `internal/ui`, `internal/graph`, `internal/store`. Attachment
+  block paints in the viewer at the rendered-frame level
+  (verified via dispatch test asserting filename + summary +
+  `(inline)` flag are all visible after a BodyRenderedMsg). URL
+  hardening verified by 4 new render unit tests; existing
+  `TestNormalisePlain*` suite stayed green after tightening the
+  unwrap heuristic.
+
+  **Deferred to PR 10 (audit-drain spec 05 §12 + §8 + spec 17
+  §4.4):** `[a]` / `[b]` accelerator letter prefixes, the
+  `internal/graph/GetAttachment` helper, save / open
+  keybindings, the path-traversal guard, full
+  `internetMessageHeaders` $select for `H` toggle.

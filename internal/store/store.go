@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -116,6 +116,21 @@ type Store interface {
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)
 	PutSavedSearch(ctx context.Context, s SavedSearch) error
 	DeleteSavedSearch(ctx context.Context, id int64) error
+
+	// Compose sessions (spec 15 §7 / PR 7-ii crash recovery).
+	// PutComposeSession upserts a session row keyed by SessionID;
+	// callers use it both to create the row on compose entry and
+	// to rewrite the snapshot on focus change. ConfirmComposeSession
+	// stamps confirmed_at so the resume scan ignores the row.
+	// ListUnconfirmedComposeSessions returns rows with NULL
+	// confirmed_at ordered by created_at DESC so the resume modal
+	// offers the most-recent crashed draft first.
+	// GCConfirmedComposeSessions deletes rows whose confirmed_at is
+	// before the supplied cutoff, run on launch with cutoff = now-24h.
+	PutComposeSession(ctx context.Context, s ComposeSession) error
+	ConfirmComposeSession(ctx context.Context, sessionID string) error
+	ListUnconfirmedComposeSessions(ctx context.Context) ([]ComposeSession, error)
+	GCConfirmedComposeSessions(ctx context.Context, before time.Time) (int64, error)
 
 	// FTS search
 	Search(ctx context.Context, q SearchQuery) ([]MessageMatch, error)

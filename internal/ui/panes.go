@@ -690,6 +690,14 @@ type ViewerModel struct {
 	// links is the numbered URL table the renderer extracted.
 	// Spec 05 §10 + the v0.15.x URL-picker work key off this.
 	links []BodyLink
+	// attachments is the metadata-only attachment list for the
+	// current message (spec 05 §8). Populated by the body-fetch
+	// path on each open. The viewer renders them as a compact
+	// "Attachments:" block between the headers and the body so
+	// the user sees what's attached before scrolling — terminal
+	// mail clients (mutt, alpine) converge on this layout. Save /
+	// open keybindings land with PR 10 (audit-drain spec 05 §12).
+	attachments []store.Attachment
 }
 
 // NewViewer returns an empty viewer.
@@ -702,6 +710,20 @@ func (m *ViewerModel) SetMessage(msg store.Message) {
 	m.body = ""
 	m.bodyState = 0
 	m.scrollY = 0
+	m.attachments = nil
+}
+
+// SetAttachments records the attachment metadata loaded for the
+// current message. The viewer renders an "Attachments:" block
+// between headers and body when this is non-empty.
+func (m *ViewerModel) SetAttachments(atts []store.Attachment) {
+	m.attachments = atts
+}
+
+// Attachments returns the metadata for the current message. Tests
+// + future save/open keybindings consume this.
+func (m ViewerModel) Attachments() []store.Attachment {
+	return m.attachments
 }
 
 // SetBody is invoked after a fetch completes (or the cache hits).
@@ -813,6 +835,13 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 		hdrs = append(hdrs, "To:      "+compactAddrs(m.current.ToAddresses, m.current.CcAddresses, m.current.BccAddresses))
 	}
 	hdrs = append(hdrs, "")
+	// Attachments block sits between headers and body. mutt and
+	// alpine both surface attachments above the body so the reader
+	// sees what's attached before scrolling. Real-tenant complaint
+	// 2026-05-01: previously the only signal was the list-pane
+	// `📎` glyph; the user couldn't see filenames at all.
+	attLines := renderAttachmentLines(m.attachments)
+	hdrs = append(hdrs, attLines...)
 	body := m.body
 	if body == "" {
 		body = t.Dim.Render("(loading…)")
@@ -835,6 +864,70 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	}
 	out := append(hdrs, bodyLines...)
 	return t.Viewer.Width(width).Height(height).Render(strings.Join(out, "\n"))
+}
+
+// renderAttachmentLines produces the compact "Attachments:" block
+// shown above the body (spec 05 §8). One line per attachment
+// followed by a separator blank. Returns nil when there are no
+// attachments so the viewer's tight-budget height isn't wasted on a
+// header for an empty list. Intentionally cheap formatting (no
+// theme lookups, no styling) so this stays in panes.go without
+// pulling in render's attachments helper. Save / open accelerator
+// letters land with PR 10 (audit-drain spec 05 §12).
+func renderAttachmentLines(atts []store.Attachment) []string {
+	if len(atts) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(atts)+2)
+	out = append(out, "Attach:  "+attachmentSummary(atts))
+	for _, a := range atts {
+		out = append(out, "  "+attachmentLine(a))
+	}
+	out = append(out, "")
+	return out
+}
+
+// attachmentSummary renders a one-line header summary
+// "3 files · 2.4 MB" so the user sees the count + total weight at
+// a glance even if the per-file lines scroll off-screen.
+func attachmentSummary(atts []store.Attachment) string {
+	var total int64
+	for _, a := range atts {
+		total += a.Size
+	}
+	noun := "files"
+	if len(atts) == 1 {
+		noun = "file"
+	}
+	return fmt.Sprintf("%d %s · %s", len(atts), noun, humanByteSize(total))
+}
+
+// attachmentLine renders one attachment's name + size + content-type.
+// Inline attachments are flagged so users understand they're embedded
+// images rather than user-attached files.
+func attachmentLine(a store.Attachment) string {
+	suffix := ""
+	if a.IsInline {
+		suffix = " (inline)"
+	}
+	if a.ContentType != "" {
+		return fmt.Sprintf("%s · %s · %s%s", a.Name, humanByteSize(a.Size), a.ContentType, suffix)
+	}
+	return fmt.Sprintf("%s · %s%s", a.Name, humanByteSize(a.Size), suffix)
+}
+
+// humanByteSize is a panes-local copy of render.humanBytes so the
+// viewer doesn't import internal/render. Same conversion (KB == 1024
+// bytes); kept in sync via a tiny test.
+func humanByteSize(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%dB", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+	}
 }
 
 // compactAddrs renders a one-line summary of all recipients across

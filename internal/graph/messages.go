@@ -83,9 +83,19 @@ func (c *Client) FollowNext(ctx context.Context, nextLink string) (*ListMessages
 	return &page, nil
 }
 
-// GetMessageBody fetches body + attachments for a message id.
+// GetMessageBody fetches body + attachment metadata for a message id.
+// Spec 05 §5.2 — `$expand=attachments` returns metadata for every
+// attached fileAttachment / itemAttachment in one round-trip; the
+// alternative (separate /attachments call per message open) doubled
+// the latency on attachment-heavy threads. The attachment payload's
+// `contentBytes` field is intentionally NOT in `$select` — body fetch
+// is on the hot path, and attaching N MB of base64 to every viewer
+// open would blow the latency budget. Bytes are pulled on demand by
+// the save / open path (PR 10).
 func (c *Client) GetMessageBody(ctx context.Context, id string) (*Message, error) {
-	url := "/me/messages/" + id + "?$select=body,hasAttachments"
+	url := "/me/messages/" + id +
+		"?$select=body,hasAttachments" +
+		"&$expand=attachments($select=id,name,contentType,size,isInline,contentId)"
 	resp, err := c.Do(ctx, http.MethodGet, url, nil, nil)
 	if err != nil {
 		return nil, err

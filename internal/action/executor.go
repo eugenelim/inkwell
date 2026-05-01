@@ -301,13 +301,13 @@ func (e *Executor) Drain(ctx context.Context) error {
 		return fmt.Errorf("action drain: list pending: %w", err)
 	}
 	for _, a := range pending {
-		// ActionCreateDraftReply is non-idempotent at stage 1
-		// (POST /me/messages/{src}/createReply produces a fresh
-		// draft each call). Drain mustn't re-fire it. The action
-		// stays Pending in the table for crash-recovery (PR 7-ii)
-		// to find on next launch and resume from the recorded
-		// draft_id.
-		if a.Type == store.ActionCreateDraftReply {
+		// Draft creation actions are all non-idempotent at stage 1
+		// (createReply / createReplyAll / createForward / POST
+		// /me/messages each produce a fresh draft per call). Drain
+		// mustn't re-fire them — the row stays Pending for the
+		// crash-recovery resume path (PR 7-ii) to handle on next
+		// launch.
+		if isDraftCreationAction(a.Type) {
 			continue
 		}
 		if err := e.dispatch(ctx, a); err != nil {

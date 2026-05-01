@@ -110,13 +110,14 @@ disabled because of a real-tenant 400 regression on the bare
 | `End` / `G`       | Jump to bottom of body                                 |
 | `h` / `←` | Back to messages pane                                         |
 | `H`       | Toggle compact / full headers (To/Cc/Bcc expansion)           |
-| `r`       | Reply (opens `$INKWELL_EDITOR` / `$EDITOR` / nano with a draft skeleton) |
-| `s`       | Open the most-recently-saved draft in Outlook (after `r` saves) |
-| `f`       | Toggle flag (focus stays — flag, keep reading)                |
+| `r`       | Reply — opens the in-modal compose pane with the reply skeleton |
+| `R`       | Reply All — opens compose pre-filled with src.From + remaining recipients (deduped against your UPN) |
+| `f`       | Forward — opens compose with the canonical "Forwarded message" header block |
+| `m`       | New message — opens compose with a blank form (focuses To)    |
+| `s`       | Open the most-recently-saved draft in Outlook (after `r`/`R`/`f`/`m` saves) |
 | `d`       | Soft-delete (focus pops back to list)                         |
 | `D`       | Permanent delete (with confirm; **NOT undoable**)             |
 | `a`       | Archive (focus pops back to list)                             |
-| `m`       | Move to a folder (opens picker; type to filter; Enter selects) |
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
@@ -140,6 +141,17 @@ alacritty, foot, wezterm, ghostty, recent gnome-terminal / Konsole)
 make these directly clickable (Cmd-click on macOS, Ctrl-click on
 Linux). Older terminals (Apple Terminal.app) fall back to plain
 text — use the URL picker (`o`) instead.
+
+**Attachments block**: messages with attachments paint a compact
+list between the headers and the body — `Attach: 3 files · 4.4 MB`
+summary line followed by one line per attachment with name, human
+size, content-type, and an `(inline)` flag for `cid:`-referenced
+images. The block lives above the body so you see what's attached
+before scrolling, matching mutt / alpine convention. Save / open
+keybindings (`[a]` / `[b]` accelerator letters) ride on a follow-
+up PR; for now the block is visibility-only — open the message in
+Outlook (`o` is post-MVP for `webLink`; for now use `:open`) to
+download the file.
 
 **Long-URL truncation**: URLs longer than 60 cells render with end-
 truncation in the body — `https://example.com/auth/…` — so they
@@ -190,14 +202,20 @@ side-by-side three-pane layout normally breaks rectangular
 selection across pane borders. Press `z` again (or `Esc` / `q`) to
 return.
 
-**Reply flow** (`r`): pressing `r` in the viewer opens the
-in-modal compose pane, pre-filled from the source message:
+**Compose flow** (`r` / `R` / `f` / `m`): each binding opens the
+in-modal compose pane with a different skeleton:
 
-- `To:` is the original sender's address.
-- `Subject:` becomes `Re: <original subject>` (no double-`Re:`).
-- The body starts with a quote chain (`On <date>, <name> wrote:`
-  followed by `> `-prefixed source text). Cursor lands above the
-  quote, ready to type.
+- `r` Reply: To = source's From, Subject = `Re: <source>`, body
+  starts with the quote chain.
+- `R` Reply All: To = source's From + remaining To recipients
+  (deduped against your UPN); Cc = source's Cc; Subject = `Re:
+  <source>`.
+- `f` Forward: To/Cc empty; Subject = `Fwd: <source>`; body opens
+  with a `---------- Forwarded message ----------` header block
+  carrying the source's From / Date / Subject / To, followed by
+  the source body verbatim.
+- `m` New message: blank form; focus drops into To since recipients
+  are your first task (no source-sender to pre-fill).
 
 While in compose:
 
@@ -209,21 +227,35 @@ While in compose:
 | `Esc`          | Save (alias for Ctrl+S — the "I'm done" gesture)    |
 | `Ctrl+D`       | Discard the draft (no Graph round-trip)             |
 
-Save calls Microsoft Graph `createReply` + `PATCH /me/messages/
-{id}` to land the draft in your Drafts folder. The status bar
-shows `✓ draft saved · press s to open in Outlook`. Press `s`
-(in Normal mode) to launch the draft in your browser / Outlook
-desktop, where you finalise send. inkwell never sends mail — see
-the [explanation](explanation.md#why-no-send) for why.
+Save dispatches via the action queue to Microsoft Graph: Reply /
+Reply All / Forward use a two-stage createReply* + PATCH; New
+uses a single-stage POST /me/messages with the full payload. The
+draft lands in your Drafts folder. The status bar shows `✓ draft
+saved · press s to open in Outlook`. Press `s` (in Normal mode)
+to launch the draft in your browser / Outlook desktop, where you
+finalise send. inkwell never sends mail — see the
+[explanation](explanation.md#why-no-send) for why.
 
-**Recipient recovery**: if you clear the `To:` field by accident,
-Save will fall back to the original sender's address (the implicit
-recipient of a reply). If neither the form nor the source has a
-recipient, you get an actionable error and the form state stays
-on screen so you can correct and retry.
+**Recipient recovery**: if you clear the `To:` field by accident
+on a Reply / Reply All / Forward, Save falls back to the original
+sender's address (the implicit recipient). If neither the form
+nor the source has a recipient, you get an actionable error and
+the form state stays on screen so you can correct and retry. New
+messages don't have a source-sender to fall back to — Save errors
+out asking you to fill `To:` explicitly.
 
-`r` / `R` are pane-scoped: in the viewer = reply / reply-all
-(reply-all post-MVP); in the messages pane = mark-read.
+**Crash-recovery**: the form state (kind / source / To / Cc /
+Subject / Body) snapshots into a local table on entry and on
+each Tab. If inkwell crashes mid-compose, on next launch you get
+a confirm modal offering to resume where you left off — `y`
+restores the form into ComposeMode; `n` discards it. Confirmed
+sessions older than 24h get garbage-collected on launch.
+
+**Pane-scoped bindings**:
+- `r`: viewer = reply; messages pane = mark-read.
+- `R`: viewer = reply-all; messages pane = mark-unread; folders pane = rename-folder.
+- `f`: viewer = forward (when drafts wired) else toggle-flag; messages pane = toggle-flag.
+- `m`: viewer + folders pane = new message (when drafts wired) else move; messages pane = move-with-folder-picker.
 
 ## Command mode (`:`)
 

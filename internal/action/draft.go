@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
@@ -42,13 +43,87 @@ type DraftResult struct {
 // startup that inspects the Params for a draft_id and stage-aware
 // behaviour.
 func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+		store.ActionCreateDraftReply, e.gc.CreateReply)
+}
+
+// CreateDraftReplyAll mirrors CreateDraftReply but stage 1 calls
+// `/me/messages/{id}/createReplyAll`. The full audience comes from
+// Graph's server-side dedup; the UI still passes its own to/cc/bcc
+// to PATCH because the user may have curated the recipients
+// (removed someone, added a Bcc) before pressing save. Spec 15 §5 /
+// PR 7-iii.
+func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+		store.ActionCreateDraftReplyAll, e.gc.CreateReplyAll)
+}
+
+// CreateDraftForward mirrors CreateDraftReply but stage 1 calls
+// `/me/messages/{id}/createForward`. Graph generates the
+// "Forwarded message" header block + quote chain; the UI's
+// to/cc/bcc / body / subject overlay onto that via the stage 2
+// PATCH. Spec 15 §5 / PR 7-iii.
+func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+		store.ActionCreateDraftForward, e.gc.CreateForward)
+}
+
+// CreateNewDraft enqueues a brand-new (no source) draft. Single-
+// stage: POST /me/messages carries the full payload in one shot
+// so there's no createX→PATCH dance. Spec 15 §5 / PR 7-iii.
+//
+// Drain still skips this type because the POST is non-idempotent
+// (a retry produces a duplicate draft). PR 7-ii's crash-recovery
+// resume path knows from the absence of `draft_id` in Params that
+// stage 1 never landed and is the right place to either re-fire
+// or surface to the user.
+func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
+	a := store.Action{
+		ID:        newActionID(),
+		AccountID: accountID,
+		Type:      store.ActionCreateDraft,
+		Status:    store.StatusPending,
+		CreatedAt: time.Now(),
+		Params: map[string]any{
+			"body":    body,
+			"to":      stringSliceParam(to),
+			"cc":      stringSliceParam(cc),
+			"bcc":     stringSliceParam(bcc),
+			"subject": subject,
+		},
+		SkipUndo: true,
+	}
+	if err := e.st.EnqueueAction(ctx, a); err != nil {
+		return nil, fmt.Errorf("draft: enqueue: %w", err)
+	}
+	ref, err := e.gc.CreateNewDraft(ctx, subject, body, to, cc, bcc)
+	if err != nil {
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+		return nil, fmt.Errorf("createNewDraft: %w", err)
+	}
+	a.Params["draft_id"] = ref.ID
+	a.Params["web_link"] = ref.WebLink
+	if err := e.st.UpdateActionParams(ctx, a.ID, a.Params); err != nil {
+		e.logger.Warn("draft: persist params failed", "action_id", a.ID, "err", err.Error())
+	}
+	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
+		e.logger.Warn("draft: status update failed", "action_id", a.ID, "err", err.Error())
+	}
+	return &DraftResult{ID: ref.ID, WebLink: ref.WebLink}, nil
+}
+
+// createDraftFromSource is the two-stage Reply/ReplyAll/Forward
+// shared executor body. The kind + stage1 fn parameterise the
+// three flavours; everything else (action enqueue, params persist,
+// stage 2 PATCH, status transitions) is identical.
+func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, kind store.ActionType, stage1 func(context.Context, string) (*graph.DraftRef, error)) (*DraftResult, error) {
 	if sourceMessageID == "" {
 		return nil, fmt.Errorf("draft: empty source message id")
 	}
 	a := store.Action{
 		ID:        newActionID(),
 		AccountID: accountID,
-		Type:      store.ActionCreateDraftReply,
+		Type:      kind,
 		Status:    store.StatusPending,
 		CreatedAt: time.Now(),
 		Params: map[string]any{
@@ -59,41 +134,26 @@ func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, source
 			"bcc":               stringSliceParam(bcc),
 			"subject":           subject,
 		},
-		// Drafts are not reversible from the undo stack — the user
-		// finishes the draft (or discards) in Outlook. Skip-undo
-		// keeps `u` from finding draft actions on the stack.
 		SkipUndo: true,
 	}
 	if err := e.st.EnqueueAction(ctx, a); err != nil {
 		return nil, fmt.Errorf("draft: enqueue: %w", err)
 	}
 
-	// Stage 1: createReply.
-	ref, err := e.gc.CreateReply(ctx, sourceMessageID)
+	ref, err := stage1(ctx, sourceMessageID)
 	if err != nil {
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
-		return nil, fmt.Errorf("createReply: %w", err)
+		return nil, fmt.Errorf("%s: %w", kind, err)
 	}
 	a.Params["draft_id"] = ref.ID
 	a.Params["web_link"] = ref.WebLink
 	if err := e.st.UpdateActionParams(ctx, a.ID, a.Params); err != nil {
-		// The draft IS created server-side; we just couldn't persist
-		// the id locally. Log + carry on — stage 2 still runs, and
-		// the user can finish in Outlook either way. If we crash
-		// before stage 2 lands the body, PR 7-ii's resume path
-		// won't have a draft_id to find; it falls back to "skip
-		// resume; rely on Drafts folder delta sync to surface the
-		// stranded draft for the user to clean up in Outlook".
 		e.logger.Warn("draft: persist params failed", "action_id", a.ID, "err", err.Error())
 	}
 
-	// Stage 2: PATCH body + headers.
 	out := &DraftResult{ID: ref.ID, WebLink: ref.WebLink}
 	if err := e.gc.PatchMessageBody(ctx, ref.ID, body, to, cc, bcc, subject); err != nil {
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
-		// Existing contract: surface the error AND return DraftResult
-		// so the caller can paint "press s to open in Outlook" with
-		// a webLink to a draft that has Graph's auto-generated body.
 		return out, fmt.Errorf("draft created, body update failed: %w", err)
 	}
 	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {

@@ -1953,6 +1953,27 @@ func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, bo
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
+func (s stubDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
+	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
+}
+
+func (s stubDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
+	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
+}
+
+func (s stubDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
+	return &DraftRef{ID: "draft-new", WebLink: "https://outlook.office.com/draft/new"}, nil
+}
+
 // TestComposeTabCyclesFields verifies the in-modal Tab navigation
 // reaches the spec 15 v2 §9 cycle order (Body → To → Cc → Subject).
 func TestComposeTabCyclesFields(t *testing.T) {
@@ -2053,7 +2074,7 @@ func TestComposeRecipientRecoveryFromSourceFromAddress(t *testing.T) {
 		Subject:  "Re: x",
 		Body:     "the body",
 	}
-	cmd := m.saveComposeCmd(snap)
+	cmd := m.saveComposeCmd(snap, "")
 	require.NotNil(t, cmd)
 	res := cmd()
 	saved, _ := res.(draftSavedMsg)
@@ -2071,7 +2092,7 @@ func TestComposeSaveErrorsWithoutFallback(t *testing.T) {
 	stub := &recordingDraftCreator{}
 	m.deps.Drafts = stub
 	snap := ComposeSnapshot{Kind: ComposeKindReply} // no SourceID, no To
-	cmd := m.saveComposeCmd(snap)
+	cmd := m.saveComposeCmd(snap, "")
 	res := cmd()
 	saved, _ := res.(draftSavedMsg)
 	require.Error(t, saved.err)
@@ -2087,6 +2108,12 @@ type recordingDraftCreator struct {
 	lastTo  []string
 	lastCc  []string
 	lastBcc []string
+	// lastKind records which DraftCreator method was invoked so
+	// per-kind dispatch tests can assert the routing in
+	// saveComposeCmd. "" until first call.
+	lastKind string
+	// lastSourceID is "" for the New-draft path (no source).
+	lastSourceID string
 }
 
 func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
@@ -2094,7 +2121,39 @@ func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, src
 	s.lastTo = to
 	s.lastCc = cc
 	s.lastBcc = bcc
+	s.lastKind = "reply"
+	s.lastSourceID = srcID
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
+}
+
+func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	s.calls++
+	s.lastTo = to
+	s.lastCc = cc
+	s.lastBcc = bcc
+	s.lastKind = "reply_all"
+	s.lastSourceID = srcID
+	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
+}
+
+func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	s.calls++
+	s.lastTo = to
+	s.lastCc = cc
+	s.lastBcc = bcc
+	s.lastKind = "forward"
+	s.lastSourceID = srcID
+	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
+}
+
+func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+	s.calls++
+	s.lastTo = to
+	s.lastCc = cc
+	s.lastBcc = bcc
+	s.lastKind = "new"
+	s.lastSourceID = ""
+	return &DraftRef{ID: "draft-new", WebLink: "https://outlook/draft/new"}, nil
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug
@@ -3280,4 +3339,569 @@ func TestFolderPickerEnterWithEmptyResultsIsSafe(t *testing.T) {
 	require.Nil(t, cmd, "Enter on empty filter must not dispatch")
 	require.Equal(t, FolderPickerMode, m.mode, "stay in picker mode")
 	require.Contains(t, m.engineActivity, "no folder selected")
+}
+
+// TestBodyRenderedMsgPopulatesAttachmentsBlock is the spec 05 §8
+// minimal-visibility regression. A BodyRenderedMsg with an
+// Attachments slice must reach the viewer model AND the rendered
+// frame must contain each attachment's name. Real-tenant complaint
+// 2026-05-01: the user could see only the list-pane `📎` glyph,
+// never the filenames. Save / open keybindings (PR 10) build on
+// top of this visibility layer.
+func TestBodyRenderedMsgPopulatesAttachmentsBlock(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+	require.NotNil(t, m.viewer.current)
+
+	atts := []store.Attachment{
+		{ID: "a1", MessageID: m.viewer.current.ID, Name: "Q4-forecast.pptx", ContentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", Size: 4 * 1024 * 1024},
+		{ID: "a2", MessageID: m.viewer.current.ID, Name: "notes.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Size: 87 * 1024},
+		{ID: "a3", MessageID: m.viewer.current.ID, Name: "chart.png", ContentType: "image/png", Size: 124 * 1024, IsInline: true},
+	}
+	m2, _ = m.Update(BodyRenderedMsg{
+		MessageID:   m.viewer.current.ID,
+		Text:        "Hello world",
+		State:       0,
+		Attachments: atts,
+	})
+	m = m2.(Model)
+
+	require.Equal(t, atts, m.viewer.Attachments(),
+		"viewer captures the attachment slice from the BodyRenderedMsg")
+
+	frame := m.View()
+	require.Contains(t, frame, "Q4-forecast.pptx",
+		"first attachment name visible in the rendered viewer pane")
+	require.Contains(t, frame, "notes.docx",
+		"second attachment name visible")
+	require.Contains(t, frame, "chart.png",
+		"inline attachment still listed by name")
+	require.Contains(t, frame, "(inline)",
+		"inline attachments flagged so users see they're embedded")
+	require.Contains(t, frame, "Attach:",
+		"summary header opens the attachment block")
+}
+
+// TestRenderAttachmentLinesEmptyForNoAttachments confirms the
+// helper returns nil for an empty list — the viewer's tight height
+// budget shouldn't be wasted on a header for zero entries.
+func TestRenderAttachmentLinesEmptyForNoAttachments(t *testing.T) {
+	require.Nil(t, renderAttachmentLines(nil))
+	require.Nil(t, renderAttachmentLines([]store.Attachment{}))
+}
+
+// TestComposeSessionPersistsOnEntry covers the spec 15 §7 / PR 7-ii
+// crash-recovery shape: entering ComposeMode via `r` writes the
+// initial skeleton snapshot into compose_sessions so a crash after
+// this point can be resumed on next launch.
+func TestComposeSessionPersistsOnEntry(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+	require.NotEmpty(t, m.compose.SessionID,
+		"startCompose assigns a SessionID so the session can be persisted")
+
+	require.NotNil(t, cmd, "startCompose returns a Cmd to persist the snapshot")
+	_ = cmd()
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "compose entry persists exactly one session row")
+	require.Equal(t, m.compose.SessionID, rows[0].SessionID)
+	require.Equal(t, "reply", rows[0].Kind)
+	require.NotEmpty(t, rows[0].Snapshot, "snapshot blob is non-empty")
+}
+
+// TestComposeSessionConfirmedOnSave is the post-save invariant:
+// after Ctrl+S, the row's confirmed_at is set so the resume scan
+// no longer offers it. Tests run synchronously by invoking the
+// Cmd inline.
+func TestComposeSessionConfirmedOnSave(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = &recordingDraftCreator{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, entryCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.NotNil(t, entryCmd)
+	_ = entryCmd() // persist initial snapshot
+
+	sessionID := m.compose.SessionID
+	require.NotEmpty(t, sessionID)
+
+	// Press Ctrl+S; the returned Cmd runs the Graph save AND the
+	// confirm-session write.
+	m2, saveCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.NotNil(t, saveCmd)
+	_ = saveCmd()
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows, "save confirms the session; no unconfirmed rows remain")
+}
+
+// TestComposeSessionConfirmedOnDiscard mirrors the save invariant
+// for Ctrl+D: the user explicitly chose "no draft", the row should
+// not resurface as a resume offer next launch.
+func TestComposeSessionConfirmedOnDiscard(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, entryCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.NotNil(t, entryCmd)
+	_ = entryCmd()
+
+	require.NotEmpty(t, m.compose.SessionID)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows, "Ctrl+D inline-confirms; no unconfirmed rows remain")
+}
+
+// TestComposeResumeMsgOpensConfirmModal is the spec 15 §7 / PR
+// 7-ii startup-resume invariant: when the launch-time scan finds
+// an unconfirmed compose session, the UI offers a confirm modal
+// so the user can resume editing or discard.
+func TestComposeResumeMsgOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	sess := store.ComposeSession{
+		SessionID: "cs-resume",
+		Kind:      "reply",
+		Snapshot:  `{"kind":1,"source_id":"m-1","to":"alice@example.invalid","subject":"Re: Q4","body":"hi"}`,
+		UpdatedAt: time.Now().Add(-15 * time.Minute),
+	}
+	m2, _ := m.Update(composeResumeMsg{Session: sess})
+	m = m2.(Model)
+
+	require.Equal(t, ConfirmMode, m.mode, "resume scan opens the confirm modal")
+	require.NotNil(t, m.pendingComposeResume,
+		"pending row tracked for the confirm-result handler")
+	require.Equal(t, "cs-resume", m.pendingComposeResume.SessionID)
+}
+
+// TestComposeResumeYesRestoresIntoComposeMode confirms the y path:
+// the snapshot decodes back into the ComposeModel and the user is
+// dropped into ComposeMode with their fields pre-populated.
+func TestComposeResumeYesRestoresIntoComposeMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	sess := store.ComposeSession{
+		SessionID: "cs-resume",
+		Kind:      "reply",
+		Snapshot:  `{"kind":1,"source_id":"m-1","to":"alice@example.invalid","subject":"Re: Q4","body":"my reply text"}`,
+		UpdatedAt: time.Now().Add(-15 * time.Minute),
+	}
+	m2, _ := m.Update(composeResumeMsg{Session: sess})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+
+	// User accepts (y).
+	m2, _ = m.Update(ConfirmResultMsg{Topic: "compose_resume", Confirm: true})
+	m = m2.(Model)
+
+	require.Equal(t, ComposeMode, m.mode, "y enters ComposeMode")
+	require.Equal(t, "cs-resume", m.compose.SessionID,
+		"session id preserved so subsequent saves hit the same row")
+	require.Equal(t, "alice@example.invalid", m.compose.To())
+	require.Equal(t, "Re: Q4", m.compose.Subject())
+	require.Equal(t, "my reply text", m.compose.Body())
+	require.Nil(t, m.pendingComposeResume, "pending row cleared after handling")
+}
+
+// TestComposeResumeNoConfirmsAndDiscards covers the n path: the
+// session row is stamped confirmed_at so the resume scan stops
+// offering it. The Cmd is run inline (sub-ms SQLite).
+func TestComposeResumeNoConfirmsAndDiscards(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Seed an unconfirmed row so we can verify it goes away.
+	require.NoError(t, m.deps.Store.PutComposeSession(context.Background(), store.ComposeSession{
+		SessionID: "cs-resume",
+		Kind:      "reply",
+		Snapshot:  `{}`,
+	}))
+	sess := store.ComposeSession{
+		SessionID: "cs-resume",
+		Kind:      "reply",
+		Snapshot:  `{}`,
+		UpdatedAt: time.Now().Add(-15 * time.Minute),
+	}
+	m2, _ := m.Update(composeResumeMsg{Session: sess})
+	m = m2.(Model)
+
+	m2, _ = m.Update(ConfirmResultMsg{Topic: "compose_resume", Confirm: false})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode)
+	require.Nil(t, m.pendingComposeResume)
+	require.Contains(t, m.engineActivity, "discarded")
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows, "n confirms the session inline")
+}
+
+// TestComposeResumeCorruptSnapshotDoesNotCrash covers a defensive
+// case: an undecodable snapshot doesn't take down the UI; the row
+// is confirmed (so we don't infinite-loop on it) and a status
+// hint surfaces.
+func TestComposeResumeCorruptSnapshotDoesNotCrash(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.NoError(t, m.deps.Store.PutComposeSession(context.Background(), store.ComposeSession{
+		SessionID: "cs-corrupt",
+		Kind:      "reply",
+		Snapshot:  `{not valid json`,
+	}))
+	sess := store.ComposeSession{
+		SessionID: "cs-corrupt",
+		Kind:      "reply",
+		Snapshot:  `{not valid json`,
+		UpdatedAt: time.Now(),
+	}
+	m2, _ := m.Update(composeResumeMsg{Session: sess})
+	m = m2.(Model)
+	m2, _ = m.Update(ConfirmResultMsg{Topic: "compose_resume", Confirm: true})
+	m = m2.(Model)
+
+	require.NotEqual(t, ComposeMode, m.mode, "corrupt snapshot doesn't drop into ComposeMode")
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "snapshot")
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows, "corrupt rows get confirmed so they never resurface")
+}
+
+// TestScanComposeSessionsCmdReturnsNoneWhenEmpty confirms the
+// launch scan emits a deterministic `composeResumeNoneMsg` when
+// no unconfirmed rows exist — Init's tea.Batch always gets a
+// signal back, so test harnesses can synchronise.
+func TestScanComposeSessionsCmdReturnsNoneWhenEmpty(t *testing.T) {
+	m := newDispatchTestModel(t)
+	cmd := m.scanComposeSessionsCmd()
+	require.NotNil(t, cmd)
+	msg := cmd()
+	_, ok := msg.(composeResumeNoneMsg)
+	require.True(t, ok, "no unconfirmed rows → composeResumeNoneMsg")
+}
+
+// TestScanComposeSessionsCmdReturnsResumeWhenPresent — happy path
+// of the scan-Cmd: an unconfirmed row in the store becomes a
+// composeResumeMsg with the row payload.
+func TestScanComposeSessionsCmdReturnsResumeWhenPresent(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.NoError(t, m.deps.Store.PutComposeSession(context.Background(), store.ComposeSession{
+		SessionID: "cs-present",
+		Kind:      "reply",
+		Snapshot:  `{}`,
+	}))
+
+	cmd := m.scanComposeSessionsCmd()
+	msg := cmd()
+	resume, ok := msg.(composeResumeMsg)
+	require.True(t, ok)
+	require.NoError(t, resume.Err)
+	require.Equal(t, "cs-present", resume.Session.SessionID)
+}
+
+// TestScanComposeSessionsCmdGCsOldConfirmed is the GC half of the
+// scan: confirmed sessions older than 24h are pruned even when
+// the resume path returns "none". Behaviour is observed via a
+// follow-up store lookup.
+func TestScanComposeSessionsCmdGCsOldConfirmed(t *testing.T) {
+	m := newDispatchTestModel(t)
+	old := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, m.deps.Store.PutComposeSession(context.Background(), store.ComposeSession{
+		SessionID:   "cs-old",
+		Kind:        "reply",
+		Snapshot:    `{}`,
+		CreatedAt:   old,
+		UpdatedAt:   old,
+		ConfirmedAt: old,
+	}))
+
+	cmd := m.scanComposeSessionsCmd()
+	_ = cmd()
+
+	// The old confirmed row should have been GC'd; the table is
+	// otherwise empty so a manual peek covers it.
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows)
+	// Re-insert the same id; if the original wasn't deleted, this
+	// upsert would just bump updated_at and we'd still see it as
+	// confirmed. Direct evidence is the GC-deleted-1 return value
+	// from a follow-up GC pass: the row is gone (0) rather than
+	// pruneable (1).
+	deleted, err := m.deps.Store.GCConfirmedComposeSessions(context.Background(), time.Now().Add(-24*time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), deleted, "scan already pruned the old confirmed row")
+}
+
+// TestViewerCapitalRStartsReplyAll is the spec 15 §9 / PR 7-iii
+// invariant for `R` in the viewer pane: enters ComposeMode with
+// the reply-all skeleton applied. Source's From + remaining To
+// addresses populate the To field; Cc preserves the source's Cc.
+func TestViewerCapitalRStartsReplyAll(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Open a message → focus moves to viewer.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "viewer R enters ComposeMode")
+	require.Equal(t, ComposeKindReplyAll, m.compose.Kind,
+		"compose snapshot reflects reply-all kind")
+	require.Contains(t, m.compose.Subject(), "Re:",
+		"reply-all skeleton prefixes Re:")
+}
+
+// TestViewerLowerFStartsForward covers the spec 15 §9 / PR 7-iii
+// rebinding: `f` in the viewer pane is Forward. Subject is prefixed
+// "Fwd:"; To/Cc start empty for the user to fill.
+func TestViewerLowerFStartsForward(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "viewer f enters ComposeMode")
+	require.Equal(t, ComposeKindForward, m.compose.Kind,
+		"compose snapshot reflects forward kind")
+	require.Contains(t, m.compose.Subject(), "Fwd:",
+		"forward skeleton prefixes Fwd:")
+	require.Empty(t, m.compose.To(),
+		"forward starts with empty To for user to fill")
+}
+
+// TestViewerLowerFFlagsWhenNoDraftsWired keeps the legacy
+// flag-from-viewer behaviour available when Drafts isn't wired
+// (e.g., test or degraded mode). Without this fallback the `f`
+// keypress would be visually dead in viewer pane.
+func TestViewerLowerFFlagsWhenNoDraftsWired(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stubT := &stubTriageWithUndo{}
+	m.deps.Triage = stubT
+	require.Nil(t, m.deps.Drafts, "test setup has no drafts")
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	m = m2.(Model)
+	require.NotEqual(t, ComposeMode, m.mode, "no drafts → fall back to flag")
+}
+
+// TestViewerLowerMStartsNewWhenDraftsWired is the spec 15 §9 / PR
+// 7-iii rebinding: `m` from the viewer pane creates a brand-new
+// draft (no source) — recipients empty, body empty, focus drops
+// into To.
+func TestViewerLowerMStartsNewWhenDraftsWired(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "viewer m enters ComposeMode")
+	require.Equal(t, ComposeKindNew, m.compose.Kind,
+		"new draft (no source)")
+	require.Empty(t, m.compose.To())
+	require.Empty(t, m.compose.Subject())
+	require.Empty(t, m.compose.SourceID, "new drafts have no source")
+}
+
+// TestFolderPaneMStartsNew confirms the spec 15 §9 / PR 7-iii
+// rebinding from the folders pane: `m` opens compose for a new
+// message. Folder-pane Move was previously a no-op (no list of
+// messages to act on).
+func TestFolderPaneMStartsNew(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Focus the folders pane via `1`.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "folders m → new message")
+	require.Equal(t, ComposeKindNew, m.compose.Kind)
+}
+
+// TestSaveComposeRoutesByKind covers the saveComposeCmd dispatch
+// table: snapshot.Kind selects the matching DraftCreator method.
+// One test per kind so a regression in the switch surfaces with
+// a clear failure.
+func TestSaveComposeRoutesByKind(t *testing.T) {
+	cases := []struct {
+		name string
+		kind ComposeKind
+		want string
+	}{
+		{"reply", ComposeKindReply, "reply"},
+		{"reply_all", ComposeKindReplyAll, "reply_all"},
+		{"forward", ComposeKindForward, "forward"},
+		{"new", ComposeKindNew, "new"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := newDispatchTestModel(t)
+			stub := &recordingDraftCreator{}
+			m.deps.Drafts = stub
+
+			snap := ComposeSnapshot{
+				Kind:     c.kind,
+				SourceID: "m-1",
+				To:       "alice@example.invalid",
+				Subject:  "x",
+				Body:     "body",
+			}
+			cmd := m.saveComposeCmd(snap, "")
+			require.NotNil(t, cmd)
+			res := cmd()
+			saved, _ := res.(draftSavedMsg)
+			require.NoError(t, saved.err, "save dispatch returns nil err")
+			require.Equal(t, c.want, stub.lastKind,
+				"kind %s routed to the matching DraftCreator method", c.name)
+		})
+	}
+}
+
+// TestSaveComposeNewDraftSkipsRecipientFallback confirms the new-
+// message path doesn't try to fall back to source.FromAddress (it
+// has no source). Empty To on a New draft should error rather
+// than silently dispatch.
+func TestSaveComposeNewDraftSkipsRecipientFallback(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+
+	snap := ComposeSnapshot{Kind: ComposeKindNew, To: ""} // no source, no To
+	cmd := m.saveComposeCmd(snap, "")
+	res := cmd()
+	saved, _ := res.(draftSavedMsg)
+	require.Error(t, saved.err)
+	require.Contains(t, saved.err.Error(), "no recipient")
+	require.Equal(t, 0, stub.calls,
+		"new draft with no recipient must not silently dispatch")
+}
+
+// TestApplyReplyAllSkeletonFiltersUserUPN is the model-side
+// dedup invariant: when the user is one of the source's To
+// recipients, ApplyReplyAllSkeleton drops them from the form's
+// To list so the resulting draft doesn't email the user
+// themselves.
+func TestApplyReplyAllSkeletonFiltersUserUPN(t *testing.T) {
+	src := store.Message{
+		Subject:     "Q4 forecast",
+		FromName:    "Bob",
+		FromAddress: "bob@vendor.invalid",
+		ToAddresses: []store.EmailAddress{
+			{Address: "alice@example.invalid"},
+			{Address: "tester@example.invalid"},
+		},
+	}
+	cm := NewCompose()
+	cm.ApplyReplyAllSkeleton(src, "", "tester@example.invalid")
+	require.Contains(t, cm.To(), "bob@vendor.invalid")
+	require.Contains(t, cm.To(), "alice@example.invalid")
+	require.NotContains(t, cm.To(), "tester@example.invalid",
+		"user's own UPN filtered out")
+}
+
+// TestApplyForwardSkeletonClearsRecipients confirms a fresh
+// ApplyForwardSkeleton call zeroes To/Cc — the user fills these
+// for a forward.
+func TestApplyForwardSkeletonClearsRecipients(t *testing.T) {
+	src := store.Message{Subject: "x", FromAddress: "b@x"}
+	cm := NewCompose()
+	cm.SetTo("stale@x")
+	cm.SetCc("stalecc@x")
+	cm.ApplyForwardSkeleton(src, "")
+	require.Empty(t, cm.To(), "forward clears To from any prior state")
+	require.Empty(t, cm.Cc(), "forward clears Cc from any prior state")
+}
+
+// TestApplyNewSkeletonFocusesTo verifies the new-message UX
+// invariant: focus drops into the To field rather than the body
+// because there's no source-sender to pre-fill from and recipients
+// are the user's first task.
+func TestApplyNewSkeletonFocusesTo(t *testing.T) {
+	cm := NewCompose()
+	cm.ApplyNewSkeleton()
+	require.Equal(t, ComposeFieldTo, cm.Focused(),
+		"new draft focuses To field")
+	require.Empty(t, cm.SourceID)
+	require.Empty(t, cm.To())
+	require.Empty(t, cm.Subject())
+	require.Empty(t, cm.Body())
+}
+
+// TestComposeSessionPersistsOnTab covers the focus-change re-write:
+// each Tab captures whatever the user just typed in the field they
+// left, so a crash mid-typing recovers up to the most-recent Tab.
+func TestComposeSessionPersistsOnTab(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, entryCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	_ = entryCmd()
+
+	// Modify the body before tabbing away.
+	m.compose.SetBody("hello world")
+
+	m2, tabCmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(Model)
+	require.NotNil(t, tabCmd, "Tab returns a persist Cmd")
+	_ = tabCmd()
+
+	rows, err := m.deps.Store.ListUnconfirmedComposeSessions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Contains(t, rows[0].Snapshot, "hello world",
+		"Tab re-persists the snapshot with the body the user just typed")
+}
+
+// TestAttachmentSummaryFormatsCountAndTotal covers the "3 files ·
+// 2.4 MB" summary line. Singular / plural matters; total bytes is
+// the sum across every entry including inline.
+func TestAttachmentSummaryFormatsCountAndTotal(t *testing.T) {
+	one := []store.Attachment{{Size: 500}}
+	require.Equal(t, "1 file · 500B", attachmentSummary(one))
+
+	many := []store.Attachment{{Size: 1024}, {Size: 2 * 1024}, {Size: 3 * 1024}}
+	require.Equal(t, "3 files · 6.0KB", attachmentSummary(many))
 }

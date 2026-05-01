@@ -25,7 +25,32 @@ type DraftRef struct {
 // Inkwell then replaces the body via [PatchMessageBody] using the
 // user-edited content from the tempfile.
 func (c *Client) CreateReply(ctx context.Context, sourceMessageID string) (*DraftRef, error) {
-	url := "/me/messages/" + sourceMessageID + "/createReply"
+	return c.createDraftFromSource(ctx, sourceMessageID, "createReply")
+}
+
+// CreateReplyAll posts to /me/messages/{id}/createReplyAll. Graph
+// pre-populates the draft with the full audience (To = original
+// From + remaining To recipients; Cc = original Cc; deduped against
+// the user's own UPN server-side). Returns the draft's id + webLink
+// for stage 2's PATCH. Spec 15 §5 / PR 7-iii.
+func (c *Client) CreateReplyAll(ctx context.Context, sourceMessageID string) (*DraftRef, error) {
+	return c.createDraftFromSource(ctx, sourceMessageID, "createReplyAll")
+}
+
+// CreateForward posts to /me/messages/{id}/createForward. Graph
+// produces a draft with the source body wrapped in the canonical
+// "Forwarded message" header block + quote chain; To/Cc start
+// empty for the user to fill in. Spec 15 §5 / PR 7-iii.
+func (c *Client) CreateForward(ctx context.Context, sourceMessageID string) (*DraftRef, error) {
+	return c.createDraftFromSource(ctx, sourceMessageID, "createForward")
+}
+
+// createDraftFromSource is the shared two-stage stage-1 helper for
+// the three Graph endpoints that all share the shape
+// `/me/messages/{id}/<verb>`. Returns id + webLink so the caller's
+// stage 2 can PATCH the body and headers.
+func (c *Client) createDraftFromSource(ctx context.Context, sourceMessageID, verb string) (*DraftRef, error) {
+	url := "/me/messages/" + sourceMessageID + "/" + verb
 	resp, err := c.Do(ctx, http.MethodPost, url, nil, nil)
 	if err != nil {
 		return nil, err
@@ -39,7 +64,54 @@ func (c *Client) CreateReply(ctx context.Context, sourceMessageID string) (*Draf
 		WebLink string `json:"webLink"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("graph: decode createReply: %w", err)
+		return nil, fmt.Errorf("graph: decode %s: %w", verb, err)
+	}
+	return &DraftRef{ID: raw.ID, WebLink: raw.WebLink}, nil
+}
+
+// CreateNewDraft posts to /me/messages with the full body and
+// recipients in one shot, returning a saved draft. Single-stage
+// (no PATCH needed) because the API accepts the entire payload up
+// front. Spec 15 §5 / PR 7-iii.
+func (c *Client) CreateNewDraft(ctx context.Context, subject, body string, to, cc, bcc []string) (*DraftRef, error) {
+	payload := map[string]any{
+		"body": map[string]string{
+			"contentType": "text",
+			"content":     body,
+		},
+	}
+	if subject != "" {
+		payload["subject"] = subject
+	}
+	if to != nil {
+		payload["toRecipients"] = recipientList(to)
+	}
+	if cc != nil {
+		payload["ccRecipients"] = recipientList(cc)
+	}
+	if bcc != nil {
+		payload["bccRecipients"] = recipientList(bcc)
+	}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("graph: marshal new draft: %w", err)
+	}
+	resp, err := c.Do(ctx, http.MethodPost, "/me/messages",
+		bytes.NewReader(buf),
+		http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, parseError(resp)
+	}
+	var raw struct {
+		ID      string `json:"id"`
+		WebLink string `json:"webLink"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("graph: decode new draft: %w", err)
 	}
 	return &DraftRef{ID: raw.ID, WebLink: raw.WebLink}, nil
 }

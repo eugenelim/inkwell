@@ -61,6 +61,25 @@ type BodyFetcher interface {
 type FetchedBody struct {
 	ContentType string // "text" | "html"
 	Content     string
+	// Attachments is the metadata-only attachment list returned by
+	// Graph alongside the body (spec 05 §5.2 — `$expand=attachments`).
+	// Empty when the message has no attachments. The renderer's
+	// FetchBodyAsync persists these to the local store so the viewer
+	// can list them without an extra round-trip on subsequent opens.
+	Attachments []FetchedAttachment
+}
+
+// FetchedAttachment is the metadata subset persisted on body fetch.
+// Mirrors store.Attachment without the cross-package dependency on
+// graph; the renderer translates between graph.Attachment and
+// store.Attachment so callers (UI) only see this neutral shape.
+type FetchedAttachment struct {
+	ID          string
+	Name        string
+	ContentType string
+	Size        int64
+	IsInline    bool
+	ContentID   string
 }
 
 // Renderer is the viewer-side rendering API. Stateless beyond its
@@ -102,6 +121,13 @@ func (r *renderer) Body(ctx context.Context, m *store.Message, opts BodyOpts) (B
 
 // FetchBodyAsync performs the on-demand fetch and persists the result.
 // Returns the rendered BodyView ready for the viewer to display.
+//
+// Spec 05 §5.2: alongside the body content, the fetch returns the
+// message's attachment metadata via `$expand=attachments`. We
+// persist that into the local store via UpsertAttachments on the
+// same code path so subsequent viewer opens read from cache.
+// Persist failure on attachments is non-fatal — the body still
+// rendered; we log via the returned error path on the next layer.
 func (r *renderer) FetchBodyAsync(ctx context.Context, m *store.Message, opts BodyOpts) (BodyView, error) {
 	if r.fetcher == nil {
 		return BodyView{State: BodyError, Text: "no fetcher configured"}, errors.New("render: nil fetcher")
@@ -120,6 +146,21 @@ func (r *renderer) FetchBodyAsync(ctx context.Context, m *store.Message, opts Bo
 	}
 	if err := r.store.PutBody(ctx, body); err != nil {
 		return BodyView{State: BodyError, Text: "cache write failed"}, err
+	}
+	if len(fb.Attachments) > 0 {
+		atts := make([]store.Attachment, 0, len(fb.Attachments))
+		for _, a := range fb.Attachments {
+			atts = append(atts, store.Attachment{
+				ID:          a.ID,
+				MessageID:   m.ID,
+				Name:        a.Name,
+				ContentType: a.ContentType,
+				Size:        a.Size,
+				IsInline:    a.IsInline,
+				ContentID:   a.ContentID,
+			})
+		}
+		_ = r.store.UpsertAttachments(ctx, atts)
 	}
 	return r.renderBody(body, opts), nil
 }

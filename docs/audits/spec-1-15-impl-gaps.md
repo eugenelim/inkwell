@@ -88,12 +88,12 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - Spec §6.4 attribution-line detection — no regex, no styling.
   - Spec §6.5 Outlook-specific noise stripping (`[rendering].strip_patterns`) — only the `trackingPixel` regex (`html.go:10`) is applied. No "External email" banner stripping, no `Outlook-AltVw` stripping.
   - Spec §7 plain-text format=flowed unwrapping (RFC 3676) — `plain.go` has no detection or unwrapping. Long-wrapped plaintext stays line-broken.
-  - Spec §8 attachment rendering shows `[a]` `[b]` accelerator letters but `Attachments()` (`render/attachments.go:12-30`) prints metadata only, no bracket-prefix accelerator. No attachment download / save / open path exists in `internal/graph/` either — there is no `GetAttachment` / `attachments/$value` helper anywhere.
+  - Spec §8 attachment rendering — visibility partially closed by the v0.13.x post-audit slice (2026-05-01). `GetMessageBody` now includes `$expand=attachments`; `FetchBodyAsync` upserts the metadata into the local store; the viewer pane renders an "Attachments:" block between headers and body (mutt/alpine convention), showing name + size + content-type + `(inline)` flag. **Still missing:** `[a]`/`[b]` accelerator-letter prefixes, `internal/graph/GetAttachment` / `attachments/$value` helper, save / open keybindings. Those land with PR 10 alongside the spec 17 §4.4 path-traversal guard.
   - Spec §10 `:open` for browser fallback (`webLink`) — no handler in `dispatchCommand` and no viewer keybinding. `lastDraftWebLink` open (`app.go:1296-1303`) is the only `open` shellout, and it's specifically for drafts.
   - Spec §11 conversation context (thread map under viewer) — not implemented. Viewer renders headers + body only.
   - Spec §6.2 external HTML converter (`html2text` → `pandoc`/`lynx` fallback) — `html.go:17-26` calls `html2text.FromString` with no fallback. Spec config keys `html_converter`, `html_converter_cmd`, `external_converter_timeout` are not in defaults.
 - Design drifts:
-  - Spec §5.2 `GET /me/messages/{id}?$select=body,attachments,internetMessageHeaders&$expand=attachments`. Actual call (`graph/messages.go:88`): `?$select=body,hasAttachments`. No `attachments` expand, no `internetMessageHeaders`. Full-headers toggle (`H`) renders only what's already in the cached envelope; spec §4 "Plus all `internetMessageHeaders`" never materialises.
+  - Spec §5.2 body $select drift — `$expand=attachments` shipped in the v0.13.x post-audit slice (2026-05-01); the `GetMessageBody` URL now reads `?$select=body,hasAttachments&$expand=attachments($select=id,name,contentType,size,isInline,contentId)`. Still pending: the `internetMessageHeaders` $select for the full-headers toggle (`H`); spec §4 "Plus all `internetMessageHeaders`" still doesn't materialise. Tracked under PR 10 alongside the rest of the viewer-keys / save-attachment work.
   - Spec §3 declares `BodyOpts.Width`, `BodyOpts.ShowFullHeaders`, `BodyOpts.Theme`. `openMessageCmd` (`ui/app.go:1233`) hardcodes `Width: 80` regardless of viewer width.
   - Spec §5.1 single-flight per message ID (preventing duplicate Graph calls) — not implemented. Two concurrent opens would race.
 - Schema/config gaps:
@@ -311,18 +311,18 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Status overall: partial
 - Implementation gaps:
   - DoD "Action executor (extending spec 07) handles the four new draft types with idempotent local apply + Graph dispatch + replay." `CreateDraftReply` now flows through the action queue end-to-end (PR 7-i v0.13.x): two-stage dispatch (createReply → record draft_id+web_link in Params → PATCH), Failed status persisted on either stage's failure, Drain skips the type so non-idempotent stage 1 isn't re-fired, the recorded draft_id sets up PR 7-ii's resume path. Still missing: `TypeCreateDraft` (new), `TypeCreateReplyAll`, `TypeCreateForward`, `TypeDiscardDraft` — those land with PR 7-iii alongside the R/F/m skeletons. Crash-recovery (the resume-on-startup invariant) lands with PR 7-ii.
-  - DoD "`compose_sessions` table created by migration N+1 (latest schema version bumped accordingly)." No migration `003_compose_sessions.sql`. `SchemaVersion` is `2` (`store.go:22`). Crash recovery for in-flight compose (spec §7) impossible.
+  - ~~DoD "`compose_sessions` table created by migration N+1 (latest schema version bumped accordingly)."~~ **Closed by PR 7-ii (v0.13.x).** Migration 005 adds the table per spec §7; SchemaVersion bumped to 5; partial index `idx_compose_sessions_unconfirmed` accelerates the launch-time resume scan. See `docs/plans/spec-15.md` iter 4.
   - DoD "Discard flow deletes both the local draft row AND the server-side draft (Graph `DELETE /me/messages/{id}`)." UI flow (`updateComposeConfirm` `app.go:548-591`, case `"d"`) only deletes the tempfile. There is no Graph `DELETE` call. Server-side draft never lifted.
   - DoD "On `s`, the action's `webLink` is captured; the status bar exposes 'open in Outlook' for 30s after." `lastDraftWebLink` (`app.go:233`) is set indefinitely, not for 30s. There's no TTL.
-  - DoD "Crash-recovery: kill -9 the app while in the editor, restart, the resume-prompt fires and the tempfile is intact." No resume-prompt flow; no `compose_sessions` persistence, so nothing to recover from.
-  - DoD "`r`/`R`/`f`/`m` keybindings wired with the pane-scoped resolution rule from §9." Only viewer-pane `r` (reply) is wired (`app.go:1290-1292`). `R` (reply-all), `f` (forward in viewer), `m` (new message) are not.
+  - ~~DoD "Crash-recovery: kill -9 the app while in the editor, restart, the resume-prompt fires and the tempfile is intact."~~ **Closed by PR 7-ii (v0.13.x).** Form state (To/Cc/Subject/Body) snapshots into `compose_sessions` on entry + each focus change (Tab); Init runs `scanComposeSessionsCmd` which GCs confirmed sessions older than 24h then surfaces the most-recent unconfirmed row via a confirm modal. Y restores into ComposeMode preserving SessionID; n inline-confirms the row. Spec wording about a tempfile is a v1 carryover — the v2 in-modal redesign (iter 3) replaced the tempfile with the JSON snapshot blob; the §7 invariant ("on next launch the user is offered to resume their crashed draft") is now satisfied via that path.
+  - ~~DoD "`r`/`R`/`f`/`m` keybindings wired with the pane-scoped resolution rule from §9."~~ **Closed by PR 7-iii (v0.13.x).** Viewer-pane R fires reply-all; f fires forward (Drafts-not-wired fallback to legacy ToggleFlag); m fires new-message (Drafts-not-wired fallback to legacy startMove). Folders-pane m also fires new-message (was previously a no-op). List-pane retains all four bindings as their original triage verbs (mark-read / mark-unread / toggle-flag / move). Three-way pane scope on `R` (mark-unread list / reply-all viewer / rename-folder folders) extends the existing `r`/`f`/`m` pattern. See `docs/plans/spec-15.md` iter 5.
   - Spec §6.1 `INKWELL_EDITOR` env override — implemented at `compose/editor.go:21-29`. OK.
-  - Spec §10 row "App crash while editor is open / On next launch, 'resume draft?' prompt; tempfile and source_id are intact in `compose_sessions`." — not implemented.
+  - ~~Spec §10 row "App crash while editor is open / On next launch, 'resume draft?' prompt; tempfile and source_id are intact in `compose_sessions`."~~ **Closed by PR 7-ii (v0.13.x).** See the matching DoD bullet above; the v2 in-modal flow uses a JSON snapshot blob (no tempfile) but the user-visible invariant — "next launch offers to resume your crashed draft" — is now satisfied.
   - Spec §11 lint guard "fails any source line that contains the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go`" — no CI script for this in `scripts/`.
 - Design drifts:
   - Spec §8 "local row gets a temp ID that's replaced after the Graph response." Optimistic local insert is intentionally skipped — drafts only appear in the local store after the next delta sync of the Drafts folder. Spec wording predates the refactor; the action queue now records the action in the actions table (post-PR 7-i), which is the spec-15 §8 audit-trail intent. Reframe in a future spec edit; not a code gap.
   - Spec §5 declared `DraftParams` with `Attachments []AttachmentRef`. `compose.ParsedDraft` (`compose/parse.go:11-17`) has no attachments field. Attachments path absent end-to-end.
-  - Spec §6.2 forward skeleton, reply-all skeleton — only `ReplySkeleton` (`compose/template.go:44-65`) exists. No `ForwardSkeleton`, `ReplyAllSkeleton`, `NewSkeleton`.
+  - ~~Spec §6.2 forward skeleton, reply-all skeleton — only `ReplySkeleton` exists.~~ **Closed by PR 7-iii (v0.13.x).** `ReplyAllSkeleton`, `ForwardSkeleton`, `NewSkeleton` shipped in `internal/compose/template.go` plus matching `ApplyReplyAllSkeleton` / `ApplyForwardSkeleton` / `ApplyNewSkeleton` on the in-modal ComposeModel. Reply-all dedups against userUPN; forward normalises `Fw:` / `Fwd:` to canonical `Fwd:` and emits the canonical `---------- Forwarded message ----------` header block.
 - Schema/config gaps:
   - No `[compose]` section. No `INKWELL_EDITOR` config key (env-only).
 - TODO-shaped spec language:
@@ -355,13 +355,16 @@ inline. Refresh after every audit-drain PR.
 | 12   | partial | 7 | events table + persistence + cache-first reads (PR 6a); detail modal + j/k/Enter + GetEvent (PR 6b-i) | sync-engine third state; midnight window slide; pane-vs-modal layout; ]/[/{/}/t/c day/week navigation |
 | 13   | partial | 10 | — | OOF read-only beyond enable/disable; no schedule/audience editing; no `:settings`; no time-zone source of truth |
 | 14   | mostly-spec-only | 11 | spec 18 added `folder new/rename/delete` (overlap, not closure) | ~60% of CLI surface absent (rule/calendar/ooo/settings/message subverbs/export/daemon/backfill); exit-code map missing; line-delimited JSON not honoured |
-| 15   | partial | 11 | drafts via action queue + two-stage idempotent dispatch (PR 7-i) | no `compose_sessions` migration; reply-only (no R/F/m); no Graph delete on discard; no startup resume scan |
+| 15   | partial | 6 | drafts via action queue + two-stage idempotent dispatch (PR 7-i); compose_sessions migration + crash-recovery resume + 24h GC (PR 7-ii); ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings (PR 7-iii) | no Graph delete on discard; webLink TTL (30s); lint guard for Mail.Send literal |
 
-**Drained-since-v0.12.0 totals:** 17 audit bullets struck out
-across 6 specs (02 + 03 + 04 + 07 + 12 + 15). Seven of the
+**Drained-since-v0.12.0 totals:** 24 audit bullets struck out
+across 7 specs (02 + 03 + 04 + 05 + 07 + 12 + 15). Seven of the
 original top-10 leverage gaps are closed (#1 undo, #2 bindings/
 help, #3 events, #4 permanent-delete, #5 commands, #6 calendar
-schema, #7 drafts queue); see the next section for which ones.
+schema, #7 drafts queue); spec 15 §7 crash-recovery (PR 7-ii)
+folds in alongside the queue work; spec 05 §8 attachment
+visibility partially closes the §10 viewer-keys block. See the
+next section for the rest.
 
 ---
 
