@@ -316,7 +316,27 @@ func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []st
 type draftAdapter struct{ exec *action.Executor }
 
 func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	res, err := d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject)
+	return convertDraftResult(d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+}
+
+func (d draftAdapter) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateDraftReplyAll(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+}
+
+func (d draftAdapter) CreateDraftForward(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateDraftForward(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+}
+
+func (d draftAdapter) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateNewDraft(ctx, accountID, body, to, cc, bcc, subject))
+}
+
+// convertDraftResult collapses (*action.DraftResult, error) →
+// (*ui.DraftRef, error). The PATCH-failure contract from spec 15
+// §8 stays intact: when err is non-nil but res carries an ID +
+// WebLink, return both so the caller can still paint "press s to
+// open in Outlook".
+func convertDraftResult(res *action.DraftResult, err error) (*ui.DraftRef, error) {
 	if res == nil {
 		return nil, err
 	}

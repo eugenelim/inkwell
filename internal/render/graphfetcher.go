@@ -25,11 +25,23 @@ func (f *graphBodyFetcher) FetchBody(ctx context.Context, messageID string) (Fet
 	if err != nil {
 		return FetchedBody{}, err
 	}
+	atts := make([]FetchedAttachment, 0, len(m.Attachments))
+	for _, a := range m.Attachments {
+		atts = append(atts, FetchedAttachment{
+			ID:          a.ID,
+			Name:        a.Name,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+			IsInline:    a.IsInline,
+			ContentID:   a.ContentID,
+		})
+	}
 	if m.Body == nil {
-		return FetchedBody{ContentType: "text", Content: ""}, nil
+		return FetchedBody{ContentType: "text", Content: "", Attachments: atts}, nil
 	}
 	return FetchedBody{
 		ContentType: m.Body.ContentType,
 		Content:     m.Body.Content,
+		Attachments: atts,
 	}, nil
 }

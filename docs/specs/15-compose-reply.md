@@ -432,8 +432,8 @@ For `m` (post-MVP): the existing keymap binds `m` to `move` in the list pane. We
 - [x] No code path imports `internal/auth` for Mail.Send (compose only flows through the action queue).
 
 **Post-MVP (deferred):**
-- [ ] Reply-all (`R`), forward (`f`), new message (`m`) — adds `TypeCreateReplyAll` / `TypeCreateForward` / `TypeCreateDraft` action types and matching skeletons. PR 7-iii.
-- [ ] `compose_sessions` migration + crash-recovery resume prompt that re-opens compose with the saved snapshot. PR 7-ii.
+- [x] Reply-all (`R`), forward (`f`), new message (`m`) — adds `TypeCreateReplyAll` / `TypeCreateForward` / `TypeCreateDraft` action types and matching skeletons. **Closed by PR 7-iii (v0.13.x).** Viewer-pane R/f wired (with Drafts-not-wired fallbacks for degraded modes); folders-pane and viewer-pane m → NewDraft; saveComposeCmd routes by snapshot.Kind to the matching DraftCreator method; new drafts skip the createX/PATCH dance via single-stage POST /me/messages.
+- [x] `compose_sessions` migration + crash-recovery resume prompt that re-opens compose with the saved snapshot. **Closed by PR 7-ii (v0.13.x).** Migration 005 adds the table; ComposeModel.SessionID is set on entry and persisted on each focus change; Init runs the launch-time scan that GCs confirmed-older-than-24h and offers the most-recent unconfirmed row via a confirm modal; y restores into ComposeMode preserving SessionID; n inline-confirms.
 - [ ] `Ctrl+E` drop-out: opens `$EDITOR` with the body slice, returns to the in-modal form on exit.
 - [ ] Discard flow deletes both local and server-side draft when the user cancels in compose AFTER the draft was saved (today: cancel before save = `Ctrl+D`, no server roundtrip; this DoD bullet covers the post-save discard path).
 - [ ] Lint guard (CI script) fails any source line containing the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go`.

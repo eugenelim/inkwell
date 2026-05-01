@@ -26,6 +26,17 @@ func TestRedactorScrubsSensitiveKeys(t *testing.T) {
 	require.NoError(t, c.AssertNoSecret("secret-token-value", "secret-refresh", "private email body"))
 }
 
+// TestRedactorScrubsComposeSnapshot covers the spec 15 §7 / PR
+// 7-ii defense: a snapshot blob carries body + subject + To/Cc
+// content. The redaction handler must scrub the entire blob if a
+// log site emits it as a single string under the `snapshot` key.
+func TestRedactorScrubsComposeSnapshot(t *testing.T) {
+	logger, c := NewCaptured(Options{Level: slog.LevelDebug})
+	blob := `{"kind":1,"source_id":"m-1","to":"alice@example.invalid","subject":"PRIVATE Q4","body":"PRIVATE BODY CONTENT"}`
+	logger.Info("compose snapshot", slog.String("snapshot", blob))
+	require.NoError(t, c.AssertNoSecret("PRIVATE BODY CONTENT", "PRIVATE Q4"))
+}
+
 func TestRedactorTokenisesEmails(t *testing.T) {
 	logger, c := NewCaptured(Options{Level: slog.LevelDebug, AllowOwnUPN: "owner@example.invalid"})
 	logger.Info("processing", slog.String("from", "alice@example.invalid"), slog.String("to", "owner@example.invalid"))

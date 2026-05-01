@@ -302,6 +302,8 @@ Detailed schema in `specs/02-local-cache-schema.md`. Tables:
 | `actions`      | Offline action queue (pending writes)                          |
 | `undo`         | Session undo stack (cleared on app close)                      |
 | `saved_searches` | Named saved searches                                         |
+| `events`       | Cached calendar events (spec 12)                               |
+| `compose_sessions` | In-flight compose-form snapshots for crash recovery (spec 15 §7) |
 | `messages_fts` | FTS5 virtual table over subject + bodyPreview                  |
 
 ## 8. Action execution model

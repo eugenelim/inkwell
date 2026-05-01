@@ -885,6 +885,124 @@ func TestDrainSkipsCreateDraftReply(t *testing.T) {
 	require.Len(t, pending, 1, "Drain leaves the draft action Pending; PR 7-ii will resume it on startup with stage-aware logic")
 }
 
+// TestCreateDraftReplyAllRoutesToReplyAllEndpoint is the spec 15
+// §5 / PR 7-iii invariant: stage 1 hits /createReplyAll (not
+// /createReply); stage 2 PATCHes the draft body. The action's
+// type is ActionCreateDraftReplyAll.
+func TestCreateDraftReplyAllRoutesToReplyAllEndpoint(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-ra", AccountID: accID, FolderID: "f-inbox",
+	}))
+	var hitReplyAll, hitPatch bool
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-ra/createReplyAll", func(w http.ResponseWriter, _ *http.Request) {
+		hitReplyAll = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-ra","webLink":"https://outlook/drafts/ra"}`)
+	})
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/draft-ra", func(w http.ResponseWriter, r *http.Request) {
+		hitPatch = r.Method == http.MethodPatch
+		w.WriteHeader(http.StatusOK)
+	})
+
+	res, err := exec.CreateDraftReplyAll(context.Background(), accID, "src-ra", "Hi all", []string{"a@example.invalid", "b@example.invalid"}, []string{"c@example.invalid"}, nil, "Re: x")
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.True(t, hitReplyAll, "stage 1 routes to /createReplyAll")
+	require.True(t, hitPatch, "stage 2 PATCHes the draft body")
+
+	row := readRawAction(t, st, "src-ra", store.ActionCreateDraftReplyAll)
+	require.Equal(t, store.StatusDone, row.Status)
+	require.Equal(t, "draft-ra", row.Params["draft_id"])
+}
+
+// TestCreateDraftForwardRoutesToForwardEndpoint mirrors the
+// reply-all test but for the forward path: stage 1 hits
+// /createForward; action type is ActionCreateDraftForward.
+func TestCreateDraftForwardRoutesToForwardEndpoint(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "src-fwd", AccountID: accID, FolderID: "f-inbox",
+	}))
+	var hitForward, hitPatch bool
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/src-fwd/createForward", func(w http.ResponseWriter, _ *http.Request) {
+		hitForward = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-fwd","webLink":"https://outlook/drafts/fwd"}`)
+	})
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/draft-fwd", func(w http.ResponseWriter, r *http.Request) {
+		hitPatch = r.Method == http.MethodPatch
+		w.WriteHeader(http.StatusOK)
+	})
+
+	res, err := exec.CreateDraftForward(context.Background(), accID, "src-fwd", "Forwarding for review", []string{"alice@example.invalid"}, nil, nil, "Fwd: x")
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.True(t, hitForward)
+	require.True(t, hitPatch)
+
+	row := readRawAction(t, st, "src-fwd", store.ActionCreateDraftForward)
+	require.Equal(t, store.StatusDone, row.Status)
+}
+
+// TestCreateNewDraftSinglePost is the spec 15 §5 / PR 7-iii
+// new-message invariant: a single POST /me/messages carries the
+// full payload — no two-stage createX/PATCH dance. The action
+// transitions Pending → Done directly.
+func TestCreateNewDraftSinglePost(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	var postCalls int
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		postCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"draft-new","webLink":"https://outlook/drafts/new"}`)
+	})
+
+	res, err := exec.CreateNewDraft(context.Background(), accID, "Hello world", []string{"alice@example.invalid"}, nil, nil, "New thread")
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, "draft-new", res.ID)
+	require.Equal(t, 1, postCalls, "single-stage: exactly one POST")
+
+	rows, err := st.ListActionsByType(context.Background(), store.ActionCreateDraft)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, store.StatusDone, rows[0].Status)
+	require.Equal(t, "draft-new", rows[0].Params["draft_id"])
+}
+
+// TestDrainSkipsAllDraftCreationKinds extends the spec 15 §8
+// idempotency invariant to the new draft kinds: createReplyAll,
+// createForward, and POST /me/messages are all non-idempotent at
+// stage 1, so Drain must skip every kind.
+func TestDrainSkipsAllDraftCreationKinds(t *testing.T) {
+	exec, st, accID, _ := newTestExec(t)
+	for _, kind := range []store.ActionType{
+		store.ActionCreateDraftReply,
+		store.ActionCreateDraftReplyAll,
+		store.ActionCreateDraftForward,
+		store.ActionCreateDraft,
+	} {
+		a := store.Action{
+			ID:        newActionID(),
+			AccountID: accID,
+			Type:      kind,
+			Status:    store.StatusPending,
+			Params:    map[string]any{"body": "x"},
+			SkipUndo:  true,
+		}
+		require.NoError(t, st.EnqueueAction(context.Background(), a))
+	}
+
+	// Drain must NOT hit any of the (unregistered) endpoints.
+	require.NoError(t, exec.Drain(context.Background()))
+
+	pending, err := st.PendingActions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 4, "Drain skips all draft-creation kinds")
+}
+
 // readRawAction fetches an action of the supplied kind whose
 // params carry a matching source_message_id. Goes through
 // ListActionsByType so terminal-state rows (Failed / Done) are

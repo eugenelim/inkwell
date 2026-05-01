@@ -299,8 +299,8 @@ config surface.
 | 6b-i | 12    | shipped (v0.13.x) | main | spec 12 §6.2 j/k/Enter + §4.3 GetEvent + §7 detail modal | docs/plans/spec-12.md iter 3 |
 | 6b-ii | 12   | not-started (sync pass / window slide / pane layout / day-week nav) | — | — | — |
 | 7-i | 15    | shipped (v0.13.x) | main | spec 15 §5 / §8 "drafts bypass action queue" | docs/plans/spec-15.md iter 2 |
-| 7-ii | 15   | not-started (compose_sessions migration + crash-recovery resume prompt) | — | — | — |
-| 7-iii | 15  | not-started (R / F / m skeletons + ReplyAll / Forward / NewMessage action types) | — | — | — |
+| 7-ii | 15   | shipped (v0.13.x) | (this branch) | spec 15 §7 compose_sessions migration + crash-recovery resume + 24h GC | docs/plans/spec-15.md iter 4 |
+| 7-iii | 15  | shipped (v0.13.x) | (this branch) | spec 15 §5 ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings | docs/plans/spec-15.md iter 5 |
 | 8  | 06      | not-started | — | — | — |
 | 9  | 08      | not-started | — | — | — |
 | 10 | 05 (+17)| not-started | — | — | — |

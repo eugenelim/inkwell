@@ -207,8 +207,17 @@ type MailboxClient interface {
 // DraftCreator is the surface the UI consumes for spec 15
 // (compose / reply). Defined here so the UI doesn't import
 // internal/action's full type set.
+//
+// Reply / ReplyAll / Forward share the (ctx, accountID,
+// sourceMessageID, body, to, cc, bcc, subject) signature so the
+// in-modal compose pane can route by Kind without per-method
+// argument plumbing. NewDraft drops sourceMessageID — POST
+// /me/messages doesn't reference a source.
 type DraftCreator interface {
 	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+	CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+	CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+	CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
 }
 
 // UnsubscribeKind enumerates the action the UI should drive after
@@ -405,6 +414,13 @@ type Model struct {
 	// moved-to first), capped at deps.RecentFoldersCount.
 	pendingMoveMsg  *store.Message
 	recentFolderIDs []string
+
+	// Compose-session resume (spec 15 §7 / PR 7-ii). Set when the
+	// launch-time scan finds an unconfirmed compose session in the
+	// store; cleared after the user answers the resume modal
+	// (Confirm=true → restore + open ComposeMode; Confirm=false →
+	// confirm the session so it never resurfaces).
+	pendingComposeResume *store.ComposeSession
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -477,10 +493,17 @@ var stdoutOSC52Writer = func(seq string) error {
 }
 
 // Init kicks off folder loading and sync-event consumption.
+//
+// Spec 15 §7 / PR 7-ii: also runs the compose-session resume scan
+// (with a GC pass for confirmed sessions older than 24h folded
+// into the same Cmd). When the scan finds an unconfirmed row, the
+// Update handler surfaces a confirm modal asking the user whether
+// to resume editing or discard.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadFoldersCmd(),
 		m.consumeSyncEventsCmd(),
+		m.scanComposeSessionsCmd(),
 	)
 }
 
@@ -506,6 +529,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case authRequiredMsg:
 		m.mode = SignInMode
 		m.signin = NewSignIn()
+		return m, nil
+
+	case composeResumeMsg:
+		// Spec 15 §7 / PR 7-ii: launch-time scan found an unconfirmed
+		// compose session. Surface a confirm modal that asks whether
+		// to resume editing or discard. Errors are logged and skipped
+		// — a corrupt scan shouldn't block startup.
+		if msg.Err != nil {
+			if m.deps.Logger != nil {
+				m.deps.Logger.Warn("compose: resume scan failed", "err", msg.Err.Error())
+			}
+			return m, nil
+		}
+		sess := msg.Session
+		m.pendingComposeResume = &sess
+		prompt := composeResumePrompt(sess)
+		m.confirm = m.confirm.Ask(prompt, "compose_resume")
+		m.mode = ConfirmMode
+		return m, nil
+
+	case composeResumeNoneMsg:
+		// Nothing to resume; this exists so tests can assert the
+		// scan-Cmd ran end-to-end on Init.
 		return m, nil
 
 	case FoldersLoadedMsg:
@@ -546,6 +592,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewer.CurrentMessageID() == msg.MessageID {
 			m.viewer.SetBody(msg.Text, msg.State)
 			m.viewer.SetLinks(msg.Links)
+			m.viewer.SetAttachments(msg.Attachments)
 		}
 		// Stale local id: Graph reassigns message IDs on Move
 		// (soft-delete, archive, user-folder move). The local row
@@ -682,6 +729,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 			}
 			m.engineActivity = "permanent delete cancelled"
+			return m, nil
+		}
+		// Compose-session resume (spec 15 §7 / PR 7-ii): pendingComposeResume
+		// carries the session row. y → restore the form into ComposeMode;
+		// n → confirm the session so the resume scan stops offering it.
+		if m.pendingComposeResume != nil && msg.Topic == "compose_resume" {
+			sess := *m.pendingComposeResume
+			m.pendingComposeResume = nil
+			if msg.Confirm {
+				return m.resumeCompose(sess)
+			}
+			// Decline: confirm-then-forget. Done inline because there's
+			// no other goroutine to hang the write off and the write is
+			// sub-ms on local SQLite.
+			m.confirmComposeSessionInline(sess.SessionID)
+			m.engineActivity = "draft discarded"
 			return m, nil
 		}
 		// Unsubscribe confirmation (spec 16): pendingUnsub carries the
@@ -1002,15 +1065,77 @@ func (m Model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
 // UI on screen so save / discard live in the persistent footer
 // (resolves the user-reported "select Exit command first"
 // friction).
+//
+// Spec 15 §7 / PR 7-ii: the compose session is persisted into
+// `compose_sessions` on entry so a crash mid-edit can be resumed
+// on the next launch. Subsequent focus changes (Tab / Shift+Tab)
+// re-persist; save / discard mark the row confirmed.
 func (m Model) startCompose(src store.Message) (tea.Model, tea.Cmd) {
+	return m.startComposeOfKind(ComposeKindReply, &src)
+}
+
+// startComposeReplyAll opens the in-modal compose pane pre-filled
+// for a reply-all (To = src.From + remaining To recipients; Cc =
+// src.Cc; both deduped against the user's own UPN). Spec 15 §9 /
+// PR 7-iii.
+func (m Model) startComposeReplyAll(src store.Message) (tea.Model, tea.Cmd) {
+	return m.startComposeOfKind(ComposeKindReplyAll, &src)
+}
+
+// startComposeForward opens the compose pane for a forward of src
+// (To/Cc empty, Subject prefixed "Fwd:", body opens with the
+// canonical "Forwarded message" header block). Spec 15 §9 /
+// PR 7-iii.
+func (m Model) startComposeForward(src store.Message) (tea.Model, tea.Cmd) {
+	return m.startComposeOfKind(ComposeKindForward, &src)
+}
+
+// startComposeNew opens the compose pane for a brand-new draft
+// (no source). Focus drops into the To field because recipients
+// are the user's first task. Spec 15 §9 / PR 7-iii.
+func (m Model) startComposeNew() (tea.Model, tea.Cmd) {
+	return m.startComposeOfKind(ComposeKindNew, nil)
+}
+
+// startComposeOfKind is the shared body of the per-kind starters.
+// src is non-nil for Reply / ReplyAll / Forward and nil for New.
+// The kind selects the apply skeleton; everything else (Drafts
+// guard, NewCompose, SessionID assignment, persist) is identical.
+func (m Model) startComposeOfKind(kind ComposeKind, src *store.Message) (tea.Model, tea.Cmd) {
 	if m.deps.Drafts == nil {
-		m.lastError = fmt.Errorf("reply: not wired (drafts component missing)")
+		m.lastError = fmt.Errorf("compose: not wired (drafts component missing)")
 		return m, nil
 	}
 	m.compose = NewCompose()
-	m.compose.ApplyReplySkeleton(src, src.BodyPreview)
+	m.compose.SessionID = newComposeSessionID()
+	userUPN := ""
+	if m.deps.Account != nil {
+		userUPN = m.deps.Account.UPN
+	}
+	switch kind {
+	case ComposeKindReply:
+		if src == nil {
+			m.lastError = fmt.Errorf("reply: no source message")
+			return m, nil
+		}
+		m.compose.ApplyReplySkeleton(*src, src.BodyPreview)
+	case ComposeKindReplyAll:
+		if src == nil {
+			m.lastError = fmt.Errorf("reply-all: no source message")
+			return m, nil
+		}
+		m.compose.ApplyReplyAllSkeleton(*src, src.BodyPreview, userUPN)
+	case ComposeKindForward:
+		if src == nil {
+			m.lastError = fmt.Errorf("forward: no source message")
+			return m, nil
+		}
+		m.compose.ApplyForwardSkeleton(*src, src.BodyPreview)
+	case ComposeKindNew:
+		m.compose.ApplyNewSkeleton()
+	}
 	m.mode = ComposeMode
-	return m, nil
+	return m, m.persistComposeSnapshotCmd()
 }
 
 // updateCompose handles input while the compose pane is open:
@@ -1035,17 +1160,32 @@ func (m Model) updateCompose(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch keyMsg.Type {
 	case tea.KeyTab:
 		m.compose.NextField()
-		return m, nil
+		// Re-persist on focus change so the resume scan finds the
+		// most-recent state of the field the user just left.
+		return m, m.persistComposeSnapshotCmd()
 	case tea.KeyShiftTab:
 		m.compose.PrevField()
-		return m, nil
+		return m, m.persistComposeSnapshotCmd()
 	case tea.KeyCtrlS, tea.KeyEsc:
 		snap := m.compose.Snapshot()
+		sessionID := m.compose.SessionID
 		m.mode = NormalMode
 		m.compose = NewCompose()
 		m.engineActivity = "saving draft…"
-		return m, m.saveComposeCmd(snap)
+		// saveComposeCmd folds the ConfirmComposeSession write into
+		// its goroutine so the resume scan stops offering this row
+		// regardless of whether the Graph round-trip succeeded —
+		// the user explicitly pressed save.
+		return m, m.saveComposeCmd(snap, sessionID)
 	case tea.KeyCtrlD:
+		// Discard is a local-only action; do the confirm inline
+		// (sub-ms SQLite WAL write) so the test contract "Ctrl+D
+		// returns no Cmd" stays clean and the user's next keystroke
+		// isn't ahead of the persistence layer. Persistence
+		// failure is benign — the row stays unconfirmed and the
+		// resume scan offers it again on next launch (worst case
+		// the user discards twice).
+		m.confirmComposeSessionInline(m.compose.SessionID)
 		m.mode = NormalMode
 		m.compose = NewCompose()
 		m.engineActivity = "draft discarded"
@@ -1760,6 +1900,15 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			return m, m.loadMessagesCmd(f.ID)
 		}
+	case key.Matches(msg, m.keymap.Move):
+		// Spec 15 §9 / PR 7-iii: `m` from the folders pane is "new
+		// message". The list pane keeps `m` for the move-with-folder-
+		// picker (existing behaviour). Pane scope resolves the
+		// collision the same way `r` is reply in the viewer / mark-
+		// read in the list.
+		if m.deps.Drafts != nil {
+			return m.startComposeNew()
+		}
 	}
 	return m, nil
 }
@@ -2407,12 +2556,17 @@ func (m Model) executeUnsubCmd(action UnsubscribeAction) tea.Cmd {
 
 // openMessageCmd renders headers immediately, then either reads the
 // cached body or kicks off an async fetch. The result lands as a
-// BodyRenderedMsg so the viewer pane can refresh.
+// BodyRenderedMsg so the viewer pane can refresh. Attachments are
+// loaded from the local cache after the body resolves (the renderer's
+// FetchBodyAsync persisted them on the same call) so the viewer's
+// "Attachments:" block paints alongside the body without an extra
+// Graph round-trip.
 func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	if m.deps.Renderer == nil {
 		return nil
 	}
 	r := m.deps.Renderer
+	st := m.deps.Store
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -2427,12 +2581,22 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			Theme:              render.DefaultTheme(),
 			URLDisplayMaxWidth: m.deps.URLDisplayMaxWidth,
 		}
+		loadAtts := func() []store.Attachment {
+			if !msg.HasAttachments || st == nil {
+				return nil
+			}
+			atts, err := st.ListAttachments(ctx, msg.ID)
+			if err != nil {
+				return nil
+			}
+			return atts
+		}
 		view, err := r.Body(ctx, &msg, opts)
 		if err != nil {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
 		}
 		if view.State == render.BodyReady {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State)}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts()}
 		}
 		// BodyFetching: dispatch the fetch synchronously inside this
 		// goroutine and return the final rendered view.
@@ -2441,9 +2605,9 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			if err != nil {
 				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
 			}
-			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State)}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts()}
 		}
-		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State)}
+		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts()}
 	}
 }
 
@@ -2519,10 +2683,26 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Compact is the default; full expands To/Cc/Bcc.
 		m.viewer.ToggleHeaders()
 	case key.Matches(msg, m.keymap.ToggleFlag):
+		// Spec 15 §9 / PR 7-iii: `f` from the viewer pane is
+		// Forward (mutt convention). The list pane keeps `f` for
+		// flag-toggle; users still flag from the list. When Drafts
+		// isn't wired (e.g., test setup without a draft creator),
+		// fall back to flag so the binding isn't visually dead.
 		if cur := m.viewer.current; cur != nil {
+			if m.deps.Drafts != nil {
+				return m.startComposeForward(*cur)
+			}
 			return m.runTriage("toggle_flag", *cur, ViewerPane, func(ctx context.Context, accID int64, src store.Message) error {
 				return m.deps.Triage.ToggleFlag(ctx, accID, src.ID, src.FlagStatus == "flagged")
 			})
+		}
+	case key.Matches(msg, m.keymap.MarkUnread):
+		// Spec 15 §9 / PR 7-iii: `R` from the viewer pane is
+		// Reply All. The list pane keeps `R` for mark-unread; the
+		// folders pane keeps `R` for rename-folder (separate
+		// pane-scoped meaning).
+		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
+			return m.startComposeReplyAll(*cur)
 		}
 	case key.Matches(msg, m.keymap.Delete):
 		if cur := m.viewer.current; cur != nil {
@@ -2575,7 +2755,14 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startCategoryInput("remove", *cur)
 		}
 	case key.Matches(msg, m.keymap.Move):
+		// Spec 15 §9 / PR 7-iii: `m` from the viewer pane is
+		// "new message" (parity with folders pane). The list pane
+		// keeps `m` for move-with-folder-picker. When Drafts isn't
+		// wired, fall back to startMove so the binding isn't dead.
 		if cur := m.viewer.current; cur != nil {
+			if m.deps.Drafts != nil {
+				return m.startComposeNew()
+			}
 			return m.startMove(*cur)
 		}
 	case key.Matches(msg, m.keymap.OpenURL):

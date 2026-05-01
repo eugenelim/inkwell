@@ -70,7 +70,10 @@ func applyLocalMessage(ctx context.Context, st store.Store, a store.Action, pre 
 		}
 		next := removeCategory(pre.Categories, cat)
 		return st.UpdateMessageFields(ctx, id, store.MessageFields{Categories: &next})
-	case store.ActionCreateDraftReply:
+	case store.ActionCreateDraftReply,
+		store.ActionCreateDraftReplyAll,
+		store.ActionCreateDraftForward,
+		store.ActionCreateDraft:
 		// Drafts have no local row to mutate — they only appear in
 		// the messages table after the next Drafts-folder delta sync.
 		// Spec 15 §5: the local apply for drafts is a no-op; the
@@ -79,6 +82,23 @@ func applyLocalMessage(ctx context.Context, st store.Store, a store.Action, pre 
 	default:
 		return fmt.Errorf("apply local: unsupported action type %q", a.Type)
 	}
+}
+
+// isDraftCreationAction reports whether t is one of the spec 15
+// non-idempotent draft-creation kinds. Drain skips these so a
+// retry doesn't fire createReply / createReplyAll / createForward
+// / POST /me/messages a second time and produce a duplicate draft;
+// PR 7-ii's crash-recovery resume path is the right place for
+// stage-aware retry.
+func isDraftCreationAction(t store.ActionType) bool {
+	switch t {
+	case store.ActionCreateDraftReply,
+		store.ActionCreateDraftReplyAll,
+		store.ActionCreateDraftForward,
+		store.ActionCreateDraft:
+		return true
+	}
+	return false
 }
 
 // folderCountChange is one folder's total_count / unread_count

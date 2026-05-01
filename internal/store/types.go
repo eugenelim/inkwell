@@ -129,6 +129,27 @@ const (
 	// the first stage records draft_id + web_link in Params so a
 	// crashed second stage can resume idempotently. Spec 15 §5 / §8.
 	ActionCreateDraftReply ActionType = "create_draft_reply"
+	// ActionCreateDraftReplyAll mirrors ActionCreateDraftReply but
+	// uses Graph's `/me/messages/{id}/createReplyAll` so the draft
+	// pre-populates with the source's full audience (To = original
+	// From + remaining To recipients; Cc = original Cc; deduped
+	// against the user's own UPN). Two-stage dispatch identical in
+	// shape to ActionCreateDraftReply. Spec 15 §5 / PR 7-iii.
+	ActionCreateDraftReplyAll ActionType = "create_draft_reply_all"
+	// ActionCreateDraftForward enqueues a forward of the source.
+	// Stage 1 calls `/me/messages/{id}/createForward` (Graph
+	// generates the "Forwarded message" header block + quote
+	// chain); stage 2 PATCHes the user-supplied To/Cc/Bcc/Subject/
+	// Body. Two-stage dispatch identical in shape to
+	// ActionCreateDraftReply. Spec 15 §5 / PR 7-iii.
+	ActionCreateDraftForward ActionType = "create_draft_forward"
+	// ActionCreateDraft enqueues a brand-new (no source) draft.
+	// Single-stage: POST /me/messages with the full body+headers
+	// payload returns the persisted draft directly, so we don't
+	// need the two-stage createX/PATCH dance. Drain still skips
+	// this type because the POST is non-idempotent (a retry
+	// produces a duplicate draft). Spec 15 §5 / PR 7-iii.
+	ActionCreateDraft ActionType = "create_draft"
 )
 
 // ActionStatus enumerates the lifecycle states.
@@ -198,6 +219,28 @@ type EventQuery struct {
 	Start time.Time
 	End   time.Time
 	Limit int
+}
+
+// ComposeSession is one in-flight compose form persisted for crash
+// recovery (spec 15 §7). The Snapshot field carries the JSON-
+// encoded `ComposeSnapshot` produced by `internal/ui/ComposeModel`
+// — store.Store keeps it opaque (the UI is the only consumer that
+// needs the structured shape) so the package boundary stays clean.
+//
+// CreatedAt records when the user first entered ComposeMode;
+// UpdatedAt advances on each snapshot rewrite (focus changes,
+// save). ConfirmedAt is non-zero once the session has been saved
+// or discarded — until then the launch-time resume scan offers it
+// to the user. Confirmed sessions older than 24h get garbage-
+// collected.
+type ComposeSession struct {
+	SessionID   string
+	Kind        string // "reply" | "reply_all" | "forward" | "new"
+	SourceID    string // empty for KindNew
+	Snapshot    string // JSON blob, opaque to store
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ConfirmedAt time.Time // zero while in flight
 }
 
 // SavedSearch persists a named pattern for the sidebar virtual folder.

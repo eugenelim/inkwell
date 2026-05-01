@@ -30,6 +30,11 @@ var SensitiveKeys = map[string]bool{
 	"cache_blob":    true,
 	"body":          true,
 	"content":       true,
+	// snapshot is the JSON-encoded ComposeSnapshot blob persisted in
+	// compose_sessions (spec 15 §7). It carries body + subject + To/
+	// Cc — same content sensitivity as the raw body. Defense-in-
+	// depth so a future log site that emits the blob doesn't leak.
+	"snapshot":      true,
 	"password":      true,
 	"secret":        true,
 	"client_secret": true,

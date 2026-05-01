@@ -17,6 +17,10 @@ func normalisePlain(content string, width, urlMaxDisplay int) (string, []Extract
 	c := strings.ReplaceAll(content, "\r\n", "\n")
 	c = strings.ReplaceAll(c, "\r", "\n")
 	c = strings.TrimRight(c, " \n\t")
+	// Stitch URL fragments hard-wrapped across newlines by the
+	// sender's MUA back together so extractLinks captures the full
+	// URL. See unwrapBrokenURLs in links.go.
+	c = unwrapBrokenURLs(c)
 
 	var out strings.Builder
 	for _, line := range strings.Split(c, "\n") {

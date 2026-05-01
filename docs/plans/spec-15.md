@@ -20,16 +20,315 @@ deferred.
 - [x] Friendly errors: `ErrEmpty` (blanked-out body discards the draft), `ErrNoRecipients` (To: line empty); both surface to the status bar without a Graph round-trip.
 - [x] DraftCreator interface defined at the consumer site (ui doesn't import internal/action). cmd_run.go provides a draftAdapter.
 - [x] Tests: 6 in compose (skeleton headers / quote chain / blank-body / re-prefix; parse round-trip / no-recipients / empty); UI dispatch tests for the `r` keybinding + happy/no-deps paths + draft-saved-msg.
-- [ ] Reply-all (R) — deferred. Same flow with cc-recipient prefill from source.
-- [ ] Forward (f in viewer) — deferred. Different skeleton (forward header block instead of quote).
-- [ ] New message (m) — deferred. Skeleton has empty headers + empty body.
-- [ ] `compose_sessions` table for crash recovery — deferred. v0.11.0 cleans the tempfile on save; if the app crashes mid-edit, the file is orphaned in `~/Library/Caches/inkwell/drafts/` (mode 0600).
+- [x] Reply-all (R) — **closed by PR 7-iii (v0.13.x).** Viewer-pane R fires startComposeReplyAll; ApplyReplyAllSkeleton fills To with src.From + remaining To recipients (deduped against userUPN), Cc with src.Cc; subject prefixed Re: with normalisation; saveComposeCmd routes via DraftCreator.CreateDraftReplyAll → graph.CreateReplyAll → PATCH.
+- [x] Forward (f in viewer) — **closed by PR 7-iii (v0.13.x).** Viewer-pane f fires startComposeForward; ApplyForwardSkeleton clears To/Cc, prefixes Subject Fwd: with Fw:/Fwd: normalisation, body opens with the canonical Forwarded message header block; saveComposeCmd routes via DraftCreator.CreateDraftForward → graph.CreateForward → PATCH. When Drafts isn't wired the binding falls back to the legacy ToggleFlag for graceful degradation.
+- [x] New message (m) — **closed by PR 7-iii (v0.13.x).** Folders-pane and viewer-pane m (when Drafts wired) fire startComposeNew; ApplyNewSkeleton blanks the form and focuses the To field; saveComposeCmd routes via DraftCreator.CreateNewDraft → graph.CreateNewDraft (single-stage POST /me/messages with the full payload — no createX/PATCH dance). List-pane m keeps move-with-folder-picker.
+- [x] `compose_sessions` table for crash recovery — **closed by PR 7-ii (v0.13.x).** Migration 005 adds the table per spec §7; SchemaVersion bumped to 5. `internal/ui/ComposeModel` gains a SessionID; entry / focus changes persist a JSON-encoded snapshot via `store.PutComposeSession`; save (Ctrl+S/Esc) and discard (Ctrl+D) stamp `confirmed_at` so the resume scan ignores the row. Init runs `scanComposeSessionsCmd` which GCs confirmed sessions older than 24h then offers the most-recent unconfirmed row via a confirm modal. Y restores into ComposeMode preserving SessionID; n inline-confirms. Corrupt snapshots are confirmed-and-skipped to avoid resume loops.
 - [ ] Confirm pane after editor exit (`s` save / `e` re-edit / `d` discard) — deferred. v0.11.0 saves immediately on non-empty body.
 - [ ] Attachment staging — deferred. Outlook handles attachments in the post-save webLink session.
 - [ ] HTML drafts — deferred (PRD §6 — plain text in v1).
 - [ ] Lint guard for `Mail.Send` strings — deferred. Spec invariant remains: no code path asks for or uses `Mail.Send`. Belt-and-suspenders CI script lands when convenient.
 
 ## Iteration log
+
+### Iter 5 — 2026-05-01 (ReplyAll / Forward / NewMessage, PR 7-iii of audit-drain)
+- Trigger: spec 15 §5 / §6.2 / §9 audit row + iter 3's deferral
+  list. Reply-only was the v0.13.x MVP shape; the spec calls for
+  R / f / m bindings with their corresponding action types and
+  skeletons.
+
+- Slice (action types):
+  - `internal/store/types.go` adds `ActionCreateDraftReplyAll`,
+    `ActionCreateDraftForward`, `ActionCreateDraft` enum
+    constants alongside the existing `ActionCreateDraftReply`.
+    Each has a doc comment naming the spec section + dispatch
+    shape.
+
+- Slice (graph layer):
+  - `internal/graph/drafts.go` adds `CreateReplyAll`,
+    `CreateForward`, and `CreateNewDraft`. The first two delegate
+    to a new shared `createDraftFromSource` helper that
+    parameterises the verb (`createReply` / `createReplyAll` /
+    `createForward`) — they share the response shape and
+    error-handling path. CreateNewDraft is single-stage: it
+    POSTs to `/me/messages` with the full body+recipients
+    payload in one shot.
+
+- Slice (action executor):
+  - `internal/action/draft.go` adds `CreateDraftReplyAll`,
+    `CreateDraftForward` (shared two-stage body via the new
+    private `createDraftFromSource` helper that takes the action
+    Type + stage1 closure as parameters — compresses three nearly
+    identical functions into one). `CreateNewDraft` is its own
+    function (single-stage; no source-message gating).
+  - `internal/action/types.go` extends `applyLocal` to no-op for
+    all four draft kinds (drafts only materialise after the
+    Drafts-folder delta sync; consistent with the Reply-only
+    behaviour).
+  - `internal/action/executor.go::Drain` swapped the
+    `a.Type == ActionCreateDraftReply` skip for a generalised
+    `isDraftCreationAction(a.Type)` helper that covers all four
+    kinds.
+
+- Slice (compose templates):
+  - `internal/compose/template.go` adds `ReplyAllSkeleton`,
+    `ForwardSkeleton`, `NewSkeleton`. ReplyAll dedups the user
+    out of the audience (userUPN passed in); Forward normalises
+    `Fwd:` / `Fw:` to canonical `Fwd:` and emits the
+    `---------- Forwarded message ----------` header block with
+    From / Date / Subject / To from the source. New is a blank
+    canvas. Helper `dedupAddresses` + `joinAddrs` keep the
+    rendering consistent with what the in-modal pane does in
+    its form fields.
+
+- Slice (UI compose model):
+  - `internal/ui/compose_model.go` adds `ApplyReplyAllSkeleton`,
+    `ApplyForwardSkeleton`, `ApplyNewSkeleton` alongside the
+    existing reply applier. Reply-all populates To+Cc from the
+    source (userUPN-filtered + deduped); Forward clears To/Cc;
+    New blanks everything and shifts focus to To (since there's
+    no source-sender to pre-fill from, recipients are the
+    user's first task).
+  - Subject normalisation lives in two helpers (`replyPrefix`,
+    `forwardPrefix`) so the UI form and the compose package
+    template emit the same prefix logic.
+
+- Slice (DraftCreator interface + adapter):
+  - `internal/ui/app.go::DraftCreator` adds three methods
+    (`CreateDraftReplyAll`, `CreateDraftForward`, `CreateNewDraft`)
+    so the UI can route by Kind without reaching into
+    internal/action.
+  - `cmd/inkwell/cmd_run.go::draftAdapter` implements all four;
+    a new private helper `convertDraftResult` collapses the
+    `(*action.DraftResult, error) → (*ui.DraftRef, error)` dance
+    that the four methods share.
+
+- Slice (UI dispatch):
+  - `internal/ui/app.go` factors `startCompose` into a shared
+    `startComposeOfKind(kind, *src)` that handles all four
+    flavours; per-kind starters (`startCompose`,
+    `startComposeReplyAll`, `startComposeForward`,
+    `startComposeNew`) wrap it.
+  - Viewer pane:
+    - `r` (MarkRead binding) → Reply (existing).
+    - `R` (MarkUnread binding, viewer-pane scope) → ReplyAll.
+    - `f` (ToggleFlag binding, viewer-pane scope) → Forward
+      when Drafts is wired; falls back to ToggleFlag when not
+      so test setups + degraded modes still work.
+    - `m` (Move binding, viewer-pane scope) → NewMessage when
+      Drafts is wired; falls back to startMove when not.
+  - Folders pane:
+    - `m` → NewMessage (when Drafts wired). Previously a no-op
+      because Move had no list of messages to act on.
+  - List pane retains all four bindings as their original
+    triage verbs (mark-read, mark-unread, toggle-flag, move).
+  - `internal/ui/compose.go::saveComposeCmd` routes by
+    `snap.Kind` to the matching DraftCreator method. Recipient
+    recovery (empty-To fallback to source.FromAddress) skips
+    the `ComposeKindNew` case — there's no source. Stage-2
+    failure preserves the existing spec-15 contract (return
+    DraftResult + err so the caller paints "press s to open in
+    Outlook").
+
+- Tests:
+  - **compose** (5): TestReplyAllSkeletonPopulatesAllRecipients,
+    TestReplyAllSkeletonDedupesAddresses,
+    TestForwardSkeletonHasForwardHeaderBlock,
+    TestForwardSkeletonPreservesExistingFwdPrefix,
+    TestNewSkeletonIsBlank.
+  - **action executor** (4): TestCreateDraftReplyAllRoutesTo
+    ReplyAllEndpoint, TestCreateDraftForwardRoutesToForward
+    Endpoint, TestCreateNewDraftSinglePost,
+    TestDrainSkipsAllDraftCreationKinds.
+  - **ui dispatch** (10): TestViewerCapitalRStartsReplyAll,
+    TestViewerLowerFStartsForward,
+    TestViewerLowerFFlagsWhenNoDraftsWired,
+    TestViewerLowerMStartsNewWhenDraftsWired,
+    TestFolderPaneMStartsNew,
+    TestSaveComposeRoutesByKind (table-driven, 4 sub-cases),
+    TestSaveComposeNewDraftSkipsRecipientFallback,
+    TestApplyReplyAllSkeletonFiltersUserUPN,
+    TestApplyForwardSkeletonClearsRecipients,
+    TestApplyNewSkeletonFocusesTo.
+
+- Decisions:
+  - **Pane-scoped `f` and `m` rebindings.** Viewer-pane `f`
+    and `m` previously did flag-toggle and move; spec 15 §9
+    explicitly reassigns them to Forward and NewMessage in the
+    viewer. Pane scope keeps the list-pane meanings intact so
+    users still flag / move from the list. The Drafts-not-wired
+    fallback ensures degraded-mode UX (test harnesses; future
+    "no auth" demo mode) still has working flag/move.
+  - **`R` is reply-all in viewer; mark-unread in list; rename-
+    folder in folders.** Three-way pane scope on a single
+    keymap field — pre-existing pattern with pane-scoped `r` /
+    `f` / `m`, now formalised across more bindings.
+  - **Single-stage POST /me/messages for new drafts.** The
+    Graph endpoint accepts the full body in one shot; no need
+    for a createX / PATCH dance. This means the resume path
+    can't distinguish "stage 1 succeeded but not persisted"
+    from "stage 1 never happened" — but for new drafts that
+    distinction doesn't matter (no draft on the server vs draft
+    on the server are both fine; user can re-send from the
+    resumed snapshot).
+  - **Subject normalisation matches across compose package
+    and UI form.** `replyPrefix` and `forwardPrefix` collapse
+    `Re: Re:` / `Fw:` / `Fwd:` to canonical forms in both
+    layers so the textarea body and the form's Subject field
+    don't drift.
+  - **`createDraftFromSource` helper compresses three near-
+    identical executor methods into one.** Stage 1 endpoint
+    differs; everything else is the same. The closure-passed
+    stage1 fn lets the helper stay typed without an interface
+    box.
+
+- Result: full -race + -tags=e2e + -tags=integration suite
+  green. 5 new compose tests + 4 new action tests + 10 new ui
+  tests pass; spec 15 §5 / §6.2 / §9 DoD bullets all closed.
+
+  **Remaining deferred (post-MVP):**
+  - `Ctrl+E` $EDITOR drop-out for power users who want
+    external-editor body composition.
+  - Discard flow that DELETEs the server-side draft when the
+    user cancels AFTER save (today: cancel before save = Ctrl+D,
+    no server roundtrip; cancel after save = open in Outlook
+    and discard there).
+  - CI lint guard for `Mail.Send` literal outside auth/scopes.go
+    + docs/PRD.md.
+
+### Iter 4 — 2026-05-01 (compose_sessions migration + crash-recovery resume, PR 7-ii of audit-drain)
+- Trigger: spec 15 §7 audit row + iter 3's deferral note. The
+  in-modal compose pane held form state in memory only; a crash
+  while typing lost everything. Spec §7 calls for a JSON-snapshot
+  table that the launch path scans on next start and offers as a
+  resume prompt.
+- Slice (schema):
+  - `internal/store/migrations/005_compose_sessions.sql` adds
+    `compose_sessions(session_id, kind, source_id, snapshot,
+    created_at, updated_at, confirmed_at)` plus a partial index
+    `idx_compose_sessions_unconfirmed` on `created_at` where
+    `confirmed_at IS NULL` to keep the launch-time resume scan
+    cheap. `source_id` FKs to `messages(id)` ON DELETE SET NULL
+    so the session row survives a source-message delete (the
+    resume modal warns rather than crashes).
+  - `store.SchemaVersion` bumped to 5.
+- Slice (store API):
+  - `internal/store/compose_sessions.go` adds
+    `PutComposeSession` (idempotent upsert by SessionID),
+    `ConfirmComposeSession` (stamps confirmed_at),
+    `ListUnconfirmedComposeSessions` (newest first; resume scan
+    consumer), `GCConfirmedComposeSessions` (delete confirmed-
+    older-than-cutoff; launch-time pass uses now-24h).
+  - `internal/store/types.go` adds the `ComposeSession` struct.
+  - `Store` interface in `internal/store/store.go` extended with
+    the 4 new methods + spec-rationale comments.
+- Slice (UI wiring):
+  - `internal/ui/compose_model.go::ComposeModel` gains
+    `SessionID string` field (set on entry; preserved across
+    Restore so subsequent saves hit the same row).
+  - `internal/ui/compose.go` adds:
+    - `newComposeSessionID()` (crypto/rand → `cs-<8-byte-hex>`).
+    - `composeKindToString()` (text-column mapping).
+    - `persistComposeSnapshotCmd()` — async tea.Cmd that writes
+      via `store.PutComposeSession`.
+    - `confirmComposeSessionInline()` — synchronous SQLite WAL
+      write (sub-ms; used by Ctrl+D / decline-resume so the
+      test contract "no Cmd returned" stays clean).
+    - `scanComposeSessionsCmd()` — launch-time scan: GC pass +
+      list-unconfirmed → returns `composeResumeMsg` /
+      `composeResumeNoneMsg`.
+    - `composeResumePrompt()` + `humanAge()` — user-facing
+      modal text with "5 min ago" / "2 h ago" / "1 day ago"
+      formatting.
+    - `resumeCompose()` — hydrates ComposeModel from a stored
+      snapshot; preserves SessionID; falls through to a
+      friendly "snapshot corrupt; discarded" status when the
+      JSON decode fails (and inline-confirms the row to break
+      resume loops).
+  - `internal/ui/app.go::Init` — adds `scanComposeSessionsCmd()`
+    to the startup batch.
+  - `internal/ui/app.go::Update` — `composeResumeMsg` opens the
+    confirm modal (`Topic: "compose_resume"`); the
+    `ConfirmResultMsg` branch routes y/n to `resumeCompose()`
+    or inline-confirm.
+  - `internal/ui/app.go::startCompose` — assigns SessionID,
+    persists initial skeleton snapshot.
+  - `internal/ui/app.go::updateCompose` — Tab / Shift+Tab
+    re-persist on focus change; Ctrl+S/Esc folds the confirm
+    write into `saveComposeCmd`'s goroutine; Ctrl+D
+    inline-confirms.
+  - `Model.pendingComposeResume` field tracks the row across
+    the confirm modal lifetime.
+
+- Tests:
+  - **store** (5): TestComposeSessionRoundTrip,
+    TestComposeSessionUpsertRewritesSnapshot,
+    TestComposeSessionConfirmHidesFromUnconfirmedScan,
+    TestComposeSessionListUnconfirmedNewestFirst,
+    TestComposeSessionGCRemovesOldConfirmed,
+    TestComposeSessionForeignKeySetNullOnSourceDelete.
+  - **ui dispatch** (9): TestComposeSessionPersistsOnEntry,
+    TestComposeSessionConfirmedOnSave,
+    TestComposeSessionConfirmedOnDiscard,
+    TestComposeSessionPersistsOnTab,
+    TestComposeResumeMsgOpensConfirmModal,
+    TestComposeResumeYesRestoresIntoComposeMode,
+    TestComposeResumeNoConfirmsAndDiscards,
+    TestComposeResumeCorruptSnapshotDoesNotCrash,
+    TestScanComposeSessionsCmdReturnsNoneWhenEmpty,
+    TestScanComposeSessionsCmdReturnsResumeWhenPresent,
+    TestScanComposeSessionsCmdGCsOldConfirmed.
+
+- Decisions:
+  - **Persist on focus change, not per-keystroke.** Per-keystroke
+    persistence would write 100s of rows/min for a typical
+    compose; per-Tab captures every field-completion the user
+    makes and is the natural "I've finished thinking about this
+    field" boundary. Worst-case loss on crash: the partial
+    sentence in the currently-focused field. Acceptable.
+  - **Inline confirm on Ctrl+D / decline-resume.** SQLite WAL
+    locally is sub-millisecond; an inline write keeps the
+    test contract "Ctrl+D returns nil Cmd" intact and means
+    the user's next keystroke never races persistence.
+  - **saveComposeCmd folds confirm into its goroutine.** The
+    Graph round-trip is already async; piggy-backing the
+    confirm write on the same goroutine means the save returns
+    a single Cmd (existing tests stay green) AND confirmed_at
+    is stamped regardless of save success/failure (the user
+    explicitly chose save, so the resume scan should not
+    re-offer this row).
+  - **Corrupt snapshot → confirm + skip.** A row whose JSON
+    blob can't decode would resume-loop forever; we confirm
+    it (with a friendly status message) so it never resurfaces.
+  - **Init batch always emits a deterministic message.** The
+    scan-Cmd returns either `composeResumeMsg` or
+    `composeResumeNoneMsg`; tests can assert the launch path
+    completes end-to-end without a long teatest dance.
+
+- Result: full -race + -tags=e2e + -tags=integration suite
+  green; 9 new ui tests + 6 new store tests pass; spec 15 §7
+  closed in the DoD checklist. Ralph-loop critique:
+  - Layering check: ui → store stays through `Deps.Store`; no
+    new layering inversions.
+  - Comment audit: each new helper has a one-paragraph
+    doc-comment naming the spec section + the rationale; no
+    "what the code does" restating.
+  - Privacy check: `store.ComposeSession.Snapshot` is opaque
+    JSON with body content; the redaction layer scrubs body
+    content from logs by default; we never log the snapshot
+    blob from the UI layer, only the SessionID + error.
+  - Idempotency: PutComposeSession is upsert; Confirm is
+    no-op when the row's already confirmed; GC sweeps the
+    same rows multiple times without harm.
+  - Crash-safety: every write is single-statement on a WAL DB
+    so a crash at any point either persists the row or doesn't
+    (no half-states).
+
+  **Deferred to PR 7-iii:** ReplyAll / Forward / NewMessage
+  action types + skeletons + R/F/m keybindings.
+
+  **Deferred to a follow-up:** `Ctrl+E` drop-out for power
+  users who want $EDITOR for body editing.
 
 ### Iter 3 — 2026-04-30 (in-modal compose redesign, spec-15 v2)
 - Trigger: real-tenant complaint — "the bottom should just have
