@@ -111,5 +111,10 @@ func Defaults() *Config {
 			MergeEmitThrottle:   100 * time.Millisecond,
 			DefaultSort:         "received_desc",
 		},
+		Pattern: PatternConfig{
+			LocalMatchLimit:        5000,
+			ServerCandidateLimit:   1000,
+			PreferLocalWhenOffline: true,
+		},
 	}
 }

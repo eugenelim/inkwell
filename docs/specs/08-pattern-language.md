@@ -1,6 +1,6 @@
 # Spec 08 — Pattern Language
 
-**Status:** In progress (CI scope, v0.5.x). Lexer + parser + AST + local-SQL evaluator (`internal/pattern/eval_local.go`) all shipped covering 14 of 18 operators; the `~h` header operator is server-only and explicitly rejected today. Residual: spec §6 Compile/Execute API, server-side `$filter` / `$search` evaluators, two-stage execution, `--explain` output, strategy selection table — all tracked under audit-drain PR 9.
+**Status:** Shipped (CI scope, v0.18.x — PR 9 of audit-drain). Compile / Execute / Compiled / ExecutionStrategy / CompilationPlan / CompileOptions per §6 all land; `eval_filter.go` (OData `$filter`) + `eval_search.go` (KQL-ish `$search`) + `eval_memory.go` (in-memory evaluator for TwoStage refinement) ship; strategy selector walks the §7.2 decision tree (LocalOnly forced, body/header → $search, optional TwoStage, $filter eligible, fall-back to local). Residual: 100k-message benchmark, 10k-AST property test in CI, `:filter --explain` UI integration (`Compiled.Explain()` is wired + tested but the UI surface lifts with PR 10), StrategyServerHybrid auto-selection (path + tests in place; planner doesn't emit it organically yet).
 **Depends on:** Specs 02 (store), 03 (graph). Independent of UI.
 **Blocks:** Specs 10 (bulk operations consume Compiled patterns), 11 (saved searches store pattern strings).
 **Estimated effort:** 2–3 days.

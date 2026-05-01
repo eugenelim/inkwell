@@ -34,7 +34,26 @@ type Config struct {
 	Bulk          BulkConfig          `toml:"bulk"`
 	Calendar      CalendarConfig      `toml:"calendar"`
 	Search        SearchConfig        `toml:"search"`
+	Pattern       PatternConfig       `toml:"pattern"`
 	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+}
+
+// PatternConfig owns the [pattern] section (spec 08 §13). Knobs
+// that the Compile/Execute path reads at request time. Defaults
+// match the spec table.
+type PatternConfig struct {
+	// LocalMatchLimit caps the local-SQL result set per spec
+	// 08 §8 (LIMIT on the generated query).
+	LocalMatchLimit int `toml:"local_match_limit"`
+	// ServerCandidateLimit caps the TwoStage server candidate
+	// fetch per spec 08 §11 — beyond this, the executor refuses
+	// and tells the user to refine the pattern.
+	ServerCandidateLimit int `toml:"server_candidate_limit"`
+	// PreferLocalWhenOffline biases the strategy selector toward
+	// LocalOnly when the network is down (spec 08 §7.2). v1 uses
+	// this only when the binary is launched offline; the
+	// engine's online state isn't yet plumbed into the planner.
+	PreferLocalWhenOffline bool `toml:"prefer_local_when_offline"`
 }
 
 // SearchConfig owns the [search] section (spec 06 §7). Knobs the

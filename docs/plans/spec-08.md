@@ -1,7 +1,13 @@
 # Spec 08 — Pattern Language
 
 ## Status
-in-progress (CI scope: lexer + parser + AST + local-SQL evaluator landed in v0.5.0; Graph $filter / $search evaluators land alongside spec 09/10).
+shipped (CI scope, v0.18.x — PR 9 of audit-drain). Compile/
+Execute API + strategy selector + Graph $filter and $search
+evaluators + in-memory evaluator for TwoStage refinement all
+land. Manual real-tenant smoke deferred per CLAUDE.md §5.5;
+property-based tests on 10k random ASTs deferred (`go test
+-fuzz` exists; the spec-mandated 10k-iteration counter isn't
+pinned in CI).
 
 ## DoD checklist (mirrored from spec)
 - [x] Lexer tokenises operators (`~f`/`~t`/…), arguments (bare-word + quoted), boolean operators (`&` `|` `!`), parens. Position tracked for diagnostics.
@@ -11,13 +17,173 @@ in-progress (CI scope: lexer + parser + AST + local-SQL evaluator landed in v0.5
 - [x] Date parsing: `<Nd`/`>Nd` (relative), `<=YYYY-MM-DD`/`>=YYYY-MM-DD` (absolute), `today`/`yesterday`, `a..b` (range).
 - [x] Local SQL evaluator: AST → WHERE clause + bound args. LIKE-escaping for literal `%`/`_` in user input.
 - [x] No-arg predicates (~A, ~N, ~F, ~U) emit fixed clauses.
-- [x] Tests: 20 cases in pattern_test.go covering parser surface + evaluator output + corner cases (unterminated quotes, unknown operators, multi-star, escape).
-- [ ] Graph $filter evaluator — deferred to spec 09 (batch executor will route OData-friendly predicates to the server side).
-- [ ] Graph $search evaluator — deferred (string predicates over body need server-side full-text).
-- [ ] Compile() chooser that picks the right backend(s) — deferred. v0.5.0 callers go directly to CompileLocal.
-- [ ] Bench at 100k messages — deferred until spec 10 wires this into a UI flow with a real query budget.
+- [x] Tests: 20 cases in pattern_test.go covering parser surface + evaluator output + corner cases (unterminated quotes, unknown operators, multi-star, escape). PR 9 adds 30+ strategy-selection cases + EmitFilter / EmitSearch snapshots + EvaluateInMemory sweep + Execute integration tests.
+- [x] Graph `$filter` evaluator — **closed by PR 9 (v0.18.x).** `eval_filter.go::EmitFilter` renders OData expressions with single-quote escaping; ErrUnsupported on body / header / folder-scope (URL path).
+- [x] Graph `$search` evaluator — **closed by PR 9.** `eval_search.go::EmitSearch` renders the KQL-ish dialect with auto-quoted email tokens; ErrUnsupported on read / flag / importance.
+- [x] `Compile()` chooser that picks the right backend(s) — **closed by PR 9.** `compile.go` exposes Compile / CompileNode / Compiled / ExecutionStrategy / CompilationPlan / CompileOptions per spec §6; `selectStrategy` walks the spec §7.2 decision tree (LocalOnly forced, body/header → server $search, optional TwoStage refinement, $filter eligible, fall-back to local).
+- [x] `Execute()` orchestrator — **closed by PR 9.** `execute.go::Execute` dispatches per strategy via consumer-side `LocalSearcher` + `GraphService` seams; TwoStage uses `EvaluateInMemory` against the cached envelope.
+- [x] `--explain` output — **closed by PR 9.** `Compiled.Explain()` renders the strategy + reason + rendered backend queries multi-line; the `:filter` UI integration of `--explain` rides on PR 10's broader UI work.
+- [x] [pattern] config section — **closed by PR 9.** `local_match_limit` / `server_candidate_limit` / `prefer_local_when_offline` per spec §13.
+- [ ] Bench at 100k messages — still deferred (would require a synthesized 100k corpus generator + a perf harness; not in PR 9 scope).
+- [ ] Property-based parser tests on 10k random ASTs — `fuzz_test.go` exists with `FuzzParse` / `FuzzCompileLocal`; the 10k-iteration spec ask is a CI-runtime decision still pending.
 
 ## Iteration log
+
+### Iter 2 — 2026-05-01 (Compile/Execute + server evaluators, PR 9 of audit-drain)
+- Trigger: spec 08 §6 / §9 / §10 / §11 audit row + audit-drain
+  PR 9. The package shipped v0.5.0 with only `Parse` +
+  `CompileLocal`; UI + bulk consumers had to compile the local
+  SQL by hand and skipped server execution entirely. PR 9
+  ships the full Compile / Execute API + strategy selector +
+  $filter / $search evaluators + in-memory refinement.
+
+- Slice (compile.go):
+  - `Compile(src, opts)` and `CompileNode(root, opts)` —
+    parser-passthrough + `selectStrategy` analysis.
+  - `Compiled` carries the AST + chosen strategy + rendered
+    plan + human-readable explanation.
+  - `ExecutionStrategy` enum (LocalOnly / ServerFilter /
+    ServerSearch / ServerHybrid / TwoStage) with `String()`
+    used by `Compiled.Explain()`.
+  - `selectStrategy` walks the spec §7.2 decision tree:
+    - Step 0 (LocalOnly forced) — try CompileLocal, succeed
+      OR ErrPatternUnsupported. Honors the user's offline
+      opt-in even for body/header (CompileLocal accepts ~b /
+      ~B against `body_preview`).
+    - Step 1 (body / header) — server $search; if read/flag/
+      importance also present → TwoStage with
+      `astWithoutLocalOnly` rewrite (peels local-only leaves
+      from AND'd subtrees so $search runs on the strict
+      superset; in-memory refinement filters).
+    - Step 2 (PreferLocal) — local if all predicates have a
+      local path.
+    - Step 3 ($filter eligible) — server filter.
+    - Step 4 (fallback) — local with a "Graph $filter cannot
+      express this AST" note.
+  - `astWithoutLocalOnly` rewrite + `isLocalOnlyField` helper
+    for TwoStage's $search peel.
+  - `astCapability` summary tallies cap-state in one walk so
+    selectStrategy doesn't re-traverse the AST per option.
+  - `walk(n, fn)` AST visitor for the analyser pass.
+
+- Slice (eval_filter.go):
+  - `EmitFilter(root)` returns the OData $filter expression.
+  - String predicates: exact / prefix / suffix / contains via
+    OData `eq` / `startswith` / `endswith` / `contains`.
+  - Recipient collection predicates use the `any()` lambda.
+  - Date predicates: `ge` / `lt` with quoted ISO-8601.
+  - `ErrUnsupported` for ~b / ~B / ~h / ~m (folder scope is
+    URL-path, not $filter).
+  - `odataLit` single-quote-escapes per OData v4.
+
+- Slice (eval_search.go):
+  - `EmitSearch(root)` renders the KQL-ish $search dialect.
+  - Field prefixes (`from:`, `subject:`, `body:`, `category:`,
+    `to:`, `cc:`).
+  - Auto-quoted phrases via `searchTerm` + `needsSearchQuote`
+    (anything outside ASCII alphanum + `*` / `-` / `_` gets
+    wrapped).
+  - `ErrUnsupported` for ~N / ~U / ~F / ~i / ~y / ~v / ~m
+    (Graph $search has no read/flag/importance fields).
+
+- Slice (eval_memory.go):
+  - `EvaluateInMemory(root, m)` walks the AST against an
+    in-memory `store.Message`. Used by `Execute`'s TwoStage
+    refinement.
+  - `matchString` is the wildcard-aware comparator; mirrors
+    SQL's case-insensitive LIKE semantics.
+  - `anyAddrMatches` covers the recipient-collection field
+    family.
+
+- Slice (execute.go):
+  - `Execute(ctx, c, local, graph, opts)` dispatches per
+    strategy. Consumer-side `LocalSearcher` and `GraphService`
+    interfaces + `ServerQuery` / `ExecuteOptions` so the
+    pattern package's tests stub backends without importing
+    internal/graph.
+  - `executeLocal` runs `SearchByPredicate`.
+  - `executeServerFilter` / `executeServerSearch` route to
+    the matching graph helper.
+  - `executeServerHybrid` runs both queries + INTERSECTs IDs
+    in memory.
+  - `executeTwoStage` runs $search → loads cached envelopes
+    via `GetMessage` → filters via `EvaluateInMemory`. Deep-
+    archive misses (server returned, local cache miss) are
+    silently dropped per spec §11.1.
+
+- Slice (config):
+  - `internal/config/config.go` adds `[pattern]` section with
+    `local_match_limit` / `server_candidate_limit` /
+    `prefer_local_when_offline` per spec §13. Defaults
+    (5000 / 1000 / true) match the spec table.
+
+- Slice (UI integration):
+  - `internal/ui/app.go::runFilterCmd` swapped from
+    `pattern.Parse` + `pattern.CompileLocal` +
+    `store.SearchByPredicate` to `pattern.Compile` (with
+    `LocalOnly: true`) + `pattern.Execute`. UX preserved
+    (`:filter` still narrows the cached folder); the strategy
+    infrastructure is now under the hood for future server-
+    routed bulk operations.
+  - Execute returns IDs; the UI bulk-fetches envelopes via
+    GetMessage so the list pane gets store.Message structs.
+
+- Tests (12 new across 2 files):
+  - **compile_test.go** (33 strategy-selection cases +
+    explain-output assertion + 10 EmitFilter snapshots + 7
+    EmitSearch snapshots + ErrUnsupported invariants for
+    server-only / read/flag predicates).
+  - **execute_test.go** (8 Execute integration tests +
+    EvaluateInMemory sweep across every Field family).
+
+- Decisions:
+  - **Step 0 LocalOnly trumps body/header server route.** The
+    spec §7.2 puts LocalOnly at Step 2; we promote it to Step
+    0 so the user's explicit "stay local" wins even for
+    patterns that would normally route to $search. Trade-off:
+    body/header LocalOnly is approximate (only previews
+    indexed), but that matches the existing UX and the user
+    already opted in.
+  - **TwoStage strips local-only leaves from $search via AST
+    rewrite, not branch dropping.** `astWithoutLocalOnly`
+    preserves OR branches because dropping a branch from an
+    OR would change the result set; AND'd local-only leaves
+    are removed (server returns superset; refinement filters).
+    OR'd local-only leaves bail to LocalOnly with a
+    descriptive note.
+  - **ServerHybrid path exists but isn't picked organically.**
+    Most patterns that would conceptually need Hybrid
+    (`~A` AND `~s text`) compile through $filter cleanly
+    today (`contains(subject,...)`). Hybrid is reserved for
+    future patterns that explicitly mix structural-only
+    `$filter` with body `$search`; the Execute path is
+    written and tested but the strategy selector doesn't
+    emit it yet.
+  - **Pattern → store + pattern → graph layering kept clean**
+    via consumer-side LocalSearcher / GraphService seams.
+    internal/pattern doesn't import internal/graph.
+  - **runFilterCmd preserves LocalOnly UX.** Switching the
+    default to server would silently dispatch Graph queries
+    on every `:filter` keystroke. A `--server` flag can lift
+    the gate later when there's UI guidance.
+
+- Result: full -race + -tags=e2e + -tags=integration suite
+  green; 12 new pattern unit tests pass; staticcheck silent.
+  Spec 08 §17 DoD bullets all closed except 100k-message
+  bench + 10k-AST property test (both deferred — would
+  require a perf harness this PR doesn't ship).
+
+  **Deferred:**
+  - 100k-message benchmark (spec §16) — needs a synthesised
+    corpus + perf harness.
+  - 10k-AST property test in CI — `fuzz_test.go` covers the
+    fuzz path; the 10k-iteration counter is CI-runtime.
+  - `:filter --explain` UI integration — `Compiled.Explain()`
+    is wired and tested; the UI surface lifts with PR 10's
+    broader command-bar work.
+  - StrategyServerHybrid auto-selection — path is implemented
+    + tested; the planner doesn't emit it organically yet
+    (waits for a real-world pattern that needs it).
 
 ### Iter 1 — 2026-04-28 (parser + AST + local SQL evaluator)
 - Slice: every file in internal/pattern/ in one cut: ast.go, lexer.go, parser.go, dates.go, eval_local.go, plus pattern_test.go.
