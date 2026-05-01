@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,6 +110,35 @@ func (c *Client) GetMessageBody(ctx context.Context, id string) (*Message, error
 		return nil, fmt.Errorf("graph: decode message body: %w", err)
 	}
 	return &m, nil
+}
+
+// GetAttachment fetches raw bytes for one fileAttachment (spec 05 §8.1 / PR 10).
+// Graph encodes the bytes as base64 in a JSON wrapper; we decode and return
+// them so the caller can write to disk. Bytes are NOT cached in the local store
+// — they land directly in the user's save directory or a temp dir for open.
+// The confirm-modal threshold (>25 MB by default) is enforced in the UI layer
+// before this function is called, so we do not need a size guard here.
+func (c *Client) GetAttachment(ctx context.Context, messageID, attachmentID string) ([]byte, error) {
+	path := "/me/messages/" + messageID + "/attachments/" + attachmentID + "?$select=contentBytes"
+	resp, err := c.Do(ctx, http.MethodGet, path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseError(resp)
+	}
+	var payload struct {
+		ContentBytes string `json:"contentBytes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("graph: decode attachment: %w", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload.ContentBytes)
+	if err != nil {
+		return nil, fmt.Errorf("graph: decode attachment bytes: %w", err)
+	}
+	return data, nil
 }
 
 // MessageHeader is one entry in internetMessageHeaders. Graph returns

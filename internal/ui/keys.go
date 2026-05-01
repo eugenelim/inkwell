@@ -111,9 +111,10 @@ type KeyMap struct {
 	DeleteFolder key.Binding
 
 	// URL picker + clipboard yank (v0.15.x — TUI parity with urlview).
-	// `o` opens the URL picker overlay from the viewer pane. `y`
-	// yanks the focused URL (or selected attachment URL) to the
-	// system clipboard via OSC 52 (+ pbcopy on macOS).
+	// `O` opens the URL picker overlay from the viewer pane (spec 05
+	// §12: O = open focused link). `o` (lowercase) opens the current
+	// message's webLink directly (spec 05 §12: o = open in browser).
+	// `y` yanks the focused URL to the clipboard via pbcopy / OSC 52.
 	OpenURL key.Binding
 	Yank    key.Binding
 
@@ -175,7 +176,7 @@ func DefaultKeyMap() KeyMap {
 		RenameFolder: key.NewBinding(key.WithKeys("R")),
 		DeleteFolder: key.NewBinding(key.WithKeys("X")),
 
-		OpenURL:        key.NewBinding(key.WithKeys("o")),
+		OpenURL:        key.NewBinding(key.WithKeys("O")),
 		Yank:           key.NewBinding(key.WithKeys("y")),
 		FullscreenBody: key.NewBinding(key.WithKeys("z")),
 	}

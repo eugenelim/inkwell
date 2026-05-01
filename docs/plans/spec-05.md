@@ -201,3 +201,62 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
   `internal/graph/GetAttachment` helper, save / open
   keybindings, the path-traversal guard, full
   `internetMessageHeaders` $select for `H` toggle.
+
+### Iter 6 — 2026-05-01 (PR 10: attachment save/open + viewer keybindings + conversation thread)
+
+- Scope: audit-drain PR 10 — closes spec 05 §8 (GetAttachment helper +
+  `[a]`/`[b]` prefixes + save/open), §11 (conversation thread map),
+  §12 (viewer keybindings: `o` webLink, `O` URL picker, `1-9` link-open,
+  `[`/`]` thread nav, `a-z` save attachment, `A-Z` open attachment),
+  and spec 17 §4.4 (path-traversal guard).
+
+- Changes:
+  - `internal/graph/messages.go` — new `GetAttachment(ctx, msgID, attID) ([]byte, error)`;
+    base64-decodes Graph's JSON `contentBytes` field.
+  - `internal/config/config.go` + `defaults.go` — `AttachmentSaveDir` (`~/Downloads`),
+    `LargeAttachmentWarnMB` (25).
+  - `internal/ui/keys.go` — `OpenURL` changed from `"o"` to `"O"` per spec §12 table.
+  - `internal/ui/messages.go` — `BodyRenderedMsg` gains `Conversation []store.Message`;
+    new `SaveAttachmentDoneMsg` + `OpenAttachmentDoneMsg`.
+  - `internal/ui/panes.go` — `ViewerModel` gains `conversationThread`/`convIdx` fields
+    + `SetConversationThread` / `ConversationThread` / `NavPrevInThread` /
+    `NavNextInThread`; `renderAttachmentLines` prefixes `[a]`/`[b]`…;
+    new `renderConversationSection`.
+  - `internal/ui/app.go` — `AttachmentFetcher` consumer-site interface; `Deps` gains
+    `Attachments` / `AttachmentSaveDir` / `LargeAttachmentWarnMB`; Model gains
+    `pendingAttachmentSave` / `pendingAttachmentOpen`; `openMessageCmd` loads
+    conversation siblings via `loadConv()`; `dispatchViewer` checks attachment
+    letters before switch; `o`→webLink / `O`→picker / `[`/`]`→thread nav / `1-9`→
+    link-open guards added; `safeAttachmentPath` / `startSaveAttachment` /
+    `startOpenAttachment` / `saveAttachmentCmd` / `openAttachmentCmd` helpers added.
+  - `cmd/inkwell/cmd_run.go` — `expandHome` helper; new fields wired into `ui.Deps`.
+  - `internal/ui/urlpicker.go` — hint text updated `o`→`O`.
+  - `docs/CONFIG.md` — `attachment_save_dir` + `large_attachment_warn_mb` entries.
+  - `docs/user/reference.md` — viewer keybindings table + prose updated.
+  - `docs/user/how-to.md` — new attachment + thread + webLink recipes.
+
+- Tests added:
+  - `internal/graph/messages_test.go` — `TestGetAttachmentDecodesBase64`,
+    `TestGetAttachmentSurfaces404`, `TestGetAttachmentRejectsInvalidBase64`.
+  - `internal/ui/panes_test.go` — `TestRenderAttachmentLinesLetterPrefixes`,
+    `TestRenderAttachmentLinesEmpty`, `TestRenderAttachmentLinesSingleFileGrammar`,
+    `TestRenderConversationSectionOmittedForSingleOrNil`,
+    `TestRenderConversationSectionMarksCurrent`,
+    `TestRenderConversationSectionHasNavHint`,
+    `TestSetConversationThreadIndexing`,
+    `TestSetConversationThreadUnknownIDDefaultsToZero`,
+    `TestNavPrevNextInThreadBounds`,
+    `TestSafeAttachmentPathHappyPath`, `TestSafeAttachmentPathStripsTraversal`,
+    `TestSafeAttachmentPathStripsSubDirectory`, `TestSafeAttachmentPathRejectsDot`,
+    `TestSafeAttachmentPathRejectsDotDot`,
+    `TestSafeAttachmentPathDirPrefixFalsePositive`.
+  - `internal/ui/app_e2e_test.go` — `TestViewerOpenWebLinkShowsActivity`,
+    `TestViewerOpenLinkByNumberShowsActivity`,
+    `TestViewerConversationThreadRendered`;
+    `TestURLPickerOOpensModalWithExtractedURL` updated (`o`→`O`).
+
+- Deferred (explicitly out of PR 10 scope):
+  - `e`/`Q` quote collapse.
+  - `internetMessageHeaders` full-header toggle (`H` key).
+
+- Status: implementation + tests written. Pending `make regress` green.

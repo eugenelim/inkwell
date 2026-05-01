@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -200,6 +201,16 @@ type Deps struct {
 	// $search). Optional — when nil, `/` and `:search` fall back
 	// to the legacy single-shot store.Search flow.
 	Search SearchService
+	// Attachments downloads raw attachment bytes (spec 05 §8.1 /
+	// PR 10). Optional — when nil, a-z / Shift+A-Z keybindings
+	// show a friendly "not wired" message.
+	Attachments AttachmentFetcher
+	// AttachmentSaveDir is the expanded save path for a-z
+	// keybindings. Falls back to ~/Downloads when empty.
+	AttachmentSaveDir string
+	// LargeAttachmentWarnMB triggers a confirm modal before
+	// downloading files larger than this many MB. 0 disables.
+	LargeAttachmentWarnMB int
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -225,6 +236,14 @@ type SearchSnapshot struct {
 // Cancel is idempotent.
 type SearchService interface {
 	Search(ctx context.Context, query string) (<-chan SearchSnapshot, func())
+}
+
+// AttachmentFetcher downloads raw attachment bytes on demand (spec 05
+// §8.1 / PR 10). Optional — when nil, a-z keybindings surface a
+// friendly "not wired" error. Implementations call Graph's
+// GET /me/messages/{id}/attachments/{id}?$select=contentBytes.
+type AttachmentFetcher interface {
+	GetAttachment(ctx context.Context, messageID, attachmentID string) ([]byte, error)
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -467,6 +486,12 @@ type Model struct {
 	// the category name and Enter dispatches the action.
 	pendingCategoryAction string // "add" | "remove"
 	pendingCategoryMsg    *store.Message
+
+	// Attachment save/open (spec 05 §8 / §12 / PR 10).
+	// pendingAttachmentSave/Open hold the targeted attachment while the
+	// large-file confirm modal is open; y fires the download cmd.
+	pendingAttachmentSave *store.Attachment
+	pendingAttachmentOpen *store.Attachment
 	categoryBuf           string
 
 	// Folder name input (spec 18). Reused for both `N` (create) and
@@ -706,7 +731,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.SetBody(msg.Text, msg.State)
 			m.viewer.SetLinks(msg.Links)
 			m.viewer.SetAttachments(msg.Attachments)
+			m.viewer.SetConversationThread(msg.Conversation, msg.MessageID)
 		}
+
+	case SaveAttachmentDoneMsg:
+		if msg.Err != nil {
+			m.lastError = fmt.Errorf("save %s: %w", msg.Name, msg.Err)
+		} else {
+			m.engineActivity = fmt.Sprintf("saved → %s", msg.Path)
+		}
+		return m, nil
+
+	case OpenAttachmentDoneMsg:
+		if msg.Err != nil {
+			m.lastError = fmt.Errorf("open %s: %w", msg.Name, msg.Err)
+		} else {
+			m.engineActivity = fmt.Sprintf("opened %s", msg.Name)
+		}
+		return m, nil
 		// Stale local id: Graph reassigns message IDs on Move
 		// (soft-delete, archive, user-folder move). The local row
 		// keeps the old ID until the next sync re-discovers the
@@ -871,6 +913,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingUnsub = nil
 			m.pendingUnsubMessageID = ""
 			m.engineActivity = "unsubscribe cancelled"
+			return m, nil
+		}
+		// Large-attachment save (spec 05 §8.2 / PR 10): pendingAttachmentSave
+		// carries the target; y fires the download-to-disk cmd.
+		if m.pendingAttachmentSave != nil && msg.Topic == "large_attachment_save" {
+			att := *m.pendingAttachmentSave
+			m.pendingAttachmentSave = nil
+			if msg.Confirm {
+				m.engineActivity = fmt.Sprintf("saving %s…", att.Name)
+				return m, m.saveAttachmentCmd(att)
+			}
+			m.engineActivity = "save cancelled"
+			return m, nil
+		}
+		// Large-attachment open (spec 05 §8.2 / PR 10): pendingAttachmentOpen
+		// carries the target; y fires the download-to-temp+open cmd.
+		if m.pendingAttachmentOpen != nil && msg.Topic == "large_attachment_open" {
+			att := *m.pendingAttachmentOpen
+			m.pendingAttachmentOpen = nil
+			if msg.Confirm {
+				m.engineActivity = fmt.Sprintf("opening %s…", att.Name)
+				return m, m.openAttachmentCmd(att)
+			}
+			m.engineActivity = "open cancelled"
 			return m, nil
 		}
 		return m, nil
@@ -1121,7 +1187,7 @@ func (m Model) updateFullscreenBody(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateURLPicker handles input while the URL picker overlay is
-// open. j/k cursor; Enter / o open in browser; y yank; Esc / q
+// open. j/k cursor; Enter / O open in browser; y yank; Esc / q
 // close.
 func (m Model) updateURLPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -1417,6 +1483,26 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
+	}
+	// Spec 05 §12 / PR 10: digits 1-9 open the corresponding numbered
+	// link directly from the viewer pane. These are intercepted BEFORE
+	// the global FocusFolders/FocusList/FocusViewer bindings (which
+	// consume 1/2/3) because the spec assigns 1-9 to link-open in the
+	// viewer context. When the viewer has no link [N], the digit is NOT
+	// consumed — pane-focus bindings still fire for 1/2/3.
+	if m.focused == ViewerPane && keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) == 1 {
+		r := keyMsg.Runes[0]
+		if r >= '1' && r <= '9' {
+			n := int(r - '0')
+			for _, l := range m.viewer.Links() {
+				if l.Index == n {
+					go openInBrowser(l.URL)
+					m.engineActivity = fmt.Sprintf("opening link %d…", n)
+					return m, nil
+				}
+			}
+			// No link at index n — fall through to global key switch.
+		}
 	}
 	switch {
 	case key.Matches(keyMsg, m.keymap.Quit):
@@ -2790,11 +2876,15 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	}
 	r := m.deps.Renderer
 	st := m.deps.Store
+	accID := int64(0)
+	if m.deps.Account != nil {
+		accID = m.deps.Account.ID
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		// URLDisplayMaxWidth truncates long URLs in the body so they
-		// don't dominate vertical space. Cmd-click + `o` (URL picker)
+		// don't dominate vertical space. Cmd-click + `O` (URL picker)
 		// + the trailing `Links:` block all retain the full URL.
 		// Threaded from `[rendering].url_display_max_width` via Deps;
 		// 0 disables truncation explicitly. The production wire-up
@@ -2814,12 +2904,30 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			}
 			return atts
 		}
+		// Spec 05 §11: load conversation siblings from local store.
+		// No Graph call — offline-safe. Cap at 50 so deep threads
+		// don't flood the thread-map section.
+		loadConv := func() []store.Message {
+			if msg.ConversationID == "" || st == nil {
+				return nil
+			}
+			conv, err := st.ListMessages(ctx, store.MessageQuery{
+				AccountID:      accID,
+				ConversationID: msg.ConversationID,
+				OrderBy:        store.OrderReceivedAsc,
+				Limit:          50,
+			})
+			if err != nil {
+				return nil
+			}
+			return conv
+		}
 		view, err := r.Body(ctx, &msg, opts)
 		if err != nil {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
 		}
 		if view.State == render.BodyReady {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts()}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv()}
 		}
 		// BodyFetching: dispatch the fetch synchronously inside this
 		// goroutine and return the final rendered view.
@@ -2828,9 +2936,9 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			if err != nil {
 				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
 			}
-			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts()}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts(), Conversation: loadConv()}
 		}
-		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts()}
+		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv()}
 	}
 }
 
@@ -2886,6 +2994,29 @@ func convertLinks(in []render.ExtractedLink) []BodyLink {
 }
 
 func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Attachment accelerator letters (spec 05 §12 / PR 10).
+	// lowercase a-z → save attachment [letter] if one exists at that
+	// index; otherwise falls through to the regular keybinding switch.
+	// Uppercase A-Z → open attachment [letter] via default OS app,
+	// skipping letters reserved by other viewer bindings (H=headers,
+	// D=permanent-delete, C=remove-category, R=reply-all, U=unsubscribe).
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+		r := msg.Runes[0]
+		atts := m.viewer.Attachments()
+		switch {
+		case r >= 'a' && r <= 'z':
+			if idx := int(r - 'a'); idx < len(atts) {
+				return m.startSaveAttachment(atts[idx])
+			}
+		case r >= 'A' && r <= 'Z':
+			// H/D/C/R/U are reserved — fall through to the regular switch.
+			reserved := r == 'H' || r == 'D' || r == 'C' || r == 'R' || r == 'U'
+			if idx := int(r - 'A'); !reserved && idx < len(atts) {
+				return m.startOpenAttachment(atts[idx])
+			}
+		}
+	}
+
 	switch {
 	case key.Matches(msg, m.keymap.Left):
 		m.focused = ListPane
@@ -2988,11 +3119,38 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m.startMove(*cur)
 		}
+	// Spec 05 §12 / PR 10: `o` (lowercase) opens the current message's
+	// webLink in the system browser (OWA deep link). Fast "escape
+	// hatch" for unreadable CSS-heavy emails.
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "o":
+		if cur := m.viewer.current; cur != nil {
+			if cur.WebLink != "" {
+				go openInBrowser(cur.WebLink)
+				m.engineActivity = "opening in browser…"
+			} else {
+				m.lastError = fmt.Errorf("open: no webLink for this message")
+			}
+		}
+
+	// Spec 05 §12 / PR 10: `[` navigates to the previous message in
+	// the conversation thread; `]` to the next.
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "[":
+		if prev := m.viewer.NavPrevInThread(); prev != nil {
+			m.viewer.SetMessage(*prev)
+			return m, m.openMessageCmd(*prev)
+		}
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "]":
+		if next := m.viewer.NavNextInThread(); next != nil {
+			m.viewer.SetMessage(*next)
+			return m, m.openMessageCmd(*next)
+		}
+
 	case key.Matches(msg, m.keymap.OpenURL):
-		// Spec 05 §10 / v0.15.x — open the URL picker overlay.
-		// Acts on the renderer's extracted URL table for the
-		// current message. Empty list still opens the modal so
-		// the user gets feedback ("No URLs in this message").
+		// Spec 05 §12 / PR 10: `O` (capital O) opens the URL picker
+		// overlay so the user can select a numbered link. Was `o` in
+		// v0.15.x; now `o` is the webLink fast-open and `O` is the
+		// picker (matches spec §12 table: O = open focused link).
 		m.urlPicker.Reset()
 		m.mode = URLPickerMode
 		return m, nil
@@ -3018,6 +3176,144 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runUndo()
 	}
 	return m, nil
+}
+
+// safeAttachmentPath resolves name inside dir and rejects path-traversal
+// attempts (spec 17 §4.4). filepath.Base strips any directory prefix so
+// `../evil.sh` becomes `evil.sh`; then the cleaned join is verified to
+// stay within dir using the trailing-separator prefix check to prevent
+// false positives like dir="/foo" matching clean="/foobar/x".
+func safeAttachmentPath(dir, name string) (string, error) {
+	base := filepath.Base(name)
+	if base == "." || base == ".." {
+		return "", fmt.Errorf("attachment: unsafe name %q", name)
+	}
+	clean := filepath.Clean(filepath.Join(dir, base))
+	sep := string(filepath.Separator)
+	if !strings.HasPrefix(clean+sep, dir+sep) {
+		return "", fmt.Errorf("attachment: name %q escapes save directory", name)
+	}
+	return clean, nil
+}
+
+// startSaveAttachment begins the save flow for an attachment by letter
+// (spec 05 §12 / PR 10). Large files (>LargeAttachmentWarnMB) get a
+// confirm modal first; small files dispatch the download cmd directly.
+func (m Model) startSaveAttachment(att store.Attachment) (tea.Model, tea.Cmd) {
+	if m.deps.Attachments == nil {
+		m.lastError = fmt.Errorf("save attachment: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	const bytesPerMB = 1024 * 1024
+	if warnMB := m.deps.LargeAttachmentWarnMB; warnMB > 0 && att.Size > int64(warnMB)*bytesPerMB {
+		prompt := fmt.Sprintf(
+			"Large attachment: %s (%.1f MB)\n\nSave to %s?\n\n[y]es / [N]o",
+			att.Name, float64(att.Size)/float64(bytesPerMB),
+			m.deps.AttachmentSaveDir,
+		)
+		m.pendingAttachmentSave = &att
+		m.confirm = m.confirm.Ask(prompt, "large_attachment_save")
+		m.mode = ConfirmMode
+		return m, nil
+	}
+	m.engineActivity = fmt.Sprintf("saving %s…", att.Name)
+	return m, m.saveAttachmentCmd(att)
+}
+
+// startOpenAttachment begins the open flow for an attachment by letter
+// (spec 05 §12 / PR 10). Large files get a confirm modal first.
+func (m Model) startOpenAttachment(att store.Attachment) (tea.Model, tea.Cmd) {
+	if m.deps.Attachments == nil {
+		m.lastError = fmt.Errorf("open attachment: not wired (run from cmd_run.go path)")
+		return m, nil
+	}
+	const bytesPerMB = 1024 * 1024
+	if warnMB := m.deps.LargeAttachmentWarnMB; warnMB > 0 && att.Size > int64(warnMB)*bytesPerMB {
+		prompt := fmt.Sprintf(
+			"Large attachment: %s (%.1f MB)\n\nDownload and open?\n\n[y]es / [N]o",
+			att.Name, float64(att.Size)/float64(bytesPerMB),
+		)
+		m.pendingAttachmentOpen = &att
+		m.confirm = m.confirm.Ask(prompt, "large_attachment_open")
+		m.mode = ConfirmMode
+		return m, nil
+	}
+	m.engineActivity = fmt.Sprintf("opening %s…", att.Name)
+	return m, m.openAttachmentCmd(att)
+}
+
+// saveAttachmentCmd downloads attachment bytes and writes them to
+// AttachmentSaveDir / att.Name (spec 05 §8.1). The path is validated
+// by safeAttachmentPath before writing (spec 17 §4.4).
+func (m Model) saveAttachmentCmd(att store.Attachment) tea.Cmd {
+	af := m.deps.Attachments
+	if af == nil {
+		return nil
+	}
+	msgID := m.viewer.CurrentMessageID()
+	saveDir := m.deps.AttachmentSaveDir
+	if saveDir == "" {
+		home, _ := os.UserHomeDir()
+		saveDir = filepath.Join(home, "Downloads")
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		data, err := af.GetAttachment(ctx, msgID, att.ID)
+		if err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: err}
+		}
+		savePath, err := safeAttachmentPath(saveDir, att.Name)
+		if err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: err}
+		}
+		if err := os.MkdirAll(filepath.Dir(savePath), 0o700); err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("mkdir: %w", err)}
+		}
+		// #nosec G306 — 0o600 is intentionally restrictive: attachment
+		// data is private mail content; world-readable would be a privacy
+		// leak (CLAUDE.md §7 rule 1). G304 suppressed by the safeAttachmentPath
+		// call above which verifies the path stays within saveDir.
+		if err := os.WriteFile(savePath, data, 0o600); err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("write: %w", err)}
+		}
+		return SaveAttachmentDoneMsg{Name: att.Name, Path: savePath}
+	}
+}
+
+// openAttachmentCmd downloads attachment bytes to a per-message temp
+// directory under ~/Library/Caches/inkwell/attachments/{msgID}/ and
+// opens the file with the default OS application (spec 05 §8.1).
+func (m Model) openAttachmentCmd(att store.Attachment) tea.Cmd {
+	af := m.deps.Attachments
+	if af == nil {
+		return nil
+	}
+	msgID := m.viewer.CurrentMessageID()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		data, err := af.GetAttachment(ctx, msgID, att.ID)
+		if err != nil {
+			return OpenAttachmentDoneMsg{Name: att.Name, Err: err}
+		}
+		home, _ := os.UserHomeDir()
+		tmpDir := filepath.Join(home, "Library", "Caches", "inkwell", "attachments", msgID)
+		if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+			return OpenAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("mkdir: %w", err)}
+		}
+		tmpPath, err := safeAttachmentPath(tmpDir, att.Name)
+		if err != nil {
+			return OpenAttachmentDoneMsg{Name: att.Name, Err: err}
+		}
+		// #nosec G306 — 0o600 for the same reason as saveAttachmentCmd;
+		// G304 suppressed by safeAttachmentPath validation above.
+		if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+			return OpenAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("write: %w", err)}
+		}
+		openInBrowser(tmpPath) // `open <path>` on macOS opens with default app
+		return OpenAttachmentDoneMsg{Name: att.Name}
+	}
 }
 
 // yankURL copies a URL to the clipboard and paints a status hint.

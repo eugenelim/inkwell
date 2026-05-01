@@ -75,10 +75,12 @@ func Defaults() *Config {
 			Unsubscribe:     "U",
 		},
 		Rendering: RenderingConfig{
-			ShowFullHeaders:    false,
-			OpenBrowserCmd:     "open",
-			HTMLMaxBytes:       1024 * 1024,
-			URLDisplayMaxWidth: 60,
+			ShowFullHeaders:       false,
+			OpenBrowserCmd:        "open",
+			HTMLMaxBytes:          1024 * 1024,
+			URLDisplayMaxWidth:    60,
+			AttachmentSaveDir:     "~/Downloads",
+			LargeAttachmentWarnMB: 25,
 		},
 		Logging: LoggingConfig{
 			Level:   "info",
