@@ -1,6 +1,6 @@
 # Spec 12 — Calendar (Read-Only)
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.8.x → v0.13.x). `:cal` modal with Graph fetch + cache-first reads (PR 6a) + detail modal with `j`/`k`/`Enter` navigation + GetEvent($expand=attendees) (PR 6b-i). Residual: third sync-engine state for periodic calendar pull, midnight window-slide goroutine, sidebar-pane vs modal layout decision, day/week navigation (`]` / `[` / `}` / `{` / `t` / `c`), timezone resolution from `mailboxSettings.timeZone` — all tracked under PR 6b-ii.
 **Depends on:** Specs 02 (store), 03 (sync engine reused for calendar deltas), 04 (TUI for sidebar pane).
 **Blocks:** Nothing.
 **Estimated effort:** 1–2 days.

@@ -1,6 +1,6 @@
 # Spec 07 — Single-Message Triage Actions
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.3.x → v0.13.x). All 13 action types operational: mark-read/unread, flag/unflag, soft-delete, archive, move (with folder picker — PR 4c), permanent-delete (PR 4a), add/remove category (PR 4b), and PR 7-i/7-iii's four draft-creation kinds. Undo wired (PR 1) with computeInverse covering every reversible type. Residual: replay-on-startup of mid-flight non-draft actions; lifecycle InFlight transition is currently fast-forwarded through; the `/move` path doesn't update the local row's primary key on Graph's id reassignment (heals on next delta).
 **Depends on:** Specs 02 (action queue, undo tables), 03 (action draining in sync engine), 04 (TUI keymap).
 **Blocks:** Specs 09 (batch executor reuses action types), 10 (bulk ops UX builds on these bindings).
 **Estimated effort:** 2 days.

@@ -102,7 +102,7 @@ func trimUnbalancedTrailing(u string) string {
 // a `\n` by the sender's MUA. RFC 5322 line-length limits cause many
 // senders to break long tracker URLs at column 78. Without unwrapping
 // we extract only the prefix and the user's click-through omits half
-// the query string. Real-tenant regression: a `maileranalytics`
+// the query string. Real-tenant regression: a corporate-mailer
 // tracker URL was wrapped just before `&tranId=…` and the analytics
 // endpoint rejected the truncated URL.
 //

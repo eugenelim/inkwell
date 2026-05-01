@@ -80,7 +80,7 @@ type TriageExecutor interface {
 	// Undo pops the most recent UndoEntry and applies the inverse
 	// action. Returns a UndoneAction describing what just got rolled
 	// back so the UI can paint a status message ("undid: deleted").
-	// Returns the typed UndoEmpty when the stack is empty.
+	// Returns the typed ErrUndoEmpty when the stack is empty.
 	Undo(ctx context.Context, accountID int64) (UndoneAction, error)
 }
 
@@ -98,9 +98,39 @@ type UndoneAction struct {
 	MessageIDs []string
 }
 
-// UndoEmpty is the sentinel error returned when the undo stack is
-// empty.
-var UndoEmpty = errors.New("undo: stack empty")
+// ErrUndoEmpty is the sentinel error returned when the undo stack
+// is empty. (Pre-rename: `UndoEmpty` — staticcheck ST1012.)
+var ErrUndoEmpty = errors.New("undo: stack empty")
+
+// titleCase upper-cases the first ASCII letter of s and lowers
+// the rest of the leading word. Replaces `strings.Title` (deprecated
+// since Go 1.18 — staticcheck SA1019). Inkwell's call sites pass
+// short verb words like "delete", "archive" — pure-ASCII single-
+// word inputs — so the simpler implementation is correct without
+// reaching for `golang.org/x/text/cases`. If a future caller needs
+// proper Unicode word boundaries, lift to that package.
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	first := s[0]
+	if first >= 'a' && first <= 'z' {
+		first -= 'a' - 'A'
+	}
+	rest := s[1:]
+	// Lowercase the trailing characters so "DELETE" → "Delete"
+	// rather than the surprising "DELETE" pass-through. Pure
+	// ASCII per the doc above.
+	low := make([]byte, len(rest))
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		low[i] = c
+	}
+	return string(first) + string(low)
+}
 
 // BulkResult mirrors action.BatchResult — defined here so the UI
 // doesn't import internal/action's full type surface.
@@ -166,6 +196,35 @@ type Deps struct {
 	// at N cells; the OSC 8 url portion stays full. 0 disables
 	// truncation. Falls back to 60 when unset.
 	URLDisplayMaxWidth int
+	// Search runs spec 06 hybrid search (local FTS5 + Graph
+	// $search). Optional — when nil, `/` and `:search` fall back
+	// to the legacy single-shot store.Search flow.
+	Search SearchService
+}
+
+// SearchSnapshot is one progressive emission from a streaming
+// SearchService.Search call. Spec 06 §3 — the slice is the FULL
+// current merged result set, not an incremental delta, so the UI
+// can replace its view directly.
+type SearchSnapshot struct {
+	// Messages is the merged result list, sorted per spec 06
+	// §4.3 (received_at DESC; SourceBoth ahead of single-source
+	// ties).
+	Messages []store.Message
+	// Status is the user-facing hint surfaced on the search line:
+	// "[searching local]" / "[📡 searching server…]" /
+	// "[merged: N local, M server]" / "[local only — offline]".
+	Status string
+}
+
+// SearchService is the streaming search surface the UI consumes
+// (spec 06). Implementations route through internal/search; the
+// UI's own type stays narrow so test stubs are trivial. Search
+// returns a channel of progressive SearchSnapshots; the channel
+// closes when both branches finish or when cancel() is called.
+// Cancel is idempotent.
+type SearchService interface {
+	Search(ctx context.Context, query string) (<-chan SearchSnapshot, func())
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
@@ -359,6 +418,21 @@ type Model struct {
 	searchActive  bool
 	searchQuery   string // committed query (the one that produced m.list contents)
 	priorFolderID string // folder to restore when search is cleared
+	// searchStatus mirrors the spec 06 §5.1 streaming hint —
+	// "[searching local]", "[📡 searching server…]", "[merged: N
+	// local, M server]", or "[local only — offline]". Empty
+	// outside SearchMode / searchActive.
+	searchStatus string
+	// searchCancel is the cancel hook for the most-recent
+	// streaming Searcher run; calling it terminates both branches
+	// when the user dispatches a new query or exits search mode.
+	searchCancel func()
+	// searchUpdates is the live channel of progressive
+	// SearchSnapshots from the in-flight streaming search. The
+	// SearchUpdateMsg handler re-arms consumeSearchUpdatesCmd
+	// against this channel after each snapshot until Done lands
+	// and the channel closes.
+	searchUpdates <-chan SearchSnapshot
 
 	// Filter mode (spec 10): :filter <pattern> compiles via spec 08
 	// and narrows the list pane to matches. ; prefix + a triage key
@@ -585,6 +659,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
 			m.list.SetMessages(msg.Messages)
+		}
+		return m, nil
+
+	case searchStreamMsg:
+		// First snapshot from a streaming search. Stash cancel +
+		// channel on the Model so Esc / new query can stop the
+		// in-flight branches AND so SearchUpdateMsg can re-arm
+		// the channel drain. Apply the snapshot and dispatch the
+		// consumer Cmd.
+		if !m.searchActive || m.searchQuery != msg.query {
+			// User moved on before the first snapshot landed —
+			// drop the in-flight stream cleanly.
+			msg.cancel()
+			return m, nil
+		}
+		m.searchCancel = msg.cancel
+		m.searchUpdates = msg.ch
+		m.list.SetMessages(msg.snapshot.Messages)
+		m.searchStatus = msg.snapshot.Status
+		return m, m.consumeSearchUpdatesCmd(msg.query, msg.ch)
+
+	case SearchUpdateMsg:
+		// Continuation snapshot OR Done sentinel.
+		if !m.searchActive || m.searchQuery != msg.Query {
+			return m, nil
+		}
+		if msg.Done {
+			m.searchCancel = nil
+			m.searchUpdates = nil
+			if msg.Status != "" {
+				m.searchStatus = msg.Status
+			}
+			return m, nil
+		}
+		m.list.SetMessages(msg.Results)
+		m.searchStatus = msg.Status
+		// Re-arm the channel drain so the next snapshot lands.
+		if m.searchUpdates != nil {
+			return m, m.consumeSearchUpdatesCmd(msg.Query, m.searchUpdates)
 		}
 		return m, nil
 
@@ -830,7 +943,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case undoDoneMsg:
 		if msg.err != nil {
-			if errors.Is(msg.err, UndoEmpty) {
+			if errors.Is(msg.err, ErrUndoEmpty) {
 				m.lastError = nil
 				m.engineActivity = "nothing to undo"
 				return m, nil
@@ -1387,6 +1500,12 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchBuf = ""
 		// If a search was active, clear it and restore the prior folder.
 		if m.searchActive {
+			if m.searchCancel != nil {
+				m.searchCancel()
+			}
+			m.searchCancel = nil
+			m.searchUpdates = nil
+			m.searchStatus = ""
 			m.searchActive = false
 			m.searchQuery = ""
 			m.list.FolderID = m.priorFolderID
@@ -1401,8 +1520,17 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
+		// Cancel any in-flight search before kicking the new one
+		// so the prior stream's stale snapshots can't overwrite
+		// the new query's results.
+		if m.searchCancel != nil {
+			m.searchCancel()
+		}
+		m.searchCancel = nil
+		m.searchUpdates = nil
 		m.searchActive = true
 		m.searchQuery = q
+		m.searchStatus = "[searching…]"
 		m.list.FolderID = searchFolderID(q)
 		m.focused = ListPane
 		return m, m.runSearchCmd(q)
@@ -1425,9 +1553,22 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 // to load from a real folder".
 func searchFolderID(q string) string { return "search:" + q }
 
-// runSearchCmd runs the FTS5 search and returns a MessagesLoadedMsg
-// keyed to the sentinel search-folder ID.
+// runSearchCmd kicks off a hybrid search and returns the first
+// SearchUpdateMsg (or a fallback MessagesLoadedMsg when no
+// SearchService is wired). Streaming continuation lives in
+// consumeSearchUpdatesCmd, which the SearchUpdateMsg handler
+// re-arms until Done flips.
+//
+// Spec 06 §3 / §4: when deps.Search is non-nil, we hand the query
+// to the streaming searcher and return a Cmd that waits for the
+// first snapshot. The Update handler then schedules
+// consumeSearchUpdatesCmd to drain the rest of the channel. When
+// deps.Search is nil (test setup, degraded mode), we fall back to
+// the legacy single-shot store.Search path.
 func (m Model) runSearchCmd(q string) tea.Cmd {
+	if m.deps.Search != nil {
+		return m.startStreamingSearchCmd(q)
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -1448,6 +1589,74 @@ func (m Model) runSearchCmd(q string) tea.Cmd {
 			msgs = append(msgs, h.Message)
 		}
 		return MessagesLoadedMsg{FolderID: searchFolderID(q), Messages: msgs}
+	}
+}
+
+// startStreamingSearchCmd opens a streaming SearchService.Search
+// channel and returns the first snapshot wrapped in a
+// SearchUpdateMsg. The Update handler then re-arms
+// consumeSearchUpdatesCmd to drain subsequent snapshots until the
+// channel closes.
+//
+// The cancel function is stashed on the Model (via the dispatched
+// SearchUpdateMsg's reflective handler) so a subsequent Esc or
+// new search can call it cleanly. We rely on the search service
+// itself to be idempotent on Cancel.
+func (m Model) startStreamingSearchCmd(q string) tea.Cmd {
+	svc := m.deps.Search
+	return func() tea.Msg {
+		ctx := context.Background()
+		ch, cancel := svc.Search(ctx, q)
+		// Block for the first snapshot so the user sees results
+		// before the next render frame. The streaming continuation
+		// is handed off via SearchUpdateMsg.Done routing in the
+		// Update handler.
+		snap, ok := <-ch
+		if !ok {
+			cancel()
+			return SearchUpdateMsg{Query: q, Done: true, Status: "[no matches]"}
+		}
+		// Stash the cancel + remaining channel via a typed
+		// envelope the Update handler routes — see the
+		// `searchStreamMsg` channel-handoff path below.
+		return searchStreamMsg{
+			query:    q,
+			snapshot: snap,
+			ch:       ch,
+			cancel:   cancel,
+		}
+	}
+}
+
+// searchStreamMsg carries the live channel + cancel from a
+// streaming Searcher run into the Update loop. The handler stows
+// the cancel on the Model and dispatches a follow-up Cmd to drain
+// the channel into SearchUpdateMsgs. Defined here (not in
+// messages.go) because it carries non-public references the test
+// stubs don't need to see.
+type searchStreamMsg struct {
+	query    string
+	snapshot SearchSnapshot
+	ch       <-chan SearchSnapshot
+	cancel   func()
+}
+
+// consumeSearchUpdatesCmd reads one snapshot off ch and returns
+// it as a SearchUpdateMsg. When ch closes, returns Done=true so
+// the Update handler can clean up. Mirrors the
+// consumeSyncEventsCmd pattern (long-running channel-drain Cmd
+// re-armed on each emission).
+func (m Model) consumeSearchUpdatesCmd(query string, ch <-chan SearchSnapshot) tea.Cmd {
+	return func() tea.Msg {
+		snap, ok := <-ch
+		if !ok {
+			return SearchUpdateMsg{Query: query, Done: true}
+		}
+		return SearchUpdateMsg{
+			Query:   query,
+			Status:  snap.Status,
+			Results: snap.Messages,
+		}
 	}
 }
 
@@ -1784,7 +1993,7 @@ func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 	if action == "soft_delete" {
 		verb = "delete"
 	}
-	m.confirm = m.confirm.Ask(fmt.Sprintf("%s %d messages?", strings.Title(verb), count), "bulk:"+action)
+	m.confirm = m.confirm.Ask(fmt.Sprintf("%s %d messages?", titleCase(verb), count), "bulk:"+action)
 	m.pendingBulk = action
 	m.mode = ConfirmMode
 	return m, nil
@@ -3037,7 +3246,7 @@ func (m Model) View() string {
 		if verb == "" {
 			verb = "set"
 		}
-		title := strings.Title(verb) + " category"
+		title := titleCase(verb) + " category"
 		body := title + "\n\n" + m.theme.HelpKey.Render(verb+":") + " " + m.categoryBuf + "▎\n\n" +
 			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
 		box := m.theme.Modal.Render(body)
@@ -3054,7 +3263,15 @@ func (m Model) View() string {
 	if m.mode == SearchMode {
 		cmdBar = m.theme.CommandBar.Render("/" + m.searchBuf)
 	} else if m.searchActive {
-		cmdBar = m.theme.Dim.Render("search: " + m.searchQuery + "  (esc to clear)")
+		// Append the streaming-search status hint when the
+		// search package has emitted one (spec 06 §5.1):
+		// "[searching local]" / "[📡 searching server…]" /
+		// "[merged: N local, M server]" / "[local only — offline]".
+		hint := "search: " + m.searchQuery + "  (esc to clear)"
+		if m.searchStatus != "" {
+			hint += "  " + m.searchStatus
+		}
+		cmdBar = m.theme.Dim.Render(hint)
 	} else if m.filterActive {
 		hint := fmt.Sprintf("filter: %s · matched %d · ;d delete · ;a archive · :unfilter", m.filterPattern, len(m.filterIDs))
 		if m.bulkPending {

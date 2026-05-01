@@ -1,6 +1,6 @@
 # Spec 05 — Message Rendering
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.2.x → v0.17.x). Headers + body fetch + html2text + plain-text normalisation + URL extraction + OSC 8 hyperlink wrapping all wired. v0.17.x adds the attachment visibility block between headers and body (PR 8 sibling — spec §8 amended). URL extraction hardened against parens-in-query + hard-wrapped URLs in the same release. Residual: viewer keybindings (`o`, `O`, `e`, `Q`, `1-9`, `a-z`, `Shift+A-Z`, `[`, `]`) + GetAttachment helper + save / open path + thread map + format=flowed unwrapping + attribution-line detection — all tracked under PR 10.
 **Depends on:** Specs 02 (store, body cache), 03 (sync engine, on-demand body fetch), 04 (TUI viewer pane).
 **Blocks:** Spec 07 (triage actions; reply/forward needs rendered body context).
 **Estimated effort:** 2 days.

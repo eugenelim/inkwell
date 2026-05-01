@@ -170,8 +170,15 @@ func (e *Executor) BatchExecute(ctx context.Context, accountID int64, actionType
 			en := chunk[i]
 			if sr.GraphError != nil || sr.Status >= 400 {
 				_ = rollbackLocal(ctx, e.st, en.action, en.pre)
-				graphErr := error(sr.GraphError)
-				if graphErr == nil {
+				// sr.GraphError is *graph.GraphError; assigning a
+				// typed nil to an `error` interface produces a
+				// non-nil interface holding a nil pointer (the
+				// classic Go gotcha — staticcheck SA4023). Branch
+				// on the concrete pointer instead.
+				var graphErr error
+				if sr.GraphError != nil {
+					graphErr = sr.GraphError
+				} else {
 					graphErr = fmt.Errorf("status %d", sr.Status)
 				}
 				_ = e.st.UpdateActionStatus(ctx, en.action.ID, store.StatusFailed, graphErr.Error())

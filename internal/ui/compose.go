@@ -11,16 +11,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eugenelim/inkwell/internal/store"
 )
-
-// lipglossPlace centres the modal on the screen. Tiny wrapper so the
-// import sits next to the code that uses it.
-func lipglossPlace(s string, w, h int) string {
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, s)
-}
 
 // composeResumePrompt builds the user-facing confirm modal text
 // for an unconfirmed session. Includes the source subject (when
@@ -172,7 +165,6 @@ func (m Model) persistComposeSnapshotCmd() tea.Cmd {
 		return nil
 	}
 }
-
 
 // scanComposeSessionsCmd runs the launch-time resume scan. Returns
 // a composeResumeMsg with the most-recent unconfirmed session if

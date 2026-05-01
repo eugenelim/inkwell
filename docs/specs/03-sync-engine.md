@@ -1,6 +1,6 @@
 # Spec 03 — Sync Engine
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.2.x → v0.13.x). Engine state machine, action drain, ThrottledEvent + AuthRequiredEvent emission (PR 3), nested-folder delta sync (RT-1), Wake / Backfill / ResetDelta all wired. Residual: tombstone-aware delta on first-launch + the priority queue for body-fetch-jumps-the-queue + a `[sync]` config knob set tracked on the audit-drain queue.
 **Depends on:** Specs 01 (auth), 02 (store). ARCH §4 (state machine), §5 (graph client), §6 (body strategy).
 **Blocks:** Specs 04 (TUI shell), 06 (search), 07 (triage), 09 (batch), 10 (bulk).
 **Estimated effort:** 3–4 days. The most complex spec in the set.

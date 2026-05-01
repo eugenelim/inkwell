@@ -1,6 +1,6 @@
 # Spec 06 — Hybrid Search
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.17.x — PR 8 of audit-drain). Streaming hybrid Searcher with parallel local FTS5 + Graph $search branches; merger debouncer + dedup + SourceBoth promotion + spec §4.3 received-DESC sort; field-prefix syntax (`from:` / `subject:` / `body:`); URL-encoded $search request shape; UI wiring with progressive snapshots + status indicator + Esc-cancels-stream. Residual: `--all` cross-folder flag in `:search` + saved-search promotion (`:rule save NAME`) — both depend on spec 11 / spec 14.
 **Depends on:** Specs 02 (FTS5 index, store), 03 (graph client). Spec 04 (TUI for search-mode UI).
 **Blocks:** Spec 11 (saved searches reuse the search infrastructure).
 **Estimated effort:** 2 days.

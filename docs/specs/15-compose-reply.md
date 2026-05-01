@@ -1,6 +1,6 @@
 # Spec 15 — Compose / Reply (drafts only)
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.13.x → v0.17.x). Reply / Reply All / Forward / New Message all wired with the in-modal compose pane (iter 3 redesign), action-queue dispatch (PR 7-i + PR 7-iii — two-stage createReply* + PATCH for source-ful kinds, single-stage POST /me/messages for new), crash-recovery resume via `compose_sessions` (PR 7-ii — migration 005 + launch scan + 24h GC). Residual: `Ctrl+E` $EDITOR drop-out for the body field, post-save discard that DELETEs the server-side draft, CI lint guard for the `Mail.Send` literal — all explicitly post-MVP per the spec's own DoD checklist.
 **Depends on:** Spec 02 (messages + actions tables), spec 03 (action draining), spec 04 (TUI shell + keymap), spec 05 (rendered body for the quote chain), spec 07 (action queue + executor pattern).
 **Blocks:** None — independent feature surface. CLI-mode compose (spec 14 enhancement) is post-v1.
 **Estimated effort:** 2 days.

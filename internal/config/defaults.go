@@ -103,5 +103,13 @@ func Defaults() *Config {
 			ShowDeclined:  false,
 			CacheTTL:      15 * time.Minute,
 		},
+		Search: SearchConfig{
+			LocalFirst:          true,
+			ServerSearchTimeout: 5 * time.Second,
+			DefaultResultLimit:  200,
+			DebounceTyping:      200 * time.Millisecond,
+			MergeEmitThrottle:   100 * time.Millisecond,
+			DefaultSort:         "received_desc",
+		},
 	}
 }

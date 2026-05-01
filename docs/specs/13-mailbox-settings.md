@@ -1,6 +1,6 @@
 # Spec 13 — Mailbox Settings
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.9.x). `:ooo` modal with view + enable/disable toggle shipped. Residual: scheduled mode (start/end times); audience choice (all / contactsOnly / none); internal/external message body editing via $EDITOR; status-bar OOO indicator; `:settings` modal for the wider read-only fields; `:ooo on/off/schedule` quick commands; `internal/settings.Manager.ResolvedTimeZone()` for calendar + search to share; CLI `inkwell ooo` subcommands — all tracked under audit-drain queue.
 **Depends on:** Specs 03 (graph client), 04 (TUI shell, modals).
 **Blocks:** Nothing.
 **Estimated effort:** 1 day.

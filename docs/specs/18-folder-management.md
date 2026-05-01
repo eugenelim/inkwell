@@ -1,6 +1,6 @@
 # Spec 18 — Folder management (create / rename / delete)
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.15.x). All §8 DoD bullets ticked except CLI tests (which depend on spec 14's broader CLI test scaffolding still pending). Folders pane gains `N` (new), `R` (rename), `X` (delete with confirm) bindings; CLI ships `inkwell folder new / rename / delete`; well-known folders are refused server-side and surfaced as a friendly UI error.
 **Depends on:** Specs 02 (folders table), 03 (sync), 04 (TUI sidebar),
 14 (CLI scaffolding).
 **Blocks:** Routing destinations (1.9 / Bucket 2 #2) — the routing UX

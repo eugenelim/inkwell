@@ -1,6 +1,6 @@
 # Spec 01 — Authentication (interactive browser by default; device code as fallback)
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.2.x). Sign-in / sign-out / whoami flows + Keychain token storage all wired against the first-party Microsoft Graph CLI Tools client (PRD §4 / memory). Manual real-tenant smoke deferred per CLAUDE.md §5.5; AADSTS code classification + clock-skew detection + a CLI-mode device-code PromptFn remain on the audit-drain queue.
 **Depends on:** PRD §4, ARCH §1, §2, §5.1.
 **Blocks:** All other feature specs.
 **Estimated effort:** 1–2 days.

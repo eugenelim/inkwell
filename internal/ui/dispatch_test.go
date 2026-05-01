@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -540,7 +541,7 @@ func (s stubTriageDelete) CreateFolder(_ context.Context, _ int64, _, _ string) 
 func (s stubTriageDelete) RenameFolder(context.Context, string, string) error { return nil }
 func (s stubTriageDelete) DeleteFolder(context.Context, string) error         { return nil }
 func (s stubTriageDelete) Undo(context.Context, int64) (UndoneAction, error) {
-	return UndoneAction{}, UndoEmpty
+	return UndoneAction{}, ErrUndoEmpty
 }
 
 type stubTriageFlag struct{ onCall func() }
@@ -569,7 +570,7 @@ func (s stubTriageFlag) CreateFolder(_ context.Context, _ int64, _, _ string) (C
 func (s stubTriageFlag) RenameFolder(context.Context, string, string) error { return nil }
 func (s stubTriageFlag) DeleteFolder(context.Context, string) error         { return nil }
 func (s stubTriageFlag) Undo(context.Context, int64) (UndoneAction, error) {
-	return UndoneAction{}, UndoEmpty
+	return UndoneAction{}, ErrUndoEmpty
 }
 
 // atomicBool is a tiny helper since sync/atomic.Bool is fine but adds
@@ -1274,11 +1275,11 @@ func TestUndoKeyDispatchesUndoCmd(t *testing.T) {
 }
 
 // TestUndoKeyEmptyStackSurfacesFriendlyMessage covers the empty-stack
-// path: UndoEmpty must NOT show as an error (m.lastError stays nil),
+// path: ErrUndoEmpty must NOT show as an error (m.lastError stays nil),
 // just a transient "nothing to undo" status.
 func TestUndoKeyEmptyStackSurfacesFriendlyMessage(t *testing.T) {
 	m := newDispatchTestModel(t)
-	stub := &stubTriageWithUndo{undoErr: UndoEmpty}
+	stub := &stubTriageWithUndo{undoErr: ErrUndoEmpty}
 	m.deps.Triage = stub
 
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
@@ -3866,6 +3867,184 @@ func TestApplyNewSkeletonFocusesTo(t *testing.T) {
 	require.Empty(t, cm.To())
 	require.Empty(t, cm.Subject())
 	require.Empty(t, cm.Body())
+}
+
+// TestTitleCaseHandlesSingleWordVerbs covers the strings.Title
+// replacement: ASCII single-word inputs round-trip with the first
+// letter capitalised and the rest lowered (so "DELETE" → "Delete"
+// rather than passing through). Pre-rename used the deprecated
+// strings.Title which staticcheck SA1019 flagged.
+func TestTitleCaseHandlesSingleWordVerbs(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"delete", "Delete"},
+		{"archive", "Archive"},
+		{"DELETE", "Delete"},
+		{"reMOVE", "Remove"},
+		{"", ""},
+		{"x", "X"},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, titleCase(c.in), "in=%q", c.in)
+	}
+}
+
+// stubSearchService implements ui.SearchService for dispatch
+// tests. The supplied snapshots are emitted in order; cancel
+// closes the channel mid-stream so tests can assert clean
+// shutdown.
+type stubSearchService struct {
+	mu        sync.Mutex
+	calls     int
+	lastQuery string
+	snapshots []SearchSnapshot
+	cancelled bool
+}
+
+func (s *stubSearchService) Search(_ context.Context, query string) (<-chan SearchSnapshot, func()) {
+	s.mu.Lock()
+	s.calls++
+	s.lastQuery = query
+	snaps := s.snapshots
+	s.mu.Unlock()
+	out := make(chan SearchSnapshot, len(snaps)+1)
+	for _, snap := range snaps {
+		out <- snap
+	}
+	close(out)
+	return out, func() {
+		s.mu.Lock()
+		s.cancelled = true
+		s.mu.Unlock()
+	}
+}
+
+// TestSearchEnterRoutesThroughSearchService covers spec 06 §3:
+// pressing `/` then typing then Enter dispatches via the
+// streaming SearchService rather than the legacy single-shot
+// store.Search path. The list pane receives the merged snapshot
+// + the search status line picks up the merger's hint.
+func TestSearchEnterRoutesThroughSearchService(t *testing.T) {
+	m := newDispatchTestModel(t)
+	now := time.Now()
+	stub := &stubSearchService{
+		snapshots: []SearchSnapshot{
+			{
+				Status: "[merged: 1 local, 1 server, 0 both]",
+				Messages: []store.Message{
+					{ID: "m-hit", AccountID: 1, Subject: "Q4 budget", FolderID: "f-inbox", ReceivedAt: now},
+				},
+			},
+		},
+	}
+	m.deps.Search = stub
+
+	// Enter SearchMode and type a query.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	require.Equal(t, SearchMode, m.mode)
+	for _, r := range "budget" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+
+	// Enter dispatches the search.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.True(t, m.searchActive)
+	require.Equal(t, "budget", m.searchQuery)
+	require.NotNil(t, cmd, "Enter returns the streaming-search start Cmd")
+
+	// Run the start Cmd; it should yield a searchStreamMsg.
+	first := cmd()
+	stream, ok := first.(searchStreamMsg)
+	require.True(t, ok, "first message off the streaming Cmd is searchStreamMsg")
+	require.Equal(t, "budget", stream.query)
+
+	// Apply the searchStreamMsg; the list pane updates.
+	m2, drain := m.Update(stream)
+	m = m2.(Model)
+	require.NotNil(t, drain, "first snapshot returns a continuation drain Cmd")
+
+	// The first snapshot's message lands in the list pane.
+	require.Len(t, m.list.messages, 1)
+	require.Equal(t, "m-hit", m.list.messages[0].ID)
+	require.Contains(t, m.searchStatus, "merged")
+
+	// Drain the channel — the next message should be the Done
+	// sentinel because the stub closes after 1 snapshot.
+	final := drain()
+	doneMsg, ok := final.(SearchUpdateMsg)
+	require.True(t, ok)
+	require.True(t, doneMsg.Done)
+
+	// Apply Done — the stream cleans up.
+	m2, _ = m.Update(doneMsg)
+	m = m2.(Model)
+	require.Nil(t, m.searchCancel)
+	require.Nil(t, m.searchUpdates)
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.Equal(t, 1, stub.calls)
+	require.Equal(t, "budget", stub.lastQuery)
+}
+
+// TestSearchEscCancelsInFlightStream covers the spec 06 §5.1
+// invariant: pressing Esc while a streaming search is mid-flight
+// MUST call the searcher's cancel hook so the local + server
+// goroutines exit cleanly rather than leak.
+func TestSearchEscCancelsInFlightStream(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubSearchService{snapshots: []SearchSnapshot{{Status: "[searching…]"}}}
+	m.deps.Search = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	for _, r := range "budget" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	stream := cmd().(searchStreamMsg)
+	m2, _ = m.Update(stream)
+	m = m2.(Model)
+	require.NotNil(t, m.searchCancel, "stream cancel set on first snapshot")
+
+	// Re-enter SearchMode (the Update for `/` requires the model
+	// to still be in NormalMode after Enter — confirm) then
+	// press Esc which exits SearchMode AND clears searchActive.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+	require.Equal(t, SearchMode, m.mode)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.False(t, m.searchActive)
+	require.Nil(t, m.searchCancel, "Esc clears the cancel hook")
+	require.Nil(t, m.searchUpdates)
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.True(t, stub.cancelled,
+		"the stream's Cancel was invoked on Esc")
+}
+
+// TestSearchUpdateMsgIgnoredAfterQueryChange covers the
+// out-of-order safety: a stale snapshot from a prior query
+// arriving after the user has dispatched a new query must NOT
+// overwrite the new query's results. The Update handler keys
+// every snapshot to its query string and drops mismatches.
+func TestSearchUpdateMsgIgnoredAfterQueryChange(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.searchActive = true
+	m.searchQuery = "current"
+	stale := SearchUpdateMsg{Query: "stale", Results: []store.Message{{ID: "should-not-land"}}}
+	before := len(m.list.messages)
+	m2, _ := m.Update(stale)
+	m = m2.(Model)
+	require.Equal(t, before, len(m.list.messages),
+		"stale snapshot from a prior query is dropped")
 }
 
 // TestComposeSessionPersistsOnTab covers the focus-change re-write:

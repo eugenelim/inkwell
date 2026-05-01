@@ -1,6 +1,6 @@
 # Spec 02 — Local Cache Schema
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.2.x → v0.17.x). Schema migrations 001-005 applied; FTS5 trigger set; LRU body cache + maintenance loop (PR 11) wired; pattern-driven SearchByPredicate + folder count adjustments + delta-token persistence in. Residual: the `flag_due_at` / `flag_completed_at` columns persist but the `flag` action's `due_date` param doesn't round-trip through MessageFields (low-leverage; on the audit doc).
 **Depends on:** ARCH §6 (body caching), §7 (schema overview), §8 (action model), §9 (undo).
 **Blocks:** Specs 03 (sync), 06 (search), 07 (triage), 09 (batch executor), 11 (saved searches).
 **Estimated effort:** 2 days.

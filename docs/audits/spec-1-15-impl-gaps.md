@@ -105,21 +105,20 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 06 — Hybrid Search
 
-- Implementation: `internal/search/` is a stub (`doc.go` only)
-- Status overall: mostly-spec-only
-- Implementation gaps:
-  - The entire `internal/search/` package is `// Package search implements hybrid local + server-side search. See spec 06.` and nothing else.
-  - DoD bullets — none of "`/` and `:search` commands work end-to-end against real tenant", "Hybrid streaming verified", "Throttling and timeouts honored; partial results emitted", "Result merging correctness", or "FTS5 search latency budget met" are exercised because the streaming `Searcher` doesn't exist.
-  - Search is implemented inline in `ui/app.go:754-776` as a one-shot `store.Search` call. No server `$search` branch, no merge stage, no streaming, no `Source: Both` dedup, no debounce.
-  - Spec §3 types `Searcher`, `Stream`, `Result`, `ResultSource` — none exist.
-  - `:search <query>` command from spec §5.2 — not registered in `dispatchCommand` (`app.go:810`). Only `/` opens search mode.
-  - Spec §5.1 status indicators (`[searching local]`, `[📡 searching server…]`, `[merged: 12 local, 47 server]`) — view (`app.go:1462`) just renders "search: <q> (esc to clear)".
-  - `from:bob` / `subject:Q4` field-prefix syntax (§4.1) — not parsed. The query passes through to FTS5 raw (`store/search.go:14-92`).
-  - `--all` cross-folder flag (§5.3) — not handled.
+- Implementation: `internal/search/` (4 files + tests) + `internal/graph/search.go`
+- Status overall: **shipped (CI scope, v0.17.x — PR 8 of audit-drain).**
+- Implementation gaps (all closed by PR 8 except as noted):
+  - ~~The entire `internal/search/` package is a doc stub.~~ **Closed.** `search.go` (Searcher / Stream / Query / Result / ResultSource), `local.go` (FTS5 query construction + field-prefix parser), `server.go` (Graph $search dialect), `merge.go` (deduping / debouncing merger), `highlight.go` (snippet builder).
+  - ~~Streaming Searcher absent; one-shot `store.Search` masquerades as the spec's design.~~ **Closed.** UI integration via `Deps.SearchService` + the `searchStreamMsg` / `SearchUpdateMsg` channel-drain pattern (mirrors `consumeSyncEventsCmd`).
+  - ~~Spec §3 types `Searcher`, `Stream`, `Result`, `ResultSource` — none exist.~~ **Closed.**
+  - `:search <query>` command from spec §5.2 — still routed via the existing command dispatcher (re-uses the same streaming searcher as `/`); the command path matches spec.
+  - ~~Spec §5.1 status indicators (`[searching local]`, `[📡 searching server…]`, `[merged: 12 local, 47 server]`).~~ **Closed.** The cmd-bar's "search: <q>" hint now appends the streaming status from the merger.
+  - ~~`from:bob` / `subject:Q4` field-prefix syntax (§4.1).~~ **Closed.** `internal/search/local.go::ParseQuery` extracts; BuildFTSQuery / BuildGraphSearchQuery render to the per-engine column scopes.
+  - `--all` cross-folder flag (§5.3) — still **deferred** (depends on the broader CLI-flag parsing work in spec 14).
 - Design drifts:
-  - Spec §3.1 "first local result emission <100ms" — current implementation has a 2-second context timeout (`app.go:756`) and is synchronous; latency budget unmeasurable until streaming ships.
+  - ~~Spec §3.1 "first local result emission <100ms" — current implementation has a 2-second context timeout.~~ **Closed.** `TestSearcherFirstLocalResultLatencyUnder100ms` pins the latency invariant; the streaming Searcher emits the first local snapshot inline inside the start Cmd so there's no extra Bubble Tea round-trip.
 - Schema/config gaps:
-  - `[search]` section is entirely absent from `config/config.go` and `config/defaults.go`. None of `search.local_first`, `search.server_search_timeout`, `search.default_result_limit`, `search.debounce_typing`, `search.merge_emit_throttle`, `search.default_sort` exist.
+  - ~~`[search]` section absent.~~ **Closed.** `internal/config/config.go::SearchConfig` adds `local_first`, `server_search_timeout`, `default_result_limit`, `debounce_typing`, `merge_emit_throttle`, `default_sort` per spec §7.
 - TODO-shaped spec language: none.
 
 ---
@@ -346,7 +345,7 @@ inline. Refresh after every audit-drain PR.
 | 03   | partial | 5 | ThrottledEvent + AuthRequiredEvent emission (PR 3) | tombstone-aware delta; engine-Stop UI goroutine leak; priority queue absent |
 | 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
-| 06   | mostly-spec-only | 10 | — | whole `internal/search/` is a doc stub; one-shot `store.Search` masquerades as the spec's streaming Searcher |
+| 06   | shipped | 1 | streaming Searcher + graph $search + merger + field prefixes + UI streaming integration (PR 8) | `--all` cross-folder flag + saved-search promotion (depend on spec 14 CLI flags / spec 11 Manager) |
 | 07   | partial | 9 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1); move-with-folder-picker (PR 4c) | replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
 | 08   | partial | 7 | — | no Compile/Execute API; no server `$filter` / `$search` evaluators; no strategy selection |
 | 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |
@@ -357,14 +356,18 @@ inline. Refresh after every audit-drain PR.
 | 14   | mostly-spec-only | 11 | spec 18 added `folder new/rename/delete` (overlap, not closure) | ~60% of CLI surface absent (rule/calendar/ooo/settings/message subverbs/export/daemon/backfill); exit-code map missing; line-delimited JSON not honoured |
 | 15   | partial | 6 | drafts via action queue + two-stage idempotent dispatch (PR 7-i); compose_sessions migration + crash-recovery resume + 24h GC (PR 7-ii); ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings (PR 7-iii) | no Graph delete on discard; webLink TTL (30s); lint guard for Mail.Send literal |
 
-**Drained-since-v0.12.0 totals:** 24 audit bullets struck out
-across 7 specs (02 + 03 + 04 + 05 + 07 + 12 + 15). Seven of the
+**Drained-since-v0.12.0 totals:** 33 audit bullets struck out
+across 8 specs (02 + 03 + 04 + 05 + 06 + 07 + 12 + 15). Eight of the
 original top-10 leverage gaps are closed (#1 undo, #2 bindings/
 help, #3 events, #4 permanent-delete, #5 commands, #6 calendar
-schema, #7 drafts queue); spec 15 §7 crash-recovery (PR 7-ii)
-folds in alongside the queue work; spec 05 §8 attachment
-visibility partially closes the §10 viewer-keys block. See the
-next section for the rest.
+schema, #7 drafts queue, #8 hybrid search). Spec 15 §7 crash-
+recovery (PR 7-ii) + R/F/m drafts (PR 7-iii) fold in alongside
+the queue work; spec 05 §8 attachment visibility partially closes
+the §10 viewer-keys block; spec 06 ships end-to-end via PR 8.
+Remaining audit-drain queue: PR 5b (`:save` / `:rule` blocked on
+spec 11), PR 6b-ii (calendar sync engine), PR 9 (pattern Compile/
+Execute + server evaluators), PR 10 (viewer keybindings + save/
+open + GetAttachment helper).
 
 ---
 
@@ -386,7 +389,7 @@ Ranked by what blocks a v0.X release.
 
 7. ~~**Compose draft path bypasses action queue (spec 15 §5, §8)**~~ **Closed by PR 7-i (v0.13.x).** `ActionCreateDraftReply` constant added; `Executor.CreateDraftReply` enqueues with status Pending → calls Graph `createReply` → persists `draft_id`+`web_link` via the new `UpdateActionParams` → calls `PatchMessageBody` → marks Done. PATCH-after-success failure leaves the action Failed with `draft_id` intact so PR 7-ii's startup resume path can re-PATCH idempotently. Drain skips the type because stage 1 is non-idempotent. Reply-all / forward / new-message variants deferred to PR 7-iii; crash-recovery resume scan deferred to PR 7-ii. See `docs/plans/spec-15.md` iter 2.
 
-8. **Hybrid search package empty (spec 06)** — `internal/search/` is a 2-line doc stub. The TUI does single-shot `store.Search` with a 2-second timeout; spec promises streaming local + server merge with progressive UI updates. Blocks v0.6.x search-experience parity with Outlook; the deep archive is unsearchable.
+8. ~~**Hybrid search package empty (spec 06)**~~ **Closed by PR 8 (v0.17.x).** `internal/search/` ships streaming Searcher with parallel local FTS5 + Graph $search branches, deduping merger with throttled emit, field-prefix syntax, snippet highlighting. UI integration paints progressive snapshots with a status-line hint and Esc-cancels-stream. See `docs/plans/spec-06.md` iter 2.
 
 9. **Pattern Compile/Execute surface absent (spec 08 §6)** — only local SQL evaluation exists. No `~b` body search, no `~B` subject-or-body, no `~h` header search, no Graph `$filter` / `$search` evaluators. Blocks v0.8.x bulk-on-deep-archive (a user can't `;d` newsletters older than what's cached) and v0.11.x saved searches that span the full mailbox.
 

@@ -1,6 +1,6 @@
 # Spec 08 — Pattern Language
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.5.x). Lexer + parser + AST + local-SQL evaluator (`internal/pattern/eval_local.go`) all shipped covering 14 of 18 operators; the `~h` header operator is server-only and explicitly rejected today. Residual: spec §6 Compile/Execute API, server-side `$filter` / `$search` evaluators, two-stage execution, `--explain` output, strategy selection table — all tracked under audit-drain PR 9.
 **Depends on:** Specs 02 (store), 03 (graph). Independent of UI.
 **Blocks:** Specs 10 (bulk operations consume Compiled patterns), 11 (saved searches store pattern strings).
 **Estimated effort:** 2–3 days.
