@@ -1871,17 +1871,20 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 // `*…*` is what every search box does (Gmail, Outlook, Spotlight); a
 // bare `~B foo` would compile to MatchExact and surprise the user
 // when their substring doesn't equal the entire subject.
+//
+// PR 9 routed this through pattern.Compile + pattern.Execute so the
+// strategy selector + Plan.Notes + future server-routed bulk
+// operations all share the same path. LocalOnly is forced for now —
+// :filter has always been "narrow the cached folder" UX; flipping
+// to default-server would silently dispatch Graph queries on every
+// keystroke. A `--server` flag can lift the gate later.
 func (m Model) runFilterCmd(src string) tea.Cmd {
 	src = strings.TrimSpace(src)
 	if !strings.Contains(src, "~") {
 		src = "~B *" + src + "*"
 	}
 	return func() tea.Msg {
-		root, err := pattern.Parse(src)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
-		}
-		clause, err := pattern.CompileLocal(root)
+		compiled, err := pattern.Compile(src, pattern.CompileOptions{LocalOnly: true})
 		if err != nil {
 			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
 		}
@@ -1891,9 +1894,20 @@ func (m Model) runFilterCmd(src string) tea.Cmd {
 		if m.deps.Account != nil {
 			accountID = m.deps.Account.ID
 		}
-		msgs, err := m.deps.Store.SearchByPredicate(ctx, accountID, clause.Where, clause.Args, 1000)
+		ids, err := pattern.Execute(ctx, compiled, m.deps.Store, nil, pattern.ExecuteOptions{
+			AccountID:       accountID,
+			LocalMatchLimit: 1000,
+		})
 		if err != nil {
 			return ErrorMsg{Err: fmt.Errorf("filter: %w", err)}
+		}
+		// Execute returns IDs; the list pane wants Messages.
+		// Bulk-fetch the envelope rows from the local cache.
+		msgs := make([]store.Message, 0, len(ids))
+		for _, id := range ids {
+			if mm, err := m.deps.Store.GetMessage(ctx, id); err == nil && mm != nil {
+				msgs = append(msgs, *mm)
+			}
 		}
 		return filterAppliedMsg{src: src, messages: msgs}
 	}

@@ -2,9 +2,12 @@
 // to select messages for bulk operations and saved searches. See
 // docs/specs/08-pattern-language.md.
 //
-// v0.5.0 ships the lexer, parser, AST, and a local-SQL evaluator. The
-// Graph $filter / $search evaluators land alongside specs 09/10 when
-// bulk operations need them.
+// v0.5.0 shipped the lexer, parser, AST, and a local-SQL evaluator;
+// v0.18.0 (PR 9 of audit-drain) shipped the Compile / Execute API +
+// strategy selector + Graph $filter / $search evaluators + the
+// in-memory evaluator used by TwoStage refinement. Spec 08 is now
+// at CI-shipped status pending the 100k-message bench + 10k-AST
+// property test.
 package pattern
 
 import "time"

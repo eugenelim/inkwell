@@ -150,19 +150,19 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 
 ## Spec 08 — Pattern Language
 
-- Implementation: `internal/pattern/`
-- Status overall: partial
-- Implementation gaps:
-  - DoD "All 18 operators from §3.1 implemented." Lexer/parser support most operators. The local SQL evaluator (`eval_local.go`) covers 14 operators. **Missing in execution:** `~h` is explicitly rejected (`eval_local.go:117` "header lookup is server-only") and there is no server-side evaluator for it.
-  - DoD "Strategy selection table-driven test passes for ≥30 patterns." There is no strategy selection — `eval_filter.go`, `eval_search.go`, `compile.go`, `execute.go` are not present in `internal/pattern/`. The package contains only `lexer.go`, `parser.go`, `ast.go`, `eval_local.go`, `dates.go`. No `Compile`, no `Execute`, no `ExecutionStrategy`, no `CompilationPlan`.
-  - DoD "`--explain` output is human-readable for at least 10 sample patterns." Not implemented.
-  - DoD "Property-based parser tests pass on 10k random ASTs." Not relevant to impl gap (test scope).
-  - Two-stage execution (§11), server-hybrid (§7.3), server-filter, server-search — none exist. Bulk and saved-search both run pure-local (`ui/app.go:885` and `cmd/inkwell/cmd_filter.go:141`).
+- Implementation: `internal/pattern/` (8 source files + tests)
+- Status overall: **shipped (CI scope, v0.18.x — PR 9 of audit-drain).**
+- Implementation gaps (all closed by PR 9 except as noted):
+  - ~~DoD "All 18 operators from §3.1 implemented." `~h` server-only rejected.~~ **Closed.** `eval_search.go::EmitSearch` renders `~h` to the server `$search` dialect; the strategy selector routes `~h`-bearing patterns to StrategyServerSearch (or TwoStage when combined with read/flag predicates).
+  - ~~DoD "Strategy selection table-driven test passes for ≥30 patterns."~~ **Closed.** `compile_test.go::TestCompileStrategySelection` covers 30+ pattern shapes mapping to LocalOnly / ServerFilter / ServerSearch / TwoStage with the rendered query strings asserted as substrings.
+  - ~~DoD "`--explain` output is human-readable for at least 10 sample patterns."~~ **Closed.** `Compiled.Explain()` renders strategy + reason + Local SQL / Graph $filter / Graph $search / folder scope on separate lines; tested via TestCompileExplainOutput.
+  - DoD "Property-based parser tests pass on 10k random ASTs." — `fuzz_test.go` ships `FuzzParse` / `FuzzCompileLocal`; the spec-mandated 10k-iteration counter in CI is **still deferred** (CI-runtime decision).
+  - ~~Two-stage execution (§11), server-hybrid (§7.3), server-filter, server-search — none exist.~~ **Closed.** `execute.go::Execute` dispatches per strategy via consumer-side `LocalSearcher` + `GraphService` seams. TwoStage uses `EvaluateInMemory` against cached envelopes; ServerHybrid INTERSECTs `$filter` + `$search` IDs. `:filter` UI now routes through Compile + Execute.
 - Design drifts:
-  - Spec §6 declares `pattern.Compile(src, opts) (*Compiled, error)` and `pattern.Execute(ctx, c, store, graph) ([]string, error)`. Code exposes `pattern.Parse(src)` and `pattern.CompileLocal(root)` returning a `SQLClause`. Different surface, different return shape. The UI and CLI both call `pattern.Parse` + `pattern.CompileLocal` (`app.go:879-883`, `cmd_filter.go:137-141`) — meaning every consumer is forced into the local-only path.
+  - ~~Spec §6 declares `pattern.Compile` / `pattern.Execute`.~~ **Closed.** `compile.go::Compile` returns `*Compiled`; `execute.go::Execute` dispatches per strategy. Per-spec API matches; legacy `CompileLocal` retained as the implementation detail Step 0 / Step 4 fall through to.
 - Schema/config gaps:
-  - `[pattern]` section absent from `config/config.go`. None of `pattern.local_match_limit`, `pattern.server_candidate_limit`, `pattern.prefer_local_when_offline` exist.
-- TODO-shaped spec language: spec §17 / DoD bullet "All 18 operators from §3.1 implemented" — the doc.go (`internal/pattern/doc.go:6-8`) admits "v0.5.0 ships the lexer, parser, AST, and a local-SQL evaluator. The Graph $filter / $search evaluators land alongside specs 09/10 when bulk operations need them." That's an explicit "future iter" deferral.
+  - ~~`[pattern]` section absent.~~ **Closed.** `internal/config/config.go::PatternConfig` adds `local_match_limit` (5000), `server_candidate_limit` (1000), `prefer_local_when_offline` (true).
+- TODO-shaped spec language: `internal/pattern/ast.go` doc still mentions "v0.5.0 ships the lexer, parser, AST, and a local-SQL evaluator. The Graph $filter / $search evaluators land alongside specs 09/10". Stale post-PR 9; non-blocking.
 
 ---
 
@@ -347,7 +347,7 @@ inline. Refresh after every audit-drain PR.
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
 | 06   | shipped | 1 | streaming Searcher + graph $search + merger + field prefixes + UI streaming integration (PR 8) | `--all` cross-folder flag + saved-search promotion (depend on spec 14 CLI flags / spec 11 Manager) |
 | 07   | partial | 9 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1); move-with-folder-picker (PR 4c) | replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
-| 08   | partial | 7 | — | no Compile/Execute API; no server `$filter` / `$search` evaluators; no strategy selection |
+| 08   | shipped | 1 | Compile/Execute API + $filter/$search evaluators + TwoStage + strategy selector + [pattern] config (PR 9) | 100k-message bench + 10k-AST property test in CI deferred |
 | 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |
 | 10   | partial | ~14 | bulk-config skeleton (PR 12) | no preview screen; no progress modal; 6 of 10 `;` verbs unbound; `F` keybind unhandled |
 | 11   | mostly-spec-only | 12 | — | whole `Manager` API absent; live counts / TOML mirror / `:rule` / seed defaults all unimplemented |
@@ -356,18 +356,18 @@ inline. Refresh after every audit-drain PR.
 | 14   | mostly-spec-only | 11 | spec 18 added `folder new/rename/delete` (overlap, not closure) | ~60% of CLI surface absent (rule/calendar/ooo/settings/message subverbs/export/daemon/backfill); exit-code map missing; line-delimited JSON not honoured |
 | 15   | partial | 6 | drafts via action queue + two-stage idempotent dispatch (PR 7-i); compose_sessions migration + crash-recovery resume + 24h GC (PR 7-ii); ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings (PR 7-iii) | no Graph delete on discard; webLink TTL (30s); lint guard for Mail.Send literal |
 
-**Drained-since-v0.12.0 totals:** 33 audit bullets struck out
-across 8 specs (02 + 03 + 04 + 05 + 06 + 07 + 12 + 15). Eight of the
-original top-10 leverage gaps are closed (#1 undo, #2 bindings/
+**Drained-since-v0.12.0 totals:** 39 audit bullets struck out
+across 9 specs (02 + 03 + 04 + 05 + 06 + 07 + 08 + 12 + 15). Nine of
+the original top-10 leverage gaps are closed (#1 undo, #2 bindings/
 help, #3 events, #4 permanent-delete, #5 commands, #6 calendar
-schema, #7 drafts queue, #8 hybrid search). Spec 15 §7 crash-
-recovery (PR 7-ii) + R/F/m drafts (PR 7-iii) fold in alongside
-the queue work; spec 05 §8 attachment visibility partially closes
-the §10 viewer-keys block; spec 06 ships end-to-end via PR 8.
+schema, #7 drafts queue, #8 hybrid search, #9 pattern Compile/
+Execute). Spec 15 §7 crash-recovery (PR 7-ii) + R/F/m drafts (PR
+7-iii) fold in alongside the queue work; spec 05 §8 attachment
+visibility partially closes the §10 viewer-keys block; spec 06
+ships end-to-end via PR 8; spec 08 ships end-to-end via PR 9.
 Remaining audit-drain queue: PR 5b (`:save` / `:rule` blocked on
-spec 11), PR 6b-ii (calendar sync engine), PR 9 (pattern Compile/
-Execute + server evaluators), PR 10 (viewer keybindings + save/
-open + GetAttachment helper).
+spec 11), PR 6b-ii (calendar sync engine), PR 10 (viewer
+keybindings + save/open + GetAttachment helper).
 
 ---
 
@@ -391,6 +391,6 @@ Ranked by what blocks a v0.X release.
 
 8. ~~**Hybrid search package empty (spec 06)**~~ **Closed by PR 8 (v0.17.x).** `internal/search/` ships streaming Searcher with parallel local FTS5 + Graph $search branches, deduping merger with throttled emit, field-prefix syntax, snippet highlighting. UI integration paints progressive snapshots with a status-line hint and Esc-cancels-stream. See `docs/plans/spec-06.md` iter 2.
 
-9. **Pattern Compile/Execute surface absent (spec 08 §6)** — only local SQL evaluation exists. No `~b` body search, no `~B` subject-or-body, no `~h` header search, no Graph `$filter` / `$search` evaluators. Blocks v0.8.x bulk-on-deep-archive (a user can't `;d` newsletters older than what's cached) and v0.11.x saved searches that span the full mailbox.
+9. ~~**Pattern Compile/Execute surface absent (spec 08 §6)**~~ **Closed by PR 9 (v0.18.x).** `internal/pattern/compile.go` exposes Compile / CompileNode / Compiled / ExecutionStrategy / CompilationPlan / CompileOptions per spec §6; `eval_filter.go` + `eval_search.go` + `eval_memory.go` + `execute.go` ship the strategy dispatch path. `:filter` UI routes through the new API. See `docs/plans/spec-08.md` iter 2.
 
 10. **Body fetch select drift (spec 05 §5.2)** — `GET /me/messages/{id}?$select=body,hasAttachments` ignores `attachments` and `internetMessageHeaders` and skips `$expand=attachments`. The full-headers toggle (`H`) renders only cached envelope fields; spec promised internet headers expansion. Attachment download is structurally impossible because `internal/graph/` has no `GetAttachment` / `attachments/$value` helper anywhere. Blocks v0.5.x feature completeness for the viewer pane.
