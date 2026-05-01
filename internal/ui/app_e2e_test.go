@@ -853,14 +853,14 @@ func TestURLPickerOOpensModalWithExtractedURL(t *testing.T) {
 		return contains(string(out), "Read more at")
 	}, teatest.WithDuration(2*time.Second))
 
-	// `o` opens the picker.
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	// `O` opens the picker.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
 		return contains(s, "URLs (") &&
 			contains(s, "https://example.invalid/article") &&
-			contains(s, "Enter / o  open")
+			contains(s, "Enter / O  open")
 	}, teatest.WithDuration(2*time.Second))
 
 	// Esc closes; viewer chrome returns.
@@ -1123,6 +1123,176 @@ func cursorOnLineWith(buf, text string) bool {
 		}
 	}
 	return false
+}
+
+// newE2EModelWithWebLink seeds a single message that has a WebLink
+// field set, used by TestViewerOpenWebLinkShowsActivity.
+func newE2EModelWithWebLink(t *testing.T) (Model, *fakeEngine) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mail.db")
+	s, err := store.Open(path, store.DefaultOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	id, err := s.PutAccount(context.Background(), store.Account{TenantID: "T", ClientID: "C", UPN: "tester@example.invalid"})
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: id, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	require.NoError(t, s.UpsertMessage(context.Background(), store.Message{
+		ID: "m-1", AccountID: id, FolderID: "f-inbox",
+		Subject: "Linked message", FromAddress: "alice@example.invalid", FromName: "Alice",
+		ReceivedAt: time.Now().Add(-time.Hour),
+		WebLink:    "https://outlook.example.invalid/weblink/1",
+	}))
+	acc, err := s.GetAccount(context.Background())
+	require.NoError(t, err)
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m, err := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    s,
+		Engine:   eng,
+		Renderer: render.New(s, stubBodyFetcher{contentType: "text", content: "hello"}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	require.NoError(t, err)
+	return m, eng
+}
+
+// newE2EModelWithConversation seeds three messages sharing a
+// ConversationID so the viewer's thread-map section can be tested.
+func newE2EModelWithConversation(t *testing.T) (Model, *fakeEngine) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mail.db")
+	s, err := store.Open(path, store.DefaultOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	id, err := s.PutAccount(context.Background(), store.Account{TenantID: "T", ClientID: "C", UPN: "tester@example.invalid"})
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-inbox", AccountID: id, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
+	}))
+	convID := "conv-thread-test"
+	type threadMsg struct {
+		id   string
+		subj string
+		age  time.Duration
+	}
+	thread := []threadMsg{
+		{"mt-1", "Thread start", 3 * time.Hour},
+		{"mt-2", "Thread reply 1", 2 * time.Hour},
+		{"mt-3", "Thread reply 2", 1 * time.Hour},
+	}
+	for _, tm := range thread {
+		require.NoError(t, s.UpsertMessage(context.Background(), store.Message{
+			ID: tm.id, AccountID: id, FolderID: "f-inbox",
+			Subject: tm.subj, FromAddress: "alice@example.invalid", FromName: "Alice",
+			ReceivedAt:     time.Now().Add(-tm.age),
+			ConversationID: convID,
+		}))
+	}
+	acc, err := s.GetAccount(context.Background())
+	require.NoError(t, err)
+	logger, _ := ilog.NewCaptured(ilog.Options{Level: slog.LevelDebug, AllowOwnUPN: "tester@example.invalid"})
+	eng := newFakeEngine()
+	m, err := New(Deps{
+		Auth:     fakeAuth{upn: "tester@example.invalid", tenant: "T"},
+		Store:    s,
+		Engine:   eng,
+		Renderer: render.New(s, stubBodyFetcher{contentType: "text", content: "thread body"}),
+		Logger:   logger,
+		Account:  acc,
+	})
+	require.NoError(t, err)
+	return m, eng
+}
+
+// TestViewerOpenWebLinkShowsActivity is the spec 05 §12 / PR 10
+// visible-delta test: pressing `o` in the viewer when the message has
+// a webLink sets the status-bar activity to "opening in browser…".
+// Without this, the key fires a goroutine silently with no visible
+// confirmation to the user.
+func TestViewerOpenWebLinkShowsActivity(t *testing.T) {
+	m, _ := newE2EModelWithWebLink(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Linked message")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open the message; viewer becomes focused.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "▌ Message")
+	}, teatest.WithDuration(2*time.Second))
+
+	// `o` should trigger the webLink open and surface "opening in browser…"
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "opening in browser")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestViewerOpenLinkByNumberShowsActivity is the spec 05 §12 / PR 10
+// visible-delta test: pressing a digit (1-9) in the viewer when the
+// body contains a corresponding link opens it and shows the activity
+// "opening link N…" in the status bar. Without this, the key fires a
+// goroutine with no visible confirmation.
+func TestViewerOpenLinkByNumberShowsActivity(t *testing.T) {
+	m, _ := newE2EModelWithBody(t, "Read more at https://example.invalid/article")
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open the first message; viewer is focused, body + links are loaded.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Read more at")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Press `1` — the viewer is focused and link [1] (the extracted URL)
+	// exists. Expect the status-bar activity string.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "opening link 1")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestViewerConversationThreadRendered is the spec 05 §11 / PR 10
+// visible-delta test: when a message belongs to a multi-message
+// conversation, opening it must render the "Thread (N messages)"
+// section so the user can see the full context. Without this, thread
+// nav (`[`/`]`) appears to do nothing — the v0.2.6 regression class.
+func TestViewerConversationThreadRendered(t *testing.T) {
+	m, _ := newE2EModelWithConversation(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Thread start")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open the first message; body + conversation thread load.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		// Thread section header must appear; all three subjects visible.
+		return contains(s, "Thread (3 messages)") &&
+			contains(s, "Thread start") &&
+			contains(s, "Thread reply 1") &&
+			contains(s, "Thread reply 2")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
 func splitVisualLines(buf string) []string {

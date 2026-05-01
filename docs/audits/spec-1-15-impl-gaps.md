@@ -83,14 +83,14 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Implementation: `internal/render/`
 - Status overall: partial
 - Implementation gaps:
-  - DoD "All viewer keybindings from §12 work" — only `j/k` scroll, `H` toggle headers, `r` reply, `f`/`a`/`d` triage are wired (`ui/app.go:1254-1303`). Missing in viewer dispatch: `o` (open in browser via webLink), `O` (open focused link), `e` (toggle quote expand), `Q` (toggle all quotes), `1`-`9` (open link [N]), `a`-`z` (save attachment), `Shift+A`-`Shift+Z` (open attachment), `[` `]` (prev/next message in conversation).
+  - ~~DoD "All viewer keybindings from §12 work" — `o`, `O`, `1`-`9`, `a`-`z`, `A`-`Z`, `[`, `]` missing.~~ **Closed by PR 10 (2026-05-01).** Remaining deferred: `e` (quote expand) + `Q` (toggle all quotes) — explicitly deferred in docs/plans/spec-05.md iter 6.
   - Spec §6.3 quoted-reply collapse with threshold from `[rendering].quote_collapse_threshold` — not implemented. `plain.go:46-62` strips `> ` markers but renders all depths verbatim. No collapse, no expand toggle, no `[… N quoted lines …]` placeholder.
   - Spec §6.4 attribution-line detection — no regex, no styling.
   - Spec §6.5 Outlook-specific noise stripping (`[rendering].strip_patterns`) — only the `trackingPixel` regex (`html.go:10`) is applied. No "External email" banner stripping, no `Outlook-AltVw` stripping.
   - Spec §7 plain-text format=flowed unwrapping (RFC 3676) — `plain.go` has no detection or unwrapping. Long-wrapped plaintext stays line-broken.
-  - Spec §8 attachment rendering — visibility partially closed by the v0.13.x post-audit slice (2026-05-01). `GetMessageBody` now includes `$expand=attachments`; `FetchBodyAsync` upserts the metadata into the local store; the viewer pane renders an "Attachments:" block between headers and body (mutt/alpine convention), showing name + size + content-type + `(inline)` flag. **Still missing:** `[a]`/`[b]` accelerator-letter prefixes, `internal/graph/GetAttachment` / `attachments/$value` helper, save / open keybindings. Those land with PR 10 alongside the spec 17 §4.4 path-traversal guard.
-  - Spec §10 `:open` for browser fallback (`webLink`) — no handler in `dispatchCommand` and no viewer keybinding. `lastDraftWebLink` open (`app.go:1296-1303`) is the only `open` shellout, and it's specifically for drafts.
-  - Spec §11 conversation context (thread map under viewer) — not implemented. Viewer renders headers + body only.
+  - ~~Spec §8 attachment rendering — `[a]`/`[b]` accelerator-letter prefixes, `GetAttachment` helper, save / open keybindings, spec 17 §4.4 path-traversal guard.~~ **Closed by PR 10 (2026-05-01).**
+  - ~~Spec §10 `:open` for browser fallback (`webLink`) — no viewer keybinding.~~ **Closed by PR 10 (2026-05-01).** `o` key opens webLink in system browser.
+  - ~~Spec §11 conversation context (thread map under viewer) — not implemented.~~ **Closed by PR 10 (2026-05-01).** Thread map rendered; `[`/`]` navigate.
   - Spec §6.2 external HTML converter (`html2text` → `pandoc`/`lynx` fallback) — `html.go:17-26` calls `html2text.FromString` with no fallback. Spec config keys `html_converter`, `html_converter_cmd`, `external_converter_timeout` are not in defaults.
 - Design drifts:
   - Spec §5.2 body $select drift — `$expand=attachments` shipped in the v0.13.x post-audit slice (2026-05-01); the `GetMessageBody` URL now reads `?$select=body,hasAttachments&$expand=attachments($select=id,name,contentType,size,isInline,contentId)`. Still pending: the `internetMessageHeaders` $select for the full-headers toggle (`H`); spec §4 "Plus all `internetMessageHeaders`" still doesn't materialise. Tracked under PR 10 alongside the rest of the viewer-keys / save-attachment work.

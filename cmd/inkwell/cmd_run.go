@@ -164,24 +164,27 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern})
 	}
 	model, err := ui.New(ui.Deps{
-		Auth:               a,
-		Store:              st,
-		Engine:             engine,
-		Renderer:           renderer,
-		Logger:             logger,
-		Account:            acc,
-		Triage:             triageAdapter{exec: exec},
-		Bulk:               bulkAdapter{exec: exec},
-		Calendar:           calendarAdapter{gc: gc, st: st, accountID: acc.ID},
-		Mailbox:            mailboxAdapter{gc: gc},
-		Drafts:             draftAdapter{exec: exec},
-		Search:             newSearchAdapter(st, gc, acc.ID, cfg.Search),
-		Unsubscribe:        newUnsubAdapter(st, gc, version),
-		ThemeName:          cfg.UI.Theme,
-		SavedSearches:      saved,
-		Bindings:           bindingsToOverrides(cfg.Bindings),
-		RecentFoldersCount: cfg.Triage.RecentFoldersCount,
-		URLDisplayMaxWidth: cfg.Rendering.URLDisplayMaxWidth,
+		Auth:                  a,
+		Store:                 st,
+		Engine:                engine,
+		Renderer:              renderer,
+		Logger:                logger,
+		Account:               acc,
+		Triage:                triageAdapter{exec: exec},
+		Bulk:                  bulkAdapter{exec: exec},
+		Calendar:              calendarAdapter{gc: gc, st: st, accountID: acc.ID},
+		Mailbox:               mailboxAdapter{gc: gc},
+		Drafts:                draftAdapter{exec: exec},
+		Search:                newSearchAdapter(st, gc, acc.ID, cfg.Search),
+		Unsubscribe:           newUnsubAdapter(st, gc, version),
+		ThemeName:             cfg.UI.Theme,
+		SavedSearches:         saved,
+		Bindings:              bindingsToOverrides(cfg.Bindings),
+		RecentFoldersCount:    cfg.Triage.RecentFoldersCount,
+		URLDisplayMaxWidth:    cfg.Rendering.URLDisplayMaxWidth,
+		Attachments:           gc,
+		AttachmentSaveDir:     expandHome(cfg.Rendering.AttachmentSaveDir),
+		LargeAttachmentWarnMB: cfg.Rendering.LargeAttachmentWarnMB,
 	})
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
@@ -191,6 +194,16 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		return fmt.Errorf("tui: %w", err)
 	}
 	return nil
+}
+
+// expandHome replaces a leading "~" with the user's home directory.
+// Used to expand config paths like "~/Downloads" → "/Users/alice/Downloads".
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, path[1:])
 }
 
 // storeDBPath returns the SQLite path. Mirrors spec 02 §2.

@@ -122,7 +122,13 @@ disabled because of a real-tenant 400 regression on the bare
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `u`       | Undo the most recent triage action                            |
-| `o`       | Open the URL picker (lists every URL the renderer extracted)  |
+| `o`       | Open message in system browser (OWA deep-link / webLink)      |
+| `O`       | Open the URL picker (lists every URL the renderer extracted)  |
+| `1`–`9`   | Open extracted link N directly (skips the picker for quick access) |
+| `a`–`z`   | Save attachment with that accelerator letter to `~Downloads`  |
+| `A`–`Z`   | Open attachment with that accelerator letter (reserved: H/D/C/R/U) |
+| `[`       | Navigate to the previous message in the conversation thread   |
+| `]`       | Navigate to the next message in the conversation thread       |
 | `y`       | Yank a URL to the clipboard (single URL → fast path; multi → picker) |
 | `z`       | Toggle fullscreen body (hide folders + list panes for drag-select) |
 
@@ -140,18 +146,17 @@ highlights the entire URL together. Modern terminals (iTerm2, kitty,
 alacritty, foot, wezterm, ghostty, recent gnome-terminal / Konsole)
 make these directly clickable (Cmd-click on macOS, Ctrl-click on
 Linux). Older terminals (Apple Terminal.app) fall back to plain
-text — use the URL picker (`o`) instead.
+text — use the URL picker (`O`) instead.
 
 **Attachments block**: messages with attachments paint a compact
 list between the headers and the body — `Attach: 3 files · 4.4 MB`
-summary line followed by one line per attachment with name, human
-size, content-type, and an `(inline)` flag for `cid:`-referenced
-images. The block lives above the body so you see what's attached
-before scrolling, matching mutt / alpine convention. Save / open
-keybindings (`[a]` / `[b]` accelerator letters) ride on a follow-
-up PR; for now the block is visibility-only — open the message in
-Outlook (`o` is post-MVP for `webLink`; for now use `:open`) to
-download the file.
+summary line followed by one line per attachment with an accelerator
+letter prefix (`[a]`, `[b]`, …), name, human size, and content-type.
+Press the letter to save to `~/Downloads`; press Shift+letter (e.g.
+`A`) to download and open with your default app. Files larger than
+25 MB (configurable: `[rendering].large_attachment_warn_mb`) show a
+confirmation prompt first.  An `(inline)` flag marks `cid:`-referenced
+images embedded in the body.
 
 **Long-URL truncation**: URLs longer than 60 cells render with end-
 truncation in the body — `https://example.com/auth/…` — so they
@@ -159,7 +164,7 @@ don't dominate vertical space when you scroll. The OSC 8 escape
 sequence keeps the FULL URL in its `url` portion, so:
 
 - Cmd-click on a truncated URL still opens the full URL.
-- The URL picker (`o`) shows full URLs.
+- The URL picker (`O`) shows full URLs.
 - The `Links:` block at the bottom of every body keeps full URLs
   untruncated — that's the canonical place to read or copy a full
   link.
@@ -167,12 +172,14 @@ sequence keeps the FULL URL in its `url` portion, so:
 The domain prefix is always preserved (security: spot phishing at
 a glance).
 
-**URL picker (`o`)**: lists every URL the renderer pulled out of
-the body. `j` / `k` move the cursor; `Enter` or `o` opens the
+**URL picker (`O`)**: lists every URL the renderer pulled out of
+the body. `j` / `k` move the cursor; `Enter` or `O` opens the
 selected URL in your default browser; `y` copies it to the
 clipboard; `Esc` / `q` close. This is the workflow that handles
 URLs that wrap across rows (terminal click can't pick those up) and
 disambiguates short anchor texts that share the same hostname.
+For fast access to a specific link, press its digit (`1`–`9`) directly
+from the viewer — no picker needed.
 
 **Yank URL (`y`)**: when the message has exactly one URL, `y` in
 the viewer copies it directly. With more than one, `y` opens the

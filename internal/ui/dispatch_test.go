@@ -4084,3 +4084,30 @@ func TestAttachmentSummaryFormatsCountAndTotal(t *testing.T) {
 	many := []store.Attachment{{Size: 1024}, {Size: 2 * 1024}, {Size: 3 * 1024}}
 	require.Equal(t, "3 files · 6.0KB", attachmentSummary(many))
 }
+
+// TestAttachmentLetterKeyWithNoFetcherSetsError verifies that pressing
+// the attachment-letter key (`a`) in the viewer when the Attachments
+// dep is not wired surfaces a visible error rather than silently
+// dropping the keypress (spec 05 §12 / PR 10). The error will show in
+// the status-bar error banner on the next render.
+func TestAttachmentLetterKeyWithNoFetcherSetsError(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	// Populate the viewer with a message + one attachment so the
+	// binding actually fires (key 'a' maps to attachment[0]).
+	msg := store.Message{ID: "m-1", Subject: "test"}
+	m.viewer.SetMessage(msg)
+	m.viewer.SetAttachments([]store.Attachment{
+		{ID: "att-1", Name: "file.pdf", Size: 1024},
+	})
+	m.focused = ViewerPane
+
+	// Press `a` — no AttachmentFetcher wired, so startSaveAttachment
+	// sets lastError and returns a nil Cmd.
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m2 := result.(Model)
+
+	require.Nil(t, cmd, "no Cmd should be dispatched when Attachments dep is nil")
+	require.Error(t, m2.lastError, "lastError must be set so the user sees feedback")
+	require.Contains(t, m2.lastError.Error(), "attachment")
+}
