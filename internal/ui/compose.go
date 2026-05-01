@@ -173,24 +173,6 @@ func (m Model) persistComposeSnapshotCmd() tea.Cmd {
 	}
 }
 
-// confirmComposeSessionCmd stamps confirmed_at on the current
-// session so the resume scan ignores it on next launch. Called
-// after save (Ctrl+S / Esc) and discard (Ctrl+D). No-op when
-// SessionID is empty (e.g., compose started before the session
-// row was created — shouldn't happen but the guard keeps the
-// path safe).
-func (m Model) confirmComposeSessionCmd(sessionID string) tea.Cmd {
-	if m.deps.Store == nil || sessionID == "" {
-		return nil
-	}
-	st := m.deps.Store
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = st.ConfirmComposeSession(ctx, sessionID)
-		return nil
-	}
-}
 
 // scanComposeSessionsCmd runs the launch-time resume scan. Returns
 // a composeResumeMsg with the most-recent unconfirmed session if
