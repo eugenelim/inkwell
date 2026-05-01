@@ -233,6 +233,14 @@ type RenderingConfig struct {
 	// URLs. 0 disables truncation. Default 60 (set in
 	// internal/config/defaults.go).
 	URLDisplayMaxWidth int `toml:"url_display_max_width"`
+	// AttachmentSaveDir is the default destination for the a-z
+	// attachment-save keybindings. Tilde is expanded to the user's
+	// home directory. Default "~/Downloads".
+	AttachmentSaveDir string `toml:"attachment_save_dir"`
+	// LargeAttachmentWarnMB triggers a confirm modal before
+	// downloading attachments larger than this many megabytes.
+	// 0 disables the warning. Default 25.
+	LargeAttachmentWarnMB int `toml:"large_attachment_warn_mb"`
 }
 
 // LoggingConfig owns the [logging] section.

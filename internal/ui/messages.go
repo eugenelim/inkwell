@@ -99,10 +99,31 @@ type BodyLink struct {
 // (spec 05 §5.2 / §8). Empty when the message has none. The viewer
 // renders an "Attachments:" block between headers and body so the
 // reader sees what's attached before scrolling into the message.
+//
+// Conversation carries the sibling messages in the same conversation,
+// sorted by ReceivedAt ASC, for the thread-map section (spec 05 §11).
+// Nil when ConversationID is empty or the store query fails.
 type BodyRenderedMsg struct {
-	MessageID   string
-	Text        string
-	Links       []BodyLink
-	State       int // mirrors render.BodyState
-	Attachments []store.Attachment
+	MessageID    string
+	Text         string
+	Links        []BodyLink
+	State        int // mirrors render.BodyState
+	Attachments  []store.Attachment
+	Conversation []store.Message
+}
+
+// SaveAttachmentDoneMsg is emitted when an attachment download + save to
+// disk completes. Path is the destination on success; Err is non-nil on
+// failure.
+type SaveAttachmentDoneMsg struct {
+	Name string
+	Path string
+	Err  error
+}
+
+// OpenAttachmentDoneMsg is emitted when an attachment download + open
+// (via the default OS application) completes.
+type OpenAttachmentDoneMsg struct {
+	Name string
+	Err  error
 }

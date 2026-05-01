@@ -692,12 +692,15 @@ type ViewerModel struct {
 	links []BodyLink
 	// attachments is the metadata-only attachment list for the
 	// current message (spec 05 §8). Populated by the body-fetch
-	// path on each open. The viewer renders them as a compact
-	// "Attachments:" block between the headers and the body so
-	// the user sees what's attached before scrolling — terminal
-	// mail clients (mutt, alpine) converge on this layout. Save /
-	// open keybindings land with PR 10 (audit-drain spec 05 §12).
+	// path on each open. The viewer renders an "Attachments:" block
+	// between headers and body. Save / open keybindings wired in PR 10.
 	attachments []store.Attachment
+	// conversationThread is the ordered list of sibling messages in
+	// the same conversation (spec 05 §11). Sorted ReceivedAt ASC.
+	// convIdx points at the currently-displayed message. Both survive
+	// SetMessage so [/] navigation works without a new store query.
+	conversationThread []store.Message
+	convIdx            int
 }
 
 // NewViewer returns an empty viewer.
@@ -800,6 +803,44 @@ func (m ViewerModel) CurrentMessageID() string {
 	return m.current.ID
 }
 
+// SetConversationThread replaces the conversation cache and updates convIdx
+// to point at currentID. convIdx defaults to 0 when currentID is not found.
+func (m *ViewerModel) SetConversationThread(msgs []store.Message, currentID string) {
+	m.conversationThread = msgs
+	m.convIdx = 0
+	for i, msg := range msgs {
+		if msg.ID == currentID {
+			m.convIdx = i
+			return
+		}
+	}
+}
+
+// ConversationThread returns the current thread cache (may be nil).
+func (m ViewerModel) ConversationThread() []store.Message {
+	return m.conversationThread
+}
+
+// NavPrevInThread moves to the chronologically older sibling in the
+// conversation and returns it. Returns nil when already at the first.
+func (m *ViewerModel) NavPrevInThread() *store.Message {
+	if m.convIdx <= 0 || len(m.conversationThread) == 0 {
+		return nil
+	}
+	m.convIdx--
+	return &m.conversationThread[m.convIdx]
+}
+
+// NavNextInThread moves to the chronologically newer sibling in the
+// conversation and returns it. Returns nil when already at the last.
+func (m *ViewerModel) NavNextInThread() *store.Message {
+	if m.convIdx >= len(m.conversationThread)-1 || len(m.conversationThread) == 0 {
+		return nil
+	}
+	m.convIdx++
+	return &m.conversationThread[m.convIdx]
+}
+
 // View renders the viewer column.
 func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	header := paneHeader(t, "Message", focused)
@@ -846,6 +887,11 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	if body == "" {
 		body = t.Dim.Render("(loading…)")
 	}
+	// Append conversation thread map below the body so the user can
+	// scroll down to navigate the thread context (spec 05 §11).
+	if thread := renderConversationSection(m.conversationThread, m.convIdx); thread != "" {
+		body = body + "\n\n" + thread
+	}
 	bodyLines := strings.Split(body, "\n")
 	// Apply scroll offset and clip to remaining height. The window
 	// renders [scrollY, scrollY+room) of the body; scrolling past EOF
@@ -867,21 +913,21 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 }
 
 // renderAttachmentLines produces the compact "Attachments:" block
-// shown above the body (spec 05 §8). One line per attachment
-// followed by a separator blank. Returns nil when there are no
-// attachments so the viewer's tight-budget height isn't wasted on a
-// header for an empty list. Intentionally cheap formatting (no
-// theme lookups, no styling) so this stays in panes.go without
-// pulling in render's attachments helper. Save / open accelerator
-// letters land with PR 10 (audit-drain spec 05 §12).
+// shown above the body (spec 05 §8). One line per attachment with an
+// accelerator letter prefix `[a]`, `[b]`, … so the user can press
+// that letter to save, or Shift+letter to open (spec 05 §12 / PR 10).
 func renderAttachmentLines(atts []store.Attachment) []string {
 	if len(atts) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(atts)+2)
 	out = append(out, "Attach:  "+attachmentSummary(atts))
-	for _, a := range atts {
-		out = append(out, "  "+attachmentLine(a))
+	for i, a := range atts {
+		letter := "?"
+		if i < 26 {
+			letter = string(rune('a' + i))
+		}
+		out = append(out, "  ["+letter+"] "+attachmentLine(a))
 	}
 	out = append(out, "")
 	return out
@@ -928,6 +974,43 @@ func humanByteSize(n int64) string {
 	default:
 		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 	}
+}
+
+// renderConversationSection builds the "Thread (N messages)" block
+// that appears at the bottom of the scrollable body (spec 05 §11).
+// curIdx marks the currently-displayed message with a `*` glyph. The
+// block is omitted when the thread has 0 or 1 entries (no context to
+// show) or when msgs is nil (message has no ConversationID).
+func renderConversationSection(msgs []store.Message, curIdx int) string {
+	if len(msgs) <= 1 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("──── Thread (%d messages) ────\n", len(msgs)))
+	for i, m := range msgs {
+		mark := "  "
+		if i == curIdx {
+			mark = "▶ "
+		}
+		date := m.ReceivedAt.Format("Jan 02 15:04")
+		from := m.FromName
+		if from == "" {
+			from = m.FromAddress
+		}
+		if len(from) > 16 {
+			from = from[:15] + "…"
+		}
+		subj := m.Subject
+		if subj == "" {
+			subj = "(no subject)"
+		}
+		if len(subj) > 38 {
+			subj = subj[:37] + "…"
+		}
+		b.WriteString(fmt.Sprintf("  %s%s  %-16s  %s\n", mark, date, from, subj))
+	}
+	b.WriteString("  [ ← prev  ] → next\n")
+	return b.String()
 }
 
 // compactAddrs renders a one-line summary of all recipients across

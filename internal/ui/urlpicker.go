@@ -8,7 +8,7 @@ import (
 )
 
 // URLPickerModel is the spec 05 §10 / v0.15.x URL extractor pane.
-// Opened by `o` from the viewer pane; lists every URL the renderer
+// Opened by `O` from the viewer pane; lists every URL the renderer
 // pulled out of the body so the user picks one to open or copy.
 //
 // The model is stateless beyond cursor position — the data lives
@@ -18,7 +18,7 @@ import (
 // Keystrokes (active in URLPickerMode):
 //
 //	j / k / ↓ / ↑   move cursor
-//	Enter / o       open in browser
+//	Enter / O       open in browser
 //	y               yank URL to clipboard (OSC 52 + pbcopy on macOS)
 //	Esc / q         close
 //
@@ -97,7 +97,7 @@ func (m URLPickerModel) View(t Theme, links []BodyLink, width, height int) strin
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(t.Dim.Render("Enter / o  open  ·  y  yank to clipboard  ·  Esc / q  close"))
+	b.WriteString(t.Dim.Render("Enter / O  open  ·  y  yank to clipboard  ·  Esc / q  close"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
 		t.Modal.Render(b.String()))
 }

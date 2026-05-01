@@ -244,9 +244,9 @@ Reply-all and forward (`R` / `f` in the viewer) and new message
 Open the message in the viewer pane (Enter from the list). Then:
 
 - **Single URL** — press `y`. The URL is on your clipboard.
-- **Multiple URLs** — press `o` to open the URL picker. Use `j` /
+- **Multiple URLs** — press `O` to open the URL picker. Use `j` /
   `k` to move the cursor; `y` copies the highlighted URL; `Enter`
-  or `o` opens it in your default browser; `Esc` / `q` close.
+  or `O` opens it in your default browser; `Esc` / `q` close.
 
 Inkwell delivers the copy via OSC 52 — the standard terminal
 clipboard protocol — so it works over SSH on iTerm2, WezTerm,
@@ -379,6 +379,53 @@ local cache is exhausted at the current limit. inkwell auto-kicks a
 sync when you hit the cache wall — wait a few seconds and the engine
 backfills more from Graph. If that still doesn't help, `Ctrl+R`
 forces a full sync cycle.
+
+## Save or open an attachment
+
+Open the message in the viewer (Enter from the list). If the message
+has attachments, an `Attach:` block appears between the headers and
+the body with one line per attachment, each prefixed by an accelerator
+letter — `[a]`, `[b]`, etc.
+
+- **Save to `~/Downloads`** — press the accelerator letter (e.g. `a`
+  for the first attachment). A progress note appears in the status bar;
+  `✓ saved → ~/Downloads/file.pdf` confirms success.
+- **Open with your default app** — press Shift+letter (e.g. `A`).
+  inkwell downloads to a temp directory, then calls `open <file>`
+  (macOS) or `xdg-open <file>` (Linux) to hand off to the app
+  registered for that MIME type.
+- **Large files (>25 MB by default)** — a confirmation modal appears
+  first. Confirm with `y`; cancel with `n`. The threshold is
+  `[rendering].large_attachment_warn_mb` in `config.toml`.
+
+The save directory defaults to `~/Downloads`. Override it with
+`[rendering].attachment_save_dir = "/your/path"` in `config.toml`.
+
+## Navigate a conversation thread
+
+When a message belongs to a multi-message conversation (same email
+chain), a `Thread (N messages)` block appears at the bottom of the
+viewer body. The currently-displayed message is marked with `▶`.
+
+- **Previous in thread** — press `[` (left bracket). The viewer
+  switches to the chronologically older sibling.
+- **Next in thread** — press `]` (right bracket). The viewer switches
+  to the chronologically newer sibling.
+
+The thread view loads from the local SQLite cache — it's instant and
+offline-safe. If the conversation has more messages than are cached
+locally, only the locally-synced subset appears. `Ctrl+R` syncs more.
+
+## Open a message in Outlook (webLink)
+
+Press `o` (lowercase) while the viewer pane is focused. inkwell opens
+the OWA deep-link for the message in your default browser — useful
+when a message has heavy CSS/images that the plain-text renderer can't
+represent faithfully, or when you need to see the original formatting.
+
+The webLink is populated when the message is synced from Graph. If the
+message was just synced and the link hasn't arrived yet, the status bar
+shows `open: no webLink for this message` — `Ctrl+R` and try again.
 
 ---
 
