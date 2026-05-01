@@ -1,6 +1,6 @@
 # Spec 09 — $batch Execution Engine
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.6.x). Synchronous chunked $batch shipped: `internal/graph/batch.go::ExecuteBatch` + `internal/action/batch.go` chunks at MaxBatchSize=20 and serially executes. Residual: per-sub-request 429 retry loop, concurrent batch fan-out at `[batch].batch_concurrency`, composite undo entries, BulkActionCompletedEvent over the engine notification channel, soft cap at 5,000 messages — all tracked under audit-drain queue.
 **Depends on:** Specs 03 (graph client transport stack), 07 (action types).
 **Blocks:** Spec 10 (bulk operations consume the batch executor).
 **Estimated effort:** 2 days.

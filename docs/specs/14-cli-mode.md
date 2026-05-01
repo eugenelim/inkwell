@@ -1,6 +1,6 @@
 # Spec 14 — CLI Mode
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.10.x → v0.15.x). Implemented subcommands: `signin`, `signout`, `whoami`, `folders` (list), `messages`, `sync`, `filter`, `folder new/rename/delete` (spec 18 v0.15.x). Residual: `folder subscribe/unsubscribe/show/tree`, full `message` verb set (show / read / unread / flag / unflag / move / delete / permanent-delete / attachments / save-attachment / reply / reply-all / forward), `rule` (list / show / save / edit / delete / eval / apply — depends on spec 11), `calendar` (today / week / agenda / show — depends on spec 12 PR 6b), `ooo` (on / off / set), `settings`, `export`, `daemon`, `backfill`. ~60% of the spec's CLI surface remains; exit-code map + line-delimited JSON streams + `--config` / `--output` / `--color` global flags also pending.
 **Depends on:** All prior specs (CLI exposes their underlying capabilities).
 **Blocks:** Nothing.
 **Estimated effort:** 1–2 days.

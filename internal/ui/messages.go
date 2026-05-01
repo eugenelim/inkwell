@@ -59,6 +59,18 @@ type MessagesLoadedMsg struct {
 	Messages []store.Message
 }
 
+// SearchUpdateMsg carries one progressive snapshot from a
+// streaming SearchService run (spec 06 §3). The Update handler
+// replaces the list-pane contents wholesale per snapshot — no
+// incremental merging in the UI layer; the search package owns
+// dedup + sort.
+type SearchUpdateMsg struct {
+	Query   string
+	Status  string
+	Results []store.Message
+	Done    bool // true on the channel-closed final emission
+}
+
 // ErrorMsg surfaces a UI-level error (used for transient banners).
 type ErrorMsg struct{ Err error }
 

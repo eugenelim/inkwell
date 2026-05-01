@@ -301,7 +301,7 @@ config surface.
 | 7-i | 15    | shipped (v0.13.x) | main | spec 15 §5 / §8 "drafts bypass action queue" | docs/plans/spec-15.md iter 2 |
 | 7-ii | 15   | shipped (v0.13.x) | (this branch) | spec 15 §7 compose_sessions migration + crash-recovery resume + 24h GC | docs/plans/spec-15.md iter 4 |
 | 7-iii | 15  | shipped (v0.13.x) | (this branch) | spec 15 §5 ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings | docs/plans/spec-15.md iter 5 |
-| 8  | 06      | not-started | — | — | — |
+| 8  | 06      | shipped (v0.17.x) | (this branch) | spec 06 streaming Searcher + graph $search + merger + field prefixes + UI streaming integration | docs/plans/spec-06.md iter 2 |
 | 9  | 08      | not-started | — | — | — |
 | 10 | 05 (+17)| not-started | — | — | — |
 | 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter 3 |

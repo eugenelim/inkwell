@@ -20,6 +20,7 @@ import (
 	"github.com/eugenelim/inkwell/internal/graph"
 	ilog "github.com/eugenelim/inkwell/internal/log"
 	"github.com/eugenelim/inkwell/internal/render"
+	"github.com/eugenelim/inkwell/internal/search"
 	"github.com/eugenelim/inkwell/internal/store"
 	isync "github.com/eugenelim/inkwell/internal/sync"
 	"github.com/eugenelim/inkwell/internal/ui"
@@ -174,6 +175,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Calendar:           calendarAdapter{gc: gc, st: st, accountID: acc.ID},
 		Mailbox:            mailboxAdapter{gc: gc},
 		Drafts:             draftAdapter{exec: exec},
+		Search:             newSearchAdapter(st, gc, acc.ID, cfg.Search),
 		Unsubscribe:        newUnsubAdapter(st, gc, version),
 		ThemeName:          cfg.UI.Theme,
 		SavedSearches:      saved,
@@ -223,7 +225,7 @@ func (noopCloser) Close() error { return nil }
 // triageAdapter bridges *action.Executor → ui.TriageExecutor. The
 // non-undo methods are direct passthroughs; Undo translates
 // store.UndoEntry → ui.UndoneAction and store.ErrNotFound →
-// ui.UndoEmpty so the UI doesn't import internal/store types
+// ui.ErrUndoEmpty so the UI doesn't import internal/store types
 // beyond what's already exposed.
 type triageAdapter struct{ exec *action.Executor }
 
@@ -283,7 +285,7 @@ func (t triageAdapter) Undo(ctx context.Context, accountID int64) (ui.UndoneActi
 	entry, err := t.exec.Undo(ctx, accountID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return ui.UndoneAction{}, ui.UndoEmpty
+			return ui.UndoneAction{}, ui.ErrUndoEmpty
 		}
 		return ui.UndoneAction{}, err
 	}
@@ -637,6 +639,158 @@ func mapCachedUnsub(url string, oneClick bool) ui.UnsubscribeAction {
 		return ui.UnsubscribeAction{Kind: ui.UnsubscribeOneClickPOST, URL: url}
 	}
 	return ui.UnsubscribeAction{Kind: ui.UnsubscribeBrowserGET, URL: url}
+}
+
+// graphServerSearcher adapts graph.Client.SearchMessages to the
+// search.ServerSearcher interface so internal/search doesn't have
+// to import internal/graph for the production wire-up.
+type graphServerSearcher struct{ gc *graph.Client }
+
+func (s graphServerSearcher) SearchMessages(ctx context.Context, q search.ServerQuery) ([]store.Message, error) {
+	page, err := s.gc.SearchMessages(ctx, graph.SearchMessagesOpts{
+		Query:    q.Query,
+		FolderID: q.FolderID,
+		Top:      q.Top,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.Message, 0, len(page.Value))
+	for _, gm := range page.Value {
+		out = append(out, convertGraphMessageEnvelope(gm))
+	}
+	return out, nil
+}
+
+// convertGraphMessageEnvelope copies the envelope-shaped subset of
+// a graph.Message into store.Message. The list pane only renders
+// envelope fields, so the conversion is lightweight; bodies stay
+// in their tier-2 cache and the viewer fetches on open.
+func convertGraphMessageEnvelope(g graph.Message) store.Message {
+	m := store.Message{
+		ID:                 g.ID,
+		InternetMessageID:  g.InternetMessageID,
+		ConversationID:     g.ConversationID,
+		ConversationIndex:  g.ConversationIndex,
+		Subject:            g.Subject,
+		BodyPreview:        g.BodyPreview,
+		ReceivedAt:         g.ReceivedDateTime,
+		SentAt:             g.SentDateTime,
+		IsRead:             g.IsRead,
+		IsDraft:            g.IsDraft,
+		Importance:         g.Importance,
+		InferenceClass:     g.InferenceClassification,
+		HasAttachments:     g.HasAttachments,
+		Categories:         g.Categories,
+		WebLink:            g.WebLink,
+		FolderID:           g.ParentFolderID,
+		LastModifiedAt:     g.LastModifiedDateTime,
+		MeetingMessageType: g.MeetingMessageType,
+	}
+	if g.From != nil {
+		m.FromAddress = g.From.EmailAddress.Address
+		m.FromName = g.From.EmailAddress.Name
+	}
+	if g.Flag != nil {
+		m.FlagStatus = g.Flag.FlagStatus
+	}
+	for _, r := range g.ToRecipients {
+		m.ToAddresses = append(m.ToAddresses, store.EmailAddress{Name: r.EmailAddress.Name, Address: r.EmailAddress.Address})
+	}
+	for _, r := range g.CcRecipients {
+		m.CcAddresses = append(m.CcAddresses, store.EmailAddress{Name: r.EmailAddress.Name, Address: r.EmailAddress.Address})
+	}
+	for _, r := range g.BccRecipients {
+		m.BccAddresses = append(m.BccAddresses, store.EmailAddress{Name: r.EmailAddress.Name, Address: r.EmailAddress.Address})
+	}
+	return m
+}
+
+// searchAdapter wraps internal/search.Searcher into the UI's
+// SearchService surface (consumer-defined). Each call kicks the
+// streaming searcher and wires its Stream into a snapshot
+// channel + cancel.
+type searchAdapter struct {
+	searcher *search.Searcher
+	cfg      config.SearchConfig
+}
+
+func newSearchAdapter(st store.Store, gc *graph.Client, accountID int64, cfg config.SearchConfig) searchAdapter {
+	srv := search.ServerSearcher(graphServerSearcher{gc: gc})
+	if gc == nil {
+		// No graph client (offline / test) — local-only mode.
+		srv = nil
+	}
+	s := search.New(st, srv, search.Options{
+		EmitThrottle:  cfg.MergeEmitThrottle,
+		ServerTimeout: cfg.ServerSearchTimeout,
+		DefaultLimit:  cfg.DefaultResultLimit,
+		AccountID:     accountID,
+	})
+	return searchAdapter{searcher: s, cfg: cfg}
+}
+
+// Search runs a hybrid search and adapts internal/search.Stream
+// into the ui.SearchSnapshot channel. The returned cancel
+// terminates both branches and closes the snapshot channel
+// cleanly. Status hints follow spec 06 §5.1.
+func (a searchAdapter) Search(ctx context.Context, query string) (<-chan ui.SearchSnapshot, func()) {
+	out := make(chan ui.SearchSnapshot, 4)
+	stream := a.searcher.Search(ctx, search.Query{Text: query})
+	go func() {
+		defer close(out)
+		var localCount, serverCount, bothCount int
+		for snap := range stream.Updates() {
+			localCount, serverCount, bothCount = countBySource(snap)
+			out <- ui.SearchSnapshot{
+				Messages: messagesFromResults(snap),
+				Status:   searchStatusFromCounts(localCount, serverCount, bothCount, false),
+			}
+		}
+		// Final emission once Done. Err covers the spec 06 §8
+		// fallback: server failure → "[local only]" hint.
+		final := searchStatusFromCounts(localCount, serverCount, bothCount, stream.Err() != nil)
+		out <- ui.SearchSnapshot{Status: final, Messages: nil}
+	}()
+	return out, stream.Cancel
+}
+
+// messagesFromResults flattens a search.Result snapshot into the
+// envelope slice the UI's list pane consumes.
+func messagesFromResults(rs []search.Result) []store.Message {
+	out := make([]store.Message, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, r.Message)
+	}
+	return out
+}
+
+// countBySource is the source-tally for the status line.
+func countBySource(rs []search.Result) (local, server, both int) {
+	for _, r := range rs {
+		switch r.Source {
+		case search.SourceLocal:
+			local++
+		case search.SourceServer:
+			server++
+		case search.SourceBoth:
+			both++
+		}
+	}
+	return
+}
+
+// searchStatusFromCounts renders the spec 06 §5.1 status hint.
+func searchStatusFromCounts(local, server, both int, hadServerErr bool) string {
+	switch {
+	case local+server+both == 0 && hadServerErr:
+		return "[local only — server failed]"
+	case local+server+both == 0:
+		return "[searching…]"
+	case hadServerErr:
+		return fmt.Sprintf("[local only · %d hits]", local+both)
+	}
+	return fmt.Sprintf("[merged: %d local, %d server, %d both]", local, server, both)
 }
 
 // resultToAction translates the unsub.Result enum to the UI's enum.

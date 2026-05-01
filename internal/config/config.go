@@ -33,7 +33,35 @@ type Config struct {
 	Triage        TriageConfig        `toml:"triage"`
 	Bulk          BulkConfig          `toml:"bulk"`
 	Calendar      CalendarConfig      `toml:"calendar"`
+	Search        SearchConfig        `toml:"search"`
 	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+}
+
+// SearchConfig owns the [search] section (spec 06 §7). Knobs the
+// hybrid searcher reads at request time; defaults match the spec
+// table so first-launch behaviour matches the doc.
+type SearchConfig struct {
+	// LocalFirst controls whether the local FTS5 branch is given
+	// the head-start emit; today both branches always run, this
+	// is forward-compat for a future "kick server only after
+	// local empties" optimisation.
+	LocalFirst bool `toml:"local_first"`
+	// ServerSearchTimeout caps the Graph $search round-trip.
+	// Server slowness past the timeout is reported as
+	// `[server slow; partial results]` per spec 06 §8.
+	ServerSearchTimeout time.Duration `toml:"server_search_timeout"`
+	// DefaultResultLimit caps the merged result set (spec 06 §7).
+	DefaultResultLimit int `toml:"default_result_limit"`
+	// DebounceTyping is the delay between the last keystroke and
+	// the search dispatch (spec 06 §5.1).
+	DebounceTyping time.Duration `toml:"debounce_typing"`
+	// MergeEmitThrottle is the minimum gap between merger
+	// emissions (spec 06 §4.4 — avoids UI thrash when both
+	// branches emit close together).
+	MergeEmitThrottle time.Duration `toml:"merge_emit_throttle"`
+	// DefaultSort: "received_desc" today; future "relevance" /
+	// "score_desc" lift later.
+	DefaultSort string `toml:"default_sort"`
 }
 
 // TriageConfig owns the [triage] section (spec 07). Knobs that are

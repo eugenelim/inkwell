@@ -1,6 +1,6 @@
 # Spec 11 — Saved Searches as Virtual Folders
 
-**Status:** Ready for implementation.
+**Status:** Stub. `[[saved_searches]]` config-driven sidebar entries render and run via the existing filter machinery, but nothing else from the spec has shipped: no `internal/savedsearch.Manager` API, no DB-backed CRUD (the `saved_searches` table from migration 001 is unused at runtime), no live counts / background refresh, no `:rule` CRUD / edit modal / pattern test, no auto-suggest, no seed defaults, no TOML mirror. Tracked under audit-drain PR 5b alongside the `:save` / `:rule` UI commands.
 **Depends on:** Specs 02 (saved_searches table), 04 (folders pane in sidebar), 06 (search infrastructure), 08 (pattern compile/execute), 10 (filter UX).
 **Blocks:** Nothing.
 **Estimated effort:** 1–2 days.

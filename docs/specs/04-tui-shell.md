@@ -1,6 +1,6 @@
 # Spec 04 — TUI Shell
 
-**Status:** Ready for implementation.
+**Status:** Shipped (CI scope, v0.2.x → v0.17.x). Three-pane layout, mode dispatch, `[bindings]` config wiring (PR 2), `?` help overlay, 13 of 15 `:` commands shipped (PR 5). Residual: `:save` + `:rule` block on spec 11; `transient_status_ttl` and `min_terminal_cols/rows` config knobs deferred.
 **Depends on:** Specs 01 (auth), 02 (store), 03 (sync). ARCH §10 (UI architecture).
 **Blocks:** Specs 05 (rendering), 07 (triage), 10 (bulk ops UX), 11 (saved searches sidebar), 12 (calendar pane), 13 (settings UI).
 **Estimated effort:** 3 days.

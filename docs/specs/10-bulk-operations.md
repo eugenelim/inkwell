@@ -1,6 +1,6 @@
 # Spec 10 — Bulk Operations UX
 
-**Status:** Ready for implementation.
+**Status:** In progress (CI scope, v0.6.x). `:filter <pattern>` + `;d` / `;a` chord + confirm modal + bulk dispatch via BulkExecutor all wired. Residual: 6 of 10 bulk verbs (`;D` / `;m` / `;r` / `;R` / `;f` / `;F` / `;c` / `;C`); preview screen with toggleable checkboxes; progress modal with cancel; result modal with partial-failure breakdown; composite undo; dry-run with `!` suffix; saved-search promotion via `:rule save NAME` — tracked under audit-drain PR 10 + spec 11 work.
 **Depends on:** Specs 04 (TUI shell, command line, modals), 07 (action types and executor), 08 (pattern compile/execute), 09 (batch engine).
 **Blocks:** Spec 11 (saved searches reuse the filter UI).
 **Estimated effort:** 2–3 days.
