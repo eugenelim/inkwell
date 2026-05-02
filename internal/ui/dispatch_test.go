@@ -2435,10 +2435,10 @@ func TestDispatchViewerOOpensURLPicker(t *testing.T) {
 		{Index: 2, URL: "https://example.invalid/b", Text: "anchor b"},
 	})
 
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 	m = m2.(Model)
 
-	require.Equal(t, URLPickerMode, m.mode, "o in viewer must enter URLPickerMode")
+	require.Equal(t, URLPickerMode, m.mode, "O in viewer must enter URLPickerMode")
 	frame := m.View()
 	require.Contains(t, frame, "https://example.invalid/a", "picker frame must render URL #1")
 	require.Contains(t, frame, "https://example.invalid/b", "picker frame must render URL #2")
@@ -2454,7 +2454,7 @@ func TestDispatchURLPickerJKMovesCursor(t *testing.T) {
 		{Index: 2, URL: "https://example.invalid/b"},
 		{Index: 3, URL: "https://example.invalid/c"},
 	})
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 	m = m2.(Model)
 	require.Equal(t, 0, m.urlPicker.cursor)
 
@@ -2488,7 +2488,7 @@ func TestDispatchURLPickerYYanksSelectedURL(t *testing.T) {
 	buf := captureYanker(&m)
 
 	// Open picker, move to row 1, yank.
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 	m = m2.(Model)
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	m = m2.(Model)
@@ -2547,7 +2547,7 @@ func TestDispatchURLPickerEscClosesWithoutAction(t *testing.T) {
 	})
 	buf := captureYanker(&m)
 
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 	m = m2.(Model)
 	require.Equal(t, URLPickerMode, m.mode)
 
@@ -2853,7 +2853,7 @@ func TestBackfillDoneMsgSuccessIsSilent(t *testing.T) {
 		"on success, activity stays until FolderSyncedEvent updates it")
 }
 
-// TestURLPickerEmptyShowsHelpfulModal confirms an `o` press on a
+// TestURLPickerEmptyShowsHelpfulModal confirms an `O` press on a
 // message with zero extracted URLs still opens the picker and
 // renders an empty-state hint, instead of silently doing nothing.
 // (Empty-state silence has bitten us twice — folder pane in v0.5,
@@ -2865,7 +2865,7 @@ func TestURLPickerEmptyShowsHelpfulModal(t *testing.T) {
 	require.Equal(t, ViewerPane, m.focused)
 	m.viewer.SetLinks(nil)
 
-	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
 	m = m2.(Model)
 	require.Equal(t, URLPickerMode, m.mode)
 	frame := m.View()
