@@ -343,6 +343,8 @@ If a code path could log a token, body, or PII, add a redaction test for it.
   ticked boxes and links to the green CI run.
 - No squash of unrelated changes; rebase to keep history readable.
 - Never `--no-verify`, never force-push to `main`.
+- **Never add `Co-Authored-By` trailers** to commit messages. Commits are
+  solely attributed to the human committer.
 - **Always check CI after a push or tag.** Local green is necessary,
   not sufficient. After every `git push` or `git push --tags`, run
   `gh run list --limit 5` and inspect any failure with
