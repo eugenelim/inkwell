@@ -999,6 +999,9 @@ type e2eCalendarStub struct {
 func (s *e2eCalendarStub) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
 	return s.events, nil
 }
+func (s *e2eCalendarStub) ListEventsBetween(_ context.Context, _, _ time.Time) ([]CalendarEvent, error) {
+	return s.events, nil
+}
 func (s *e2eCalendarStub) GetEvent(_ context.Context, _ string) (CalendarEventDetail, error) {
 	return s.detail, nil
 }
