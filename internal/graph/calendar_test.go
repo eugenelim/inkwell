@@ -107,7 +107,8 @@ func TestListCalendarDeltaRemovedEntries(t *testing.T) {
 // is used as the endpoint directly (the full URL is forwarded as-is).
 func TestListCalendarDeltaWithDeltaLink(t *testing.T) {
 	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
 		resp := map[string]any{
 			"value":            []map[string]any{},
