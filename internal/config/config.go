@@ -122,18 +122,31 @@ type BulkConfig struct {
 }
 
 // CalendarConfig owns the [calendar] section (spec 12). Matches the
-// existing calendarAdapter TTL constant + the spec §6 layout knobs.
+// existing calendarAdapter TTL constant + the spec §6/§9 layout knobs.
 type CalendarConfig struct {
-	// LookaheadDays / LookbackDays bound the cached window. Spec 12
-	// §5 default is 1 day each side — modal shows today only.
+	// LookaheadDays / LookbackDays bound the sync window. Spec 12
+	// §5 defaults: lookahead 30 days, lookback 7 days.
 	LookaheadDays int `toml:"lookahead_days"`
 	LookbackDays  int `toml:"lookback_days"`
 	// ShowDeclined: include events the user has declined. Default
 	// false (spec 12 §6).
 	ShowDeclined bool `toml:"show_declined"`
+	// ShowTentative: include tentatively-accepted events. Default true.
+	ShowTentative bool `toml:"show_tentative"`
 	// CacheTTL: how long the modal trusts cached events before
-	// re-fetching from Graph. Matches calendarAdapter's constant.
+	// re-fetching from Graph.
 	CacheTTL time.Duration `toml:"cache_ttl"`
+	// TimeZone is the IANA timezone name for event display. Empty
+	// string means use the system local timezone.
+	TimeZone string `toml:"time_zone"`
+	// OnlineMeetingIndicator is the glyph shown next to events with
+	// a join URL (spec 12 §6.1).
+	OnlineMeetingIndicator string `toml:"online_meeting_indicator"`
+	// NowIndicator is the glyph marking the currently-active event.
+	NowIndicator string `toml:"now_indicator"`
+	// SidebarShowDays controls how many days the sidebar calendar
+	// section renders (today + N−1 more days).
+	SidebarShowDays int `toml:"sidebar_show_days"`
 }
 
 // SavedSearchConfig is one [[saved_searches]] table entry. The pattern

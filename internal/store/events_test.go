@@ -92,6 +92,127 @@ func TestDeleteEventsBefore(t *testing.T) {
 	require.Equal(t, "ev-new", got[0].ID)
 }
 
+// TestDeleteEvent verifies that DeleteEvent removes the row and a
+// subsequent ListEvents returns nothing for that ID.
+func TestDeleteEvent(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvent(context.Background(), Event{
+		ID: "ev-del", AccountID: acc, Start: now, End: now.Add(time.Hour),
+	}))
+
+	got, err := s.ListEvents(context.Background(), EventQuery{AccountID: acc})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	require.NoError(t, s.DeleteEvent(context.Background(), "ev-del"))
+
+	got2, err := s.ListEvents(context.Background(), EventQuery{AccountID: acc})
+	require.NoError(t, err)
+	require.Empty(t, got2, "DeleteEvent must remove the event from the cache")
+}
+
+// TestDeleteEventIsIdempotent verifies deleting a non-existent event
+// does not return an error.
+func TestDeleteEventIsIdempotent(t *testing.T) {
+	s := OpenTestStore(t)
+	require.NoError(t, s.DeleteEvent(context.Background(), "no-such-id"))
+}
+
+// TestPutEventAttendeesRoundTrip verifies that attendees stored by
+// PutEventAttendees come back via ListEventAttendees in address order.
+func TestPutEventAttendeesRoundTrip(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvent(context.Background(), Event{
+		ID: "ev-att", AccountID: acc, Start: now, End: now.Add(time.Hour),
+	}))
+
+	attendees := []EventAttendee{
+		{EventID: "ev-att", Address: "bob@example.invalid", Name: "Bob", Type: "required", Status: "accepted"},
+		{EventID: "ev-att", Address: "alice@example.invalid", Name: "Alice", Type: "optional", Status: "tentativelyAccepted"},
+	}
+	require.NoError(t, s.PutEventAttendees(context.Background(), "ev-att", attendees))
+
+	got, err := s.ListEventAttendees(context.Background(), "ev-att")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	// Ordered by address: alice < bob.
+	require.Equal(t, "alice@example.invalid", got[0].Address)
+	require.Equal(t, "Alice", got[0].Name)
+	require.Equal(t, "optional", got[0].Type)
+	require.Equal(t, "tentativelyAccepted", got[0].Status)
+	require.Equal(t, "bob@example.invalid", got[1].Address)
+	require.Equal(t, "accepted", got[1].Status)
+}
+
+// TestPutEventAttendeesReplacesExisting confirms the atomic replace
+// semantics: a second call replaces the entire set, not appends.
+func TestPutEventAttendeesReplacesExisting(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvent(context.Background(), Event{
+		ID: "ev-rep", AccountID: acc, Start: now, End: now.Add(time.Hour),
+	}))
+
+	first := []EventAttendee{
+		{Address: "a@example.invalid", Name: "A"},
+		{Address: "b@example.invalid", Name: "B"},
+	}
+	require.NoError(t, s.PutEventAttendees(context.Background(), "ev-rep", first))
+
+	second := []EventAttendee{{Address: "c@example.invalid", Name: "C"}}
+	require.NoError(t, s.PutEventAttendees(context.Background(), "ev-rep", second))
+
+	got, err := s.ListEventAttendees(context.Background(), "ev-rep")
+	require.NoError(t, err)
+	require.Len(t, got, 1, "second PutEventAttendees must replace, not append")
+	require.Equal(t, "c@example.invalid", got[0].Address)
+}
+
+// TestListEventAttendeesEmptyReturnsNil verifies that ListEventAttendees
+// returns nil (not an error and not an empty slice) when no rows exist.
+func TestListEventAttendeesEmptyReturnsNil(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvent(context.Background(), Event{
+		ID: "ev-noatt", AccountID: acc, Start: now, End: now.Add(time.Hour),
+	}))
+
+	got, err := s.ListEventAttendees(context.Background(), "ev-noatt")
+	require.NoError(t, err)
+	require.Nil(t, got, "ListEventAttendees must return nil when no attendees are cached")
+}
+
+// TestEventAttendeeCascadeOnEventDelete confirms that deleting an event
+// also removes its attendee rows (via ON DELETE CASCADE).
+func TestEventAttendeeCascadeOnEventDelete(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvent(context.Background(), Event{
+		ID: "ev-cas", AccountID: acc, Start: now, End: now.Add(time.Hour),
+	}))
+	require.NoError(t, s.PutEventAttendees(context.Background(), "ev-cas", []EventAttendee{
+		{Address: "a@example.invalid"},
+	}))
+
+	require.NoError(t, s.DeleteEvent(context.Background(), "ev-cas"))
+
+	got, err := s.ListEventAttendees(context.Background(), "ev-cas")
+	require.NoError(t, err)
+	require.Nil(t, got, "attendee rows must cascade-delete with their event")
+}
+
 // TestEventsCascadeOnAccountDelete is the FK invariant: deleting
 // the account cascades event rows.
 func TestEventsCascadeOnAccountDelete(t *testing.T) {

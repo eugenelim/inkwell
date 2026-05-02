@@ -160,6 +160,104 @@ func (c *Client) ListEventsBetween(ctx context.Context, start, end time.Time) ([
 	return out, nil
 }
 
+// CalendarDeltaResult holds the page of events returned by a single
+// /me/calendarView/delta call plus the delta link for the next call.
+// When an ID appears in Removed, the caller should delete that event
+// from the local cache.
+type CalendarDeltaResult struct {
+	Events    []Event
+	Removed   []string // event IDs that Graph returned as @removed
+	DeltaLink string   // full @odata.deltaLink URL; persist and pass on the next call
+}
+
+// ListCalendarDelta fetches one page of the calendarView delta stream.
+// Pass an empty deltaLink for the first call (Graph starts a new delta
+// query from scratch); pass the DeltaLink returned in the previous
+// result to get only changes since then. Spec 12 §4.2.
+func (c *Client) ListCalendarDelta(ctx context.Context, start, end time.Time, deltaLink string) (CalendarDeltaResult, error) {
+	var endpoint string
+	if deltaLink == "" {
+		q := url.Values{}
+		q.Set("startDateTime", start.UTC().Format("2006-01-02T15:04:05"))
+		q.Set("endDateTime", end.UTC().Format("2006-01-02T15:04:05"))
+		q.Set("$top", "100")
+		q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink")
+		endpoint = "/me/calendarView/delta?" + q.Encode()
+	} else {
+		endpoint = deltaLink
+	}
+
+	resp, err := c.Do(ctx, http.MethodGet, endpoint, nil, nil)
+	if err != nil {
+		return CalendarDeltaResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return CalendarDeltaResult{}, parseError(resp)
+	}
+
+	var raw struct {
+		Value []struct {
+			ID      string `json:"id"`
+			Removed *struct {
+				Reason string `json:"reason"`
+			} `json:"@removed"`
+			Subject   string `json:"subject"`
+			Organizer struct {
+				EmailAddress struct {
+					Name    string `json:"name"`
+					Address string `json:"address"`
+				} `json:"emailAddress"`
+			} `json:"organizer"`
+			Start struct {
+				DateTime string `json:"dateTime"`
+			} `json:"start"`
+			End struct {
+				DateTime string `json:"dateTime"`
+			} `json:"end"`
+			IsAllDay bool `json:"isAllDay"`
+			Location struct {
+				DisplayName string `json:"displayName"`
+			} `json:"location"`
+			OnlineMeeting struct {
+				JoinURL string `json:"joinUrl"`
+			} `json:"onlineMeeting"`
+			ShowAs  string `json:"showAs"`
+			WebLink string `json:"webLink"`
+		} `json:"value"`
+		DeltaLink string `json:"@odata.deltaLink"`
+		NextLink  string `json:"@odata.nextLink"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return CalendarDeltaResult{}, fmt.Errorf("graph: decode calendarView delta: %w", err)
+	}
+
+	var result CalendarDeltaResult
+	for _, e := range raw.Value {
+		if e.Removed != nil {
+			result.Removed = append(result.Removed, e.ID)
+			continue
+		}
+		startT, _ := time.Parse("2006-01-02T15:04:05.0000000", e.Start.DateTime)
+		endT, _ := time.Parse("2006-01-02T15:04:05.0000000", e.End.DateTime)
+		result.Events = append(result.Events, Event{
+			ID:               e.ID,
+			Subject:          e.Subject,
+			OrganizerName:    e.Organizer.EmailAddress.Name,
+			OrganizerAddress: e.Organizer.EmailAddress.Address,
+			Start:            startT,
+			End:              endT,
+			IsAllDay:         e.IsAllDay,
+			Location:         e.Location.DisplayName,
+			OnlineMeetingURL: e.OnlineMeeting.JoinURL,
+			ShowAs:           e.ShowAs,
+			WebLink:          e.WebLink,
+		})
+	}
+	result.DeltaLink = raw.DeltaLink
+	return result, nil
+}
+
 // ListEventsToday is the convenience wrapper for the "what's on my
 // calendar today" view. Uses the local timezone to compute the day
 // boundaries.

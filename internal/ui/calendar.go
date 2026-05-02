@@ -9,17 +9,45 @@ import (
 )
 
 // CalendarModel is the state for the `:cal` modal: today's events,
-// a loading flag, the most recent error if the fetch failed, and
-// the cursor index for spec-12 §6.2 j/k navigation.
+// a loading flag, the most recent error if the fetch failed, the
+// cursor index for spec-12 §6.2 j/k navigation, and the currently
+// viewed date for day navigation (]/[/{/}/t spec 12 §6.2).
 type CalendarModel struct {
-	events  []CalendarEvent
-	loading bool
-	err     error
-	cursor  int
+	events   []CalendarEvent
+	loading  bool
+	err      error
+	cursor   int
+	viewDate time.Time // date whose events are displayed; zero = today
 }
 
-// NewCalendar returns an empty calendar modal.
-func NewCalendar() CalendarModel { return CalendarModel{} }
+// NewCalendar returns an empty calendar modal with viewDate = today.
+func NewCalendar() CalendarModel {
+	y, m, d := time.Now().Date()
+	return CalendarModel{viewDate: time.Date(y, m, d, 0, 0, 0, 0, time.UTC)}
+}
+
+// ViewDate returns the currently displayed day (midnight UTC).
+// Callers use it to fetch the right day's events.
+func (m CalendarModel) ViewDate() time.Time { return m.viewDate }
+
+// NavNextDay advances the view by one day.
+func (m *CalendarModel) NavNextDay() { m.viewDate = m.viewDate.AddDate(0, 0, 1); m.cursor = 0 }
+
+// NavPrevDay moves the view back one day.
+func (m *CalendarModel) NavPrevDay() { m.viewDate = m.viewDate.AddDate(0, 0, -1); m.cursor = 0 }
+
+// NavNextWeek advances the view by seven days.
+func (m *CalendarModel) NavNextWeek() { m.viewDate = m.viewDate.AddDate(0, 0, 7); m.cursor = 0 }
+
+// NavPrevWeek moves the view back seven days.
+func (m *CalendarModel) NavPrevWeek() { m.viewDate = m.viewDate.AddDate(0, 0, -7); m.cursor = 0 }
+
+// GotoToday resets the view to today.
+func (m *CalendarModel) GotoToday() {
+	y, mo, d := time.Now().Date()
+	m.viewDate = time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+	m.cursor = 0
+}
 
 // SetLoading marks the modal as fetching. Cleared when SetEvents or
 // SetError fires.
@@ -41,8 +69,8 @@ func (m *CalendarModel) SetError(err error) {
 	m.loading = false
 }
 
-// Reset clears the modal back to empty.
-func (m *CalendarModel) Reset() { *m = CalendarModel{} }
+// Reset clears the modal back to today.
+func (m *CalendarModel) Reset() { *m = NewCalendar() }
 
 // Up / Down move the cursor inside the events list. No-op at the
 // edges (no wrap-around — matches list-pane semantics).
@@ -70,8 +98,16 @@ func (m CalendarModel) Selected() *CalendarEvent {
 
 // View renders the calendar modal centred on the screen.
 func (m CalendarModel) View(t Theme, width, height int) string {
-	now := time.Now()
-	header := t.Bold.Render("📅 Today — " + now.Format("Mon 2006-01-02"))
+	vd := m.viewDate
+	if vd.IsZero() {
+		vd = time.Now()
+	}
+	isToday := sameDay(vd, time.Now())
+	dayLabel := "Today — " + vd.Format("Mon 2006-01-02")
+	if !isToday {
+		dayLabel = vd.Format("Mon 2006-01-02")
+	}
+	header := t.Bold.Render("📅 " + dayLabel)
 
 	body := ""
 	switch {
@@ -80,7 +116,7 @@ func (m CalendarModel) View(t Theme, width, height int) string {
 	case m.err != nil:
 		body = t.ErrorBar.Render("error: " + m.err.Error())
 	case len(m.events) == 0:
-		body = t.Dim.Render("nothing on the calendar today.")
+		body = t.Dim.Render("nothing on the calendar.")
 	default:
 		var lines []string
 		for i, e := range m.events {
@@ -89,9 +125,17 @@ func (m CalendarModel) View(t Theme, width, height int) string {
 		body = strings.Join(lines, "\n\n")
 	}
 
-	footer := t.Dim.Render("j/k  navigate  ·  Enter  open detail  ·  esc  close")
+	footer := t.Dim.Render("j/k  navigate  ·  Enter  open  ·  ]/[  day  ·  }/{ week  ·  t  today  ·  esc  close")
 	box := t.Modal.Render(strings.Join([]string{header, "", body, "", footer}, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// sameDay reports whether two times fall on the same calendar day in
+// UTC. Used by the calendar header to decide "Today" vs date label.
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.UTC().Date()
+	by, bm, bd := b.UTC().Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // formatEvent renders one event as two lines: time range + subject,

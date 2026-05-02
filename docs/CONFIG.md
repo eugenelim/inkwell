@@ -203,6 +203,7 @@ Controls the read-only calendar pane.
 | `show_tentative` | bool | `true` | — | Show events the user has tentatively accepted. |
 | `online_meeting_indicator` | string | `"🔗"` | any string ≤ 2 chars | Glyph for events with online meeting URLs. |
 | `now_indicator` | string | `"▶"` | any string ≤ 2 chars | Glyph marking the currently-active event. |
+| `cache_ttl` | duration | `"15m"` | 1m–60m | How long the modal trusts locally-cached events before re-fetching from Graph. |
 
 **Owner spec:** 12.
 

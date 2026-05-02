@@ -125,13 +125,15 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// Sync engine
 	engine, err = isync.New(gc, st, exec, isync.Options{
-		AccountID:            acc.ID,
-		Logger:               logger,
-		ForegroundInterval:   cfg.Sync.ForegroundInterval,
-		BackgroundInterval:   cfg.Sync.BackgroundInterval,
-		BodyCacheMaxCount:    cfg.Cache.BodyCacheMaxCount,
-		BodyCacheMaxBytes:    cfg.Cache.BodyCacheMaxBytes,
-		DoneActionsRetention: cfg.Cache.DoneActionsRetention,
+		AccountID:             acc.ID,
+		Logger:                logger,
+		ForegroundInterval:    cfg.Sync.ForegroundInterval,
+		BackgroundInterval:    cfg.Sync.BackgroundInterval,
+		BodyCacheMaxCount:     cfg.Cache.BodyCacheMaxCount,
+		BodyCacheMaxBytes:     cfg.Cache.BodyCacheMaxBytes,
+		DoneActionsRetention:  cfg.Cache.DoneActionsRetention,
+		CalendarLookaheadDays: cfg.Calendar.LookaheadDays,
+		CalendarLookbackDays:  cfg.Calendar.LookbackDays,
 	})
 	if err != nil {
 		return fmt.Errorf("sync engine: %w", err)
@@ -483,11 +485,41 @@ func convertStoreEventsFromGraph(events []graph.Event) []ui.CalendarEvent {
 	return out
 }
 
-// GetEvent fetches a single event with attendees + body preview
-// from Graph. No caching this PR — attendees aren't persisted yet
-// (spec 12 §3 event_attendees table lands with the sync-engine
-// third state). The request is small (one event) and only fires
-// on user-initiated Enter, so live-fetch is fine.
+// ListEventsBetween returns events in [start, end) from the local
+// cache (or Graph on cache miss). Used by day navigation.
+func (c calendarAdapter) ListEventsBetween(ctx context.Context, start, end time.Time) ([]ui.CalendarEvent, error) {
+	cached, _ := c.st.ListEvents(ctx, store.EventQuery{
+		AccountID: c.accountID,
+		Start:     start,
+		End:       end,
+	})
+	now := time.Now()
+	fresh := len(cached) > 0
+	for _, e := range cached {
+		if now.Sub(e.CachedAt) > calendarCacheTTL {
+			fresh = false
+			break
+		}
+	}
+	if fresh {
+		return convertStoreEvents(cached), nil
+	}
+	es, err := c.gc.ListEventsBetween(ctx, start, end)
+	if err != nil {
+		if len(cached) > 0 {
+			return convertStoreEvents(cached), nil
+		}
+		return nil, err
+	}
+	storeEvents := convertGraphEvents(c.accountID, es)
+	if err := c.st.PutEvents(ctx, storeEvents); err != nil {
+		c.gc.Logger().Warn("calendar: persist failed", "err", err.Error())
+	}
+	return convertStoreEventsFromGraph(es), nil
+}
+
+// GetEvent fetches a single event with attendees + body preview from
+// Graph and persists the attendees list (migration 006 / spec 12 §3).
 func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEventDetail, error) {
 	det, err := c.gc.GetEvent(ctx, id)
 	if err != nil {
@@ -515,6 +547,22 @@ func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEv
 			Type:    a.Type,
 			Status:  a.Status,
 		})
+	}
+	// Persist attendees so subsequent opens read from cache.
+	if len(det.Attendees) > 0 {
+		storeAttendees := make([]store.EventAttendee, len(det.Attendees))
+		for i, a := range det.Attendees {
+			storeAttendees[i] = store.EventAttendee{
+				EventID: id,
+				Address: a.Address,
+				Name:    a.Name,
+				Type:    a.Type,
+				Status:  a.Status,
+			}
+		}
+		if err := c.st.PutEventAttendees(ctx, id, storeAttendees); err != nil {
+			c.gc.Logger().Warn("calendar: persist attendees failed", "err", err.Error())
+		}
 	}
 	return out, nil
 }

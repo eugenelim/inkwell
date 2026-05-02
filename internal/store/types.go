@@ -221,6 +221,17 @@ type EventQuery struct {
 	Limit int
 }
 
+// EventAttendee is one persisted attendee row (spec 12 §3 /
+// migration 006). Keyed (event_id, address); populated by
+// PutEventAttendees when the detail modal loads.
+type EventAttendee struct {
+	EventID string
+	Address string
+	Name    string
+	Type    string // required | optional | resource
+	Status  string // accepted | tentativelyAccepted | declined | notResponded | none | organizer
+}
+
 // ComposeSession is one in-flight compose form persisted for crash
 // recovery (spec 15 §7). The Snapshot field carries the JSON-
 // encoded `ComposeSnapshot` produced by `internal/ui/ComposeModel`

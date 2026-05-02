@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -111,6 +111,16 @@ type Store interface {
 	PutEvents(ctx context.Context, events []Event) error
 	ListEvents(ctx context.Context, q EventQuery) ([]Event, error)
 	DeleteEventsBefore(ctx context.Context, accountID int64, before time.Time) error
+	// DeleteEvent removes a single event by Graph ID (used by the
+	// delta-sync @removed path in calendar_sync.go).
+	DeleteEvent(ctx context.Context, id string) error
+	// PutEventAttendees replaces all attendees for the given eventID
+	// in one transaction (migration 006 / spec 12 §3). Called when
+	// the detail modal loads a live GetEvent result.
+	PutEventAttendees(ctx context.Context, eventID string, attendees []EventAttendee) error
+	// ListEventAttendees returns the cached attendees for eventID.
+	// Returns nil (not an error) when none are cached yet.
+	ListEventAttendees(ctx context.Context, eventID string) ([]EventAttendee, error)
 
 	// Saved searches
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)

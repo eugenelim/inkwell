@@ -5,9 +5,10 @@ in-progress. `:cal` modal + Graph fetch shipped v0.8.0. Events
 schema + persistence + cache-first reads shipped v0.13.x (PR 6a
 of audit-drain). Event detail modal (Enter on the list) + j/k
 navigation + GetEvent($expand=attendees) shipped v0.13.x (PR
-6b-i). Sidebar pane, sync-engine third state, midnight window
-slide, week / agenda view, day navigation (]/[/{/}), and
-attendees persistence remain deferred (PR 6b-ii).
+6b-i). PR 6b-ii (in-progress 2026-05-02): sync-engine third
+state, midnight window slide, day navigation (]/[/{/}/t),
+event_attendees migration, attendees persistence. Sidebar pane
+and week/agenda view remain deferred.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/calendar.go` — `ListEventsBetween(start, end)` + `ListEventsToday()` against `/me/calendarView` with the right $select fields.
@@ -20,17 +21,115 @@ attendees persistence remain deferred (PR 6b-ii).
 - [x] Tests: `:cal` opens modal + Cmd, fetcher result populates modal, fetcher-not-wired surfaces friendly error, Esc closes.
 - [x] events schema migration — shipped v0.13.x (PR 6a). Migration
       `004_events.sql` adds the events table with
-      `idx_events_start` + `idx_events_account_start`. The
-      `event_attendees` table waits for the detail modal (PR 6b).
+      `idx_events_start` + `idx_events_account_start`.
+- [x] event_attendees migration — PR 6b-ii. Migration
+      `006_event_attendees.sql` adds the attendees table with
+      FK to events ON DELETE CASCADE. SchemaVersion = 6.
 - [x] Calendar adapter persists on fetch and reads-cache-first
       with TTL. Stale-data fallback on Graph failure so the
       modal renders the last-known state instead of empty.
-- [ ] Sidebar calendar pane (dismissable) — deferred. v0.8.0 is modal-only; the sidebar pane requires layout reflow that's out of scope.
-- [ ] `/me/calendarView/delta` sync into local store — deferred. v0.8.0 fetches per `:cal` invocation; no caching.
+- [x] `/me/calendarView/delta` sync into local store — PR 6b-ii.
+      `syncCalendar` in `internal/sync/calendar_sync.go` uses the
+      delta endpoint; upserts/deletes/prunes per cycle; stores
+      deltaLink in delta_tokens table under key `__calendar__`.
+- [x] Sync engine third state `StateSyncingCalendar` — PR 6b-ii.
+      `runCycle` advances through StateSyncingCalendar after
+      folder sync; can be disabled with `CalendarLookaheadDays < 0`.
+- [x] Midnight window slide — PR 6b-ii. `midnightWatcher` fires
+      once per day just after local midnight, clears the calendar
+      delta token, and kicks the engine for a fresh full-window fetch.
+- [x] Day navigation in calendar modal — PR 6b-ii. `]`/`[` advance/
+      retreat by 1 day; `}`/`{` advance/retreat by 7 days; `t`
+      returns to today. CalendarModel gains `viewDate` field +
+      Nav* methods; fetchCalendarForDateCmd dispatches
+      ListEventsBetween for the selected day.
+- [x] Attendees persisted on GetEvent — PR 6b-ii. `GetEvent` in
+      calendarAdapter now calls `PutEventAttendees` after a successful
+      fetch so repeated opens serve from the local cache.
+- [ ] Sidebar calendar pane (dismissable) — deferred. Modal-only today; the sidebar pane requires layout reflow that's out of scope.
 - [ ] Week / agenda full-screen view — deferred.
-- [x] Event detail modal — shipped v0.13.x (PR 6b-i). Enter on the calendar list opens CalendarDetailMode with attendees + body preview; `o` opens Outlook web link; `l` opens online meeting URL; `Esc` returns to the list.
 
 ## Iteration log
+
+### Iter 4 — 2026-05-02 (sync engine + day nav + attendees persistence, PR 6b-ii of audit-drain)
+- Slice: spec 12 §4.2 (ListCalendarDelta), §5 (engine 3rd state +
+  SyncCalendar API), §5.1 (midnight window slide), §6.2 (]/[/{/}/t
+  day/week navigation), §3 (event_attendees migration + PutEventAttendees
+  + ListEventAttendees), §4.3 attendees persistence in calendarAdapter.
+- Files added/modified:
+  - `internal/config/config.go` + `defaults.go`: CalendarConfig gains
+    ShowTentative, TimeZone, OnlineMeetingIndicator, NowIndicator,
+    SidebarShowDays, CacheTTL. Defaults set; all keys documented in
+    docs/CONFIG.md.
+  - `internal/store/migrations/006_event_attendees.sql` (new): event_attendees
+    table with FK to events ON DELETE CASCADE. SchemaVersion = 6.
+  - `internal/store/types.go`: EventAttendee struct.
+  - `internal/store/events.go`: DeleteEvent, PutEventAttendees (atomic
+    DELETE+INSERT), ListEventAttendees (nil-on-empty).
+  - `internal/store/store.go`: interface gains 3 methods; SchemaVersion = 6.
+  - `internal/graph/calendar.go`: CalendarDeltaResult struct;
+    ListCalendarDelta(ctx, start, end, deltaLink) — empty deltaLink =
+    fresh query, non-empty = delta endpoint used verbatim.
+  - `internal/sync/calendar_sync.go` (new): syncCalendar (upsert/delete/
+    prune/persist deltaLink) + truncateToDay helper + midnightWatcher
+    goroutine.
+  - `internal/sync/engine.go`: StateSyncingCalendar state; SyncCalendar
+    Engine interface method; CalendarLookaheadDays/LookbackDays options;
+    runCycle third state; Start() launches midnightWatcher.
+  - `internal/ui/calendar.go`: CalendarModel gains viewDate + ViewDate() +
+    NavNextDay/NavPrevDay/NavNextWeek/NavPrevWeek/GotoToday; View uses
+    viewDate for header; footer updated with ]/[ {/} t hints.
+  - `internal/ui/app.go`: CalendarFetcher interface gains ListEventsBetween;
+    updateCalendar dispatches ]/[/{/}/t; fetchCalendarForDateCmd.
+  - `cmd/inkwell/cmd_run.go`: calendarAdapter.ListEventsBetween (cache-
+    first, same TTL pattern); GetEvent now persists attendees via
+    PutEventAttendees; engine Options carry Calendar*Days.
+- Tests:
+  - `internal/store/events_test.go`: TestDeleteEvent, TestDeleteEventIsIdempotent,
+    TestPutEventAttendeesRoundTrip, TestPutEventAttendeesReplacesExisting,
+    TestListEventAttendeesEmptyReturnsNil, TestEventAttendeeCascadeOnEventDelete.
+  - `internal/graph/calendar_test.go` (new): TestListCalendarDeltaFirstCall,
+    TestListCalendarDeltaRemovedEntries, TestListCalendarDeltaWithDeltaLink,
+    TestListCalendarDeltaSurfaces410.
+  - `internal/sync/calendar_sync_test.go` (new): TestSyncCalendarUpsertsAndDeletesEvents,
+    TestSyncCalendar410ResetsAndReFetches, TestSyncCalendarPrunesOldEvents,
+    TestSyncCalendarUsesStoredDeltaLink.
+  - `internal/ui/calendar_test.go` (new): TestCalendarModelViewDateIsToday,
+    TestCalendarModelNavNextDayAdvancesOneDay, TestCalendarModelNavPrevDayRetreat,
+    TestCalendarModelNavNextWeekAdvancesSeven, TestCalendarModelNavPrevWeekRetreatsSeven,
+    TestCalendarModelGotoTodayResetsAfterNavigation, TestCalendarModelNavResetsEvents,
+    TestSameDayTrueForSameDay, TestSameDayFalseForDifferentDay, TestSameDayFalseForDifferentYears.
+  - `internal/ui/dispatch_test.go`: stubCalendar gains ListEventsBetween;
+    TestCalendarBracketRightNavNextDay, TestCalendarBracketLeftNavPrevDay,
+    TestCalendarBraceRightNavNextWeek, TestCalendarBraceLeftNavPrevWeek,
+    TestCalendarTKeyReturnsToToday, TestCalendarNavStaysInCalendarMode.
+- Decisions:
+  - Reused delta_tokens table for the calendar delta link (key
+    `__calendar__`). Avoids a new migration just for token storage;
+    same precedent as mail folder delta tokens.
+  - Full @odata.deltaLink URL stored and passed verbatim as the next
+    endpoint. Graph embeds all pagination and scope in this URL;
+    reconstructing it from a bare token is fragile.
+  - `CalendarLookaheadDays < 0` sentinel disables calendar sync
+    (engine 3rd state + midnight watcher) — used by tests that
+    don't want the timer goroutine interfering with goleak.
+  - Attendees persisted on GetEvent rather than in the sync pass.
+    The delta endpoint doesn't return attendees; a separate expand
+    per event would be N+1 fetches. GetEvent is already the
+    explicit detail load; persisting there is the right seam.
+  - SidebarShowDays, OnlineMeetingIndicator, NowIndicator, ShowTentative,
+    TimeZone, CacheTTL all added to CalendarConfig even though the
+    sidebar pane is deferred. The config shape needs to be stable
+    before v1; these are referenced by the spec.
+- Result: CI pending — 6 new tests across 4 packages; all five
+  mandatory commands must be green before tag.
+
+**Deferred to future PRs:** sidebar pane layout, week/agenda grid
+view (§8), `c` key to open full-screen from sidebar,
+mailboxSettings.timeZone resolution, SyncCalendar wiring in
+cmd_run.go (the adapter method exists; the engine opts consume
+the config values; the cmd_run.go wiring to pass calendar days
+to the engine is needed for full end-to-end delta sync).
 
 ### Iter 3 — 2026-04-30 (event detail modal + j/k/Enter, PR 6b-i of audit-drain)
 - Slice: spec 12 §6.2 (j/k/Enter) + §7 (detail modal) + §4.3
