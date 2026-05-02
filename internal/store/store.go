@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
