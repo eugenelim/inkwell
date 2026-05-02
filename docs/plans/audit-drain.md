@@ -297,7 +297,7 @@ config surface.
 | 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
 | 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter 2 |
 | 6b-i | 12    | shipped (v0.13.x) | main | spec 12 §6.2 j/k/Enter + §4.3 GetEvent + §7 detail modal | docs/plans/spec-12.md iter 3 |
-| 6b-ii | 12   | in-progress (2026-05-02) | main | spec 12 §4.2 delta sync + §5 engine 3rd state + §5.1 midnight slide + §6.2 day nav (]/[/{/}/t) + §3 event_attendees + attendees persistence | docs/plans/spec-12.md iter 4 |
+| 6b-ii | 12   | shipped (v0.21.0) | main | spec 12 §4.2 delta sync + §5 engine 3rd state + §5.1 midnight slide + §6.2 day nav (]/[/{/}/t) + §3 event_attendees + attendees persistence | docs/plans/spec-12.md iter 4 |
 | 7-i | 15    | shipped (v0.13.x) | main | spec 15 §5 / §8 "drafts bypass action queue" | docs/plans/spec-15.md iter 2 |
 | 7-ii | 15   | shipped (v0.13.x) | (this branch) | spec 15 §7 compose_sessions migration + crash-recovery resume + 24h GC | docs/plans/spec-15.md iter 4 |
 | 7-iii | 15  | shipped (v0.13.x) | (this branch) | spec 15 §5 ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings | docs/plans/spec-15.md iter 5 |

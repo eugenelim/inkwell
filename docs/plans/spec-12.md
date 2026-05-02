@@ -1,14 +1,13 @@
 # Spec 12 — Calendar (Read-Only)
 
 ## Status
-in-progress. `:cal` modal + Graph fetch shipped v0.8.0. Events
-schema + persistence + cache-first reads shipped v0.13.x (PR 6a
-of audit-drain). Event detail modal (Enter on the list) + j/k
-navigation + GetEvent($expand=attendees) shipped v0.13.x (PR
-6b-i). PR 6b-ii (in-progress 2026-05-02): sync-engine third
-state, midnight window slide, day navigation (]/[/{/}/t),
-event_attendees migration, attendees persistence. Sidebar pane
-and week/agenda view remain deferred.
+in-progress (remaining: sidebar pane, week/agenda view). `:cal`
+modal + Graph fetch shipped v0.8.0. Events schema + persistence
++ cache-first reads shipped v0.13.x (PR 6a). Event detail modal
++ j/k/Enter + GetEvent shipped v0.13.x (PR 6b-i). Delta sync +
+engine 3rd state + midnight slide + day nav (]/[/{/}/t) +
+event_attendees + attendees persistence shipped v0.21.0 (PR
+6b-ii). Sidebar pane and week/agenda view remain deferred.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/calendar.go` — `ListEventsBetween(start, end)` + `ListEventsToday()` against `/me/calendarView` with the right $select fields.
@@ -121,8 +120,7 @@ and week/agenda view remain deferred.
     TimeZone, CacheTTL all added to CalendarConfig even though the
     sidebar pane is deferred. The config shape needs to be stable
     before v1; these are referenced by the spec.
-- Result: CI pending — 6 new tests across 4 packages; all five
-  mandatory commands must be green before tag.
+- Result: CI green. All five mandatory commands passed. Tagged v0.21.0.
 
 **Deferred to future PRs:** sidebar pane layout, week/agenda grid
 view (§8), `c` key to open full-screen from sidebar,
