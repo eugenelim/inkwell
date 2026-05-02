@@ -297,13 +297,13 @@ config surface.
 | 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
 | 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter 2 |
 | 6b-i | 12    | shipped (v0.13.x) | main | spec 12 §6.2 j/k/Enter + §4.3 GetEvent + §7 detail modal | docs/plans/spec-12.md iter 3 |
-| 6b-ii | 12   | not-started (sync pass / window slide / pane layout / day-week nav) | — | — | — |
+| 6b-ii | 12   | in-progress (2026-05-02) | main | spec 12 §4.2 delta sync + §5 engine 3rd state + §5.1 midnight slide + §6.2 day nav (]/[/{/}/t) + §3 event_attendees + attendees persistence | docs/plans/spec-12.md iter 4 |
 | 7-i | 15    | shipped (v0.13.x) | main | spec 15 §5 / §8 "drafts bypass action queue" | docs/plans/spec-15.md iter 2 |
 | 7-ii | 15   | shipped (v0.13.x) | (this branch) | spec 15 §7 compose_sessions migration + crash-recovery resume + 24h GC | docs/plans/spec-15.md iter 4 |
 | 7-iii | 15  | shipped (v0.13.x) | (this branch) | spec 15 §5 ReplyAll/Forward/NewMessage action types + skeletons + R/f/m bindings | docs/plans/spec-15.md iter 5 |
 | 8  | 06      | shipped (v0.17.x) | (this branch) | spec 06 streaming Searcher + graph $search + merger + field prefixes + UI streaming integration | docs/plans/spec-06.md iter 2 |
 | 9  | 08      | shipped (v0.18.x) | (this branch) | spec 08 §6 Compile/Execute API + §9 $filter + §10 $search + §11 TwoStage + [pattern] config | docs/plans/spec-08.md iter 2 |
-| 10 | 05 (+17)| in-progress (2026-05-01) — implementation + tests written; pending `make regress` green + commit | main | spec 05 §8 GetAttachment + save/open; §11 thread map; §12 viewer keybindings (`o`/`O`/`1-9`/`[`/`]`/`a-z`/`A-Z`); spec 17 §4.4 path-traversal guard | docs/plans/spec-05.md iter 6 |
+| 10 | 05 (+17)| shipped (v0.20.0) | main | spec 05 §8 GetAttachment + save/open; §11 thread map; §12 viewer keybindings (`o`/`O`/`1-9`/`[`/`]`/`a-z`/`A-Z`); spec 17 §4.4 path-traversal guard | docs/plans/spec-05.md iter 6 |
 | 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter 3 |
 | 12 | config  | partial (v0.13.x) — runtime-consumed [triage]/[bulk]/[calendar] sections shipped; aspirational sections (`[search]`, `[batch]`, `[saved_search]`, `[mailbox_settings]`, `[cli]`, `[pattern]`) wait for the specs that consume them | main | spec 02 §17 / spec 04 §17 / spec 12 §config | docs/plans/spec-04.md notes |
 

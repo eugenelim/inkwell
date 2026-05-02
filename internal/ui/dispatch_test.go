@@ -1767,10 +1767,23 @@ type stubCalendar struct {
 	detailErr error
 	getCalls  int
 	gotID     string
+	// For ListEventsBetween tracking.
+	betweenEvents    []CalendarEvent
+	betweenErr       error
+	betweenCalls     int
+	lastBetweenStart time.Time
+	lastBetweenEnd   time.Time
 }
 
 func (s *stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
 	return s.events, s.err
+}
+
+func (s *stubCalendar) ListEventsBetween(_ context.Context, start, end time.Time) ([]CalendarEvent, error) {
+	s.betweenCalls++
+	s.lastBetweenStart = start
+	s.lastBetweenEnd = end
+	return s.betweenEvents, s.betweenErr
 }
 
 func (s *stubCalendar) GetEvent(_ context.Context, id string) (CalendarEventDetail, error) {
@@ -4110,4 +4123,170 @@ func TestAttachmentLetterKeyWithNoFetcherSetsError(t *testing.T) {
 	require.Nil(t, cmd, "no Cmd should be dispatched when Attachments dep is nil")
 	require.Error(t, m2.lastError, "lastError must be set so the user sees feedback")
 	require.Contains(t, m2.lastError.Error(), "attachment")
+}
+
+// openCalendarWithEvents is a helper that opens the :cal modal, feeds in
+// the stub's events, and returns the loaded model.
+func openCalendarWithEvents(t *testing.T, stub *stubCalendar) Model {
+	t.Helper()
+	m := newDispatchTestModel(t)
+	m.deps.Calendar = stub
+	m2, cmd := m.dispatchCommand("cal")
+	m = m2.(Model)
+	require.NotNil(t, cmd, "dispatchCommand must return a fetchCalendarCmd")
+	m2, _ = m.Update(cmd())
+	return m2.(Model)
+}
+
+// TestCalendarBracketRightNavNextDay verifies that `]` in CalendarMode
+// advances viewDate by one day and dispatches a ListEventsBetween Cmd.
+func TestCalendarBracketRightNavNextDay(t *testing.T) {
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+
+	stub := &stubCalendar{
+		events: []CalendarEvent{
+			{Subject: "Today event", Start: now, End: now.Add(time.Hour)},
+		},
+		betweenEvents: []CalendarEvent{
+			{Subject: "Tomorrow event", Start: today.Add(25 * time.Hour), End: today.Add(26 * time.Hour)},
+		},
+	}
+	m := openCalendarWithEvents(t, stub)
+	require.Equal(t, CalendarMode, m.mode)
+	require.Equal(t, today, m.calendar.ViewDate(), "modal must start on today")
+
+	// Press `]` → viewDate advances one day.
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	m = m2.(Model)
+	require.Equal(t, today.AddDate(0, 0, 1), m.calendar.ViewDate(), "] must advance viewDate by one day")
+	require.True(t, m.calendar.loading, "] must set loading while fetch is in flight")
+	require.NotNil(t, fetchCmd, "] must return a fetch Cmd")
+
+	// Run the Cmd; verify it called ListEventsBetween with tomorrow's window.
+	res := fetchCmd()
+	require.Equal(t, 1, stub.betweenCalls, "Cmd must call ListEventsBetween once")
+	require.Equal(t, today.AddDate(0, 0, 1), stub.lastBetweenStart, "start must be tomorrow midnight UTC")
+	require.Equal(t, today.AddDate(0, 0, 2), stub.lastBetweenEnd, "end must be day-after-tomorrow midnight UTC")
+
+	// Feed result back; verify events updated.
+	m2, _ = m.Update(res)
+	m = m2.(Model)
+	require.False(t, m.calendar.loading)
+	require.Len(t, m.calendar.events, 1)
+	require.Equal(t, "Tomorrow event", m.calendar.events[0].Subject)
+}
+
+// TestCalendarBracketLeftNavPrevDay verifies that `[` in CalendarMode
+// retreats viewDate by one day and dispatches a ListEventsBetween Cmd.
+func TestCalendarBracketLeftNavPrevDay(t *testing.T) {
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+
+	stub := &stubCalendar{betweenEvents: []CalendarEvent{
+		{Subject: "Yesterday event"},
+	}}
+	m := openCalendarWithEvents(t, stub)
+
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[")})
+	m = m2.(Model)
+	require.Equal(t, today.AddDate(0, 0, -1), m.calendar.ViewDate(), "[ must retreat viewDate by one day")
+	require.True(t, m.calendar.loading)
+	require.NotNil(t, fetchCmd)
+
+	m2, _ = m.Update(fetchCmd())
+	m = m2.(Model)
+	require.Len(t, m.calendar.events, 1)
+	require.Equal(t, "Yesterday event", m.calendar.events[0].Subject)
+}
+
+// TestCalendarBraceRightNavNextWeek verifies that `}` advances viewDate
+// by seven days and dispatches ListEventsBetween.
+func TestCalendarBraceRightNavNextWeek(t *testing.T) {
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+
+	stub := &stubCalendar{betweenEvents: []CalendarEvent{{Subject: "Next week event"}}}
+	m := openCalendarWithEvents(t, stub)
+
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("}")})
+	m = m2.(Model)
+	require.Equal(t, today.AddDate(0, 0, 7), m.calendar.ViewDate(), "} must advance viewDate by seven days")
+	require.NotNil(t, fetchCmd)
+
+	// Execute the Cmd; verify it called ListEventsBetween with next-week window.
+	_ = fetchCmd()
+	require.Equal(t, 1, stub.betweenCalls, "Cmd must call ListEventsBetween once")
+	require.Equal(t, today.AddDate(0, 0, 7), stub.lastBetweenStart)
+	require.Equal(t, today.AddDate(0, 0, 8), stub.lastBetweenEnd)
+}
+
+// TestCalendarBraceLeftNavPrevWeek verifies that `{` retreats viewDate
+// by seven days and dispatches ListEventsBetween.
+func TestCalendarBraceLeftNavPrevWeek(t *testing.T) {
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+
+	stub := &stubCalendar{betweenEvents: []CalendarEvent{{Subject: "Last week event"}}}
+	m := openCalendarWithEvents(t, stub)
+
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	m = m2.(Model)
+	require.Equal(t, today.AddDate(0, 0, -7), m.calendar.ViewDate(), "{ must retreat viewDate by seven days")
+	require.NotNil(t, fetchCmd)
+
+	// Execute the Cmd; verify window is [today-7, today-6).
+	_ = fetchCmd()
+	require.Equal(t, 1, stub.betweenCalls, "Cmd must call ListEventsBetween once")
+	require.Equal(t, today.AddDate(0, 0, -7), stub.lastBetweenStart)
+	require.Equal(t, today.AddDate(0, 0, -6), stub.lastBetweenEnd)
+}
+
+// TestCalendarTKeyReturnsToToday verifies that `t` in CalendarMode resets
+// viewDate to today and dispatches a ListEventsToday Cmd (not ListEventsBetween).
+func TestCalendarTKeyReturnsToToday(t *testing.T) {
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+
+	stub := &stubCalendar{
+		events: []CalendarEvent{{Subject: "Today event"}},
+	}
+	m := openCalendarWithEvents(t, stub)
+
+	// Navigate to tomorrow first.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	m = m2.(Model)
+	require.Equal(t, today.AddDate(0, 0, 1), m.calendar.ViewDate())
+
+	// Press `t` to return to today.
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	m = m2.(Model)
+	require.Equal(t, today, m.calendar.ViewDate(), "t must reset viewDate to today")
+	require.True(t, m.calendar.loading)
+	require.NotNil(t, fetchCmd, "t must return a fetchCalendarCmd")
+
+	// The Cmd should call ListEventsToday (not ListEventsBetween).
+	res := fetchCmd()
+	require.Equal(t, 0, stub.betweenCalls, "t must use ListEventsToday, not ListEventsBetween")
+	_, ok := res.(calendarFetchedMsg)
+	require.True(t, ok)
+}
+
+// TestCalendarNavStaysInCalendarMode confirms that ]/[/{/}/t all stay
+// in CalendarMode — none of them close the modal.
+func TestCalendarNavStaysInCalendarMode(t *testing.T) {
+	stub := &stubCalendar{betweenEvents: []CalendarEvent{}}
+	m := openCalendarWithEvents(t, stub)
+
+	for _, key := range []string{"]", "[", "}", "{"} {
+		t.Run("key="+key, func(t *testing.T) {
+			m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			require.Equal(t, CalendarMode, m2.(Model).mode, key+" must stay in CalendarMode")
+		})
+	}
 }

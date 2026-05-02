@@ -258,6 +258,10 @@ type SavedSearch struct {
 // full surface.
 type CalendarFetcher interface {
 	ListEventsToday(ctx context.Context) ([]CalendarEvent, error)
+	// ListEventsBetween returns events in the half-open [start, end)
+	// window. Used by day navigation (]/[/{/} keys) to fetch the
+	// right day's events without a full re-fetch. Spec 12 §6.2.
+	ListEventsBetween(ctx context.Context, start, end time.Time) ([]CalendarEvent, error)
 	// GetEvent fetches the full detail for an event id (spec 12 §4.3
 	// / §7) — used by the detail modal opened from `Enter` on the
 	// calendar list. Returns attendees and the body preview that the
@@ -1403,7 +1407,7 @@ func (m Model) updateOOF(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateCalendar handles input while the calendar list modal is
 // open. Spec 12 §6.2: j/k navigate; Enter opens the detail modal;
-// Esc/q closes the calendar entirely.
+// ]/[ day nav; }/{  week nav; t today; Esc/q closes.
 func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -1428,6 +1432,26 @@ func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.calendarDetail.SetLoading()
 		m.mode = CalendarDetailMode
 		return m, m.fetchEventCmd(sel.ID)
+	case string(keyMsg.Runes) == "]":
+		m.calendar.NavNextDay()
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarForDateCmd(m.calendar.ViewDate())
+	case string(keyMsg.Runes) == "[":
+		m.calendar.NavPrevDay()
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarForDateCmd(m.calendar.ViewDate())
+	case string(keyMsg.Runes) == "}":
+		m.calendar.NavNextWeek()
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarForDateCmd(m.calendar.ViewDate())
+	case string(keyMsg.Runes) == "{":
+		m.calendar.NavPrevWeek()
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarForDateCmd(m.calendar.ViewDate())
+	case string(keyMsg.Runes) == "t":
+		m.calendar.GotoToday()
+		m.calendar.SetLoading()
+		return m, m.fetchCalendarCmd()
 	}
 	return m, nil
 }
@@ -2070,13 +2094,28 @@ type calendarFetchedMsg struct {
 	Err    error
 }
 
-// fetchCalendarCmd hits the CalendarFetcher in a goroutine and returns
-// a calendarFetchedMsg.
+// fetchCalendarCmd fetches today's events via the CalendarFetcher.
 func (m Model) fetchCalendarCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		es, err := m.deps.Calendar.ListEventsToday(ctx)
+		return calendarFetchedMsg{Events: es, Err: err}
+	}
+}
+
+// fetchCalendarForDateCmd fetches events for the given day [day, day+1)
+// via CalendarFetcher.ListEventsBetween.
+func (m Model) fetchCalendarForDateCmd(day time.Time) tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.Calendar == nil {
+			return calendarFetchedMsg{Err: fmt.Errorf("calendar not wired")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+		end := start.Add(24 * time.Hour)
+		es, err := m.deps.Calendar.ListEventsBetween(ctx, start, end)
 		return calendarFetchedMsg{Events: es, Err: err}
 	}
 }

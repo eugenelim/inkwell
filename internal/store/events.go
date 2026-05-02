@@ -102,6 +102,13 @@ func (s *store) DeleteEventsBefore(ctx context.Context, accountID int64, before 
 	return err
 }
 
+// DeleteEvent removes a single event by ID. Used by the delta-sync
+// @removed path so Graph-deleted events don't linger in the cache.
+func (s *store) DeleteEvent(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM events WHERE id = ?", id)
+	return err
+}
+
 const eventColumns = `
 	id, account_id, COALESCE(subject, ''),
 	COALESCE(organizer_name, ''), COALESCE(organizer_address, ''),
@@ -131,6 +138,59 @@ ON CONFLICT(id) DO UPDATE SET
 	web_link = excluded.web_link,
 	cached_at = excluded.cached_at
 `
+
+// PutEventAttendees replaces all attendees for eventID atomically.
+// DELETE + INSERT in one transaction so partial states never persist.
+func (s *store) PutEventAttendees(ctx context.Context, eventID string, attendees []EventAttendee) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM event_attendees WHERE event_id = ?", eventID); err != nil {
+		return err
+	}
+	if len(attendees) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO event_attendees (event_id, address, name, type, status)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(event_id, address) DO UPDATE SET
+				name = excluded.name,
+				type = excluded.type,
+				status = excluded.status`)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, a := range attendees {
+			if _, err := stmt.ExecContext(ctx, eventID, a.Address, nullStr(a.Name), nullStr(a.Type), nullStr(a.Status)); err != nil {
+				return fmt.Errorf("insert attendee %s: %w", a.Address, err)
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// ListEventAttendees returns cached attendees for eventID, ordered by
+// address. Returns nil (not an error) when none are cached yet.
+func (s *store) ListEventAttendees(ctx context.Context, eventID string) ([]EventAttendee, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT event_id, address, COALESCE(name,''), COALESCE(type,''), COALESCE(status,'')
+		FROM event_attendees WHERE event_id = ? ORDER BY address`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []EventAttendee
+	for rows.Next() {
+		var a EventAttendee
+		if err := rows.Scan(&a.EventID, &a.Address, &a.Name, &a.Type, &a.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
 
 func scanEvent(row rowScanner) (*Event, error) {
 	var e Event

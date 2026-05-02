@@ -306,6 +306,11 @@ Server-side `$search` merge is post-v0.8.
 | `j` / `↓`      | Move cursor to next event                                      |
 | `k` / `↑`      | Move cursor to previous event                                  |
 | `Enter`        | Open the focused event's detail modal (attendees, body, links) |
+| `]`            | Navigate to the next day                                       |
+| `[`            | Navigate to the previous day                                   |
+| `}`            | Navigate forward one week                                      |
+| `{`            | Navigate back one week                                         |
+| `t`            | Jump to today                                                  |
 | `Esc` / `q`    | Close the modal, return to Normal mode                         |
 
 Read-only. To act on an event, finish in Outlook.

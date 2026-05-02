@@ -71,6 +71,7 @@ const (
 	StateIdle State = iota
 	StateDrainingActions
 	StateSyncingFolders
+	StateSyncingCalendar
 )
 
 // String returns the human label.
@@ -80,6 +81,8 @@ func (s State) String() string {
 		return "draining_actions"
 	case StateSyncingFolders:
 		return "syncing_folders"
+	case StateSyncingCalendar:
+		return "syncing_calendar"
 	default:
 		return "idle"
 	}
@@ -104,6 +107,10 @@ type Engine interface {
 	// OnThrottle is the hook the graph client calls on 429. The
 	// engine forwards as a ThrottledEvent. Spec 03 §3.
 	OnThrottle(retryAfter time.Duration)
+	// SyncCalendar runs one calendar delta pass immediately.
+	// UI callers should prefer Wake() which coalesces with the
+	// regular mail cycle. Spec 12 §5.
+	SyncCalendar(ctx context.Context) error
 }
 
 // ActionDrainer is the seam between sync and the action executor (spec
@@ -139,6 +146,12 @@ type Options struct {
 	BodyCacheMaxBytes    int64
 	DoneActionsRetention time.Duration
 	VacuumOnMaintenance  bool
+
+	// CalendarLookaheadDays / CalendarLookbackDays bound the calendar
+	// sync window (spec 12 §5). Zero means "use defaults" (30/7).
+	// Set to <0 to disable calendar sync entirely (used by tests).
+	CalendarLookaheadDays int
+	CalendarLookbackDays  int
 }
 
 func (o *Options) defaults() {
@@ -167,6 +180,12 @@ func (o *Options) defaults() {
 	}
 	if o.DoneActionsRetention == 0 {
 		o.DoneActionsRetention = 7 * 24 * time.Hour
+	}
+	if o.CalendarLookaheadDays == 0 {
+		o.CalendarLookaheadDays = 30
+	}
+	if o.CalendarLookbackDays == 0 {
+		o.CalendarLookbackDays = 7
 	}
 }
 
@@ -292,6 +311,19 @@ func (e *engine) Start(ctx context.Context) error {
 		}()
 		e.loop(ctx)
 	}()
+	// Spec 12 §5.1 midnight window slide: wakes once per day just
+	// after local midnight to reset the calendar delta token and
+	// kick a fresh full-window sync.
+	if e.opts.CalendarLookaheadDays >= 0 {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.logger.Error("engine: panic in midnight watcher", slog.Any("panic", r))
+				}
+			}()
+			e.midnightWatcher(ctx)
+		}()
+	}
 	// Spec 02 §8 maintenance loop runs in its own goroutine off the
 	// main timer so a slow VACUUM never blocks foreground sync.
 	go func() {
@@ -350,6 +382,14 @@ func (e *engine) Backfill(ctx context.Context, folderID string, until time.Time)
 // ResetDelta clears the per-folder cursor.
 func (e *engine) ResetDelta(ctx context.Context, folderID string) error {
 	return e.st.ClearDeltaToken(ctx, e.opts.AccountID, folderID)
+}
+
+// SyncCalendar performs an immediate calendar delta pass.
+func (e *engine) SyncCalendar(ctx context.Context) error {
+	if e.opts.CalendarLookaheadDays < 0 {
+		return nil // disabled
+	}
+	return e.syncCalendar(ctx)
 }
 
 // loop is the main timer loop. A single time.Timer is reset to the
@@ -493,6 +533,18 @@ func (e *engine) runCycle(ctx context.Context) error {
 			// SyncFailedEvent at the cycle level only on hard errors.
 		}
 	}
+	// Third state: calendar sync (spec 12 §5). Disabled when
+	// CalendarLookaheadDays < 0 (test opt-out).
+	if e.opts.CalendarLookaheadDays >= 0 {
+		e.setState(StateSyncingCalendar)
+		if err := e.syncCalendar(ctx); err != nil {
+			// Calendar sync failure is non-fatal: mail is the primary
+			// surface. Log and continue so a calendar blip doesn't
+			// block the cycle completion event.
+			e.logger.Warn("sync: calendar sync failed", slog.String("err", err.Error()))
+		}
+	}
+
 	e.setState(StateIdle)
 	e.logger.Info("sync: cycle complete",
 		slog.Int("folders", len(subscribed)),
