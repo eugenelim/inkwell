@@ -37,230 +37,215 @@ no edits to existing rows. This keeps `git log -p
 docs/audits/spec-1-15-impl-gaps.md` an honest record of what got
 addressed and when.
 
-## Sequence — 12 PRs ordered by leverage
+## Phase 1 — Original 12-PR sequence (historical)
 
-Numbering matches the audit's top-10 ranking where possible.
-Effort estimates are calendar-day proxies; real PR count may
-expand or contract as the work surfaces.
+See the Phase 1 status tracker below for ship status on each of
+the original 12 PRs. ~70% of the audit is now drained. What
+remains is reorganised in Phase 2.
 
-### PR 1 — Action queue undo (spec 07 §11) — `feat(spec-07): undo`
-**Leverage:** #1. Users can't recover from a misclick. The store
-table + helpers (`PushUndo` / `PopUndo` / `PeekUndo`) already
-exist; the gap is wiring.
+## Phase 2 — Completion plan (spec-by-spec)
 
-**Closes audit rows:**
-- spec 07 §11 "undo unimplemented; `u` keybinding unhandled"
-- spec 07 §7.1 `computeInverse` absent
+Remaining work is grouped into eight impact categories. The rule:
+**complete one spec fully before opening the next**. Config
+sections for each spec land in the same PR (the original standalone
+PR 12 dissolves into individual spec PRs). Dependencies are called
+out explicitly — no PR starts before its blockers ship.
 
-**Slice:**
-- `internal/action/inverse.go` — typed `Inverse(action) Action`.
-- `internal/action/executor.go::run` — push undo entry on success.
-- `internal/ui/app.go` — `u` handler in list + viewer dispatch.
-- Tests: unit for `Inverse` per action type; dispatch test for
-  `u`; e2e visible-delta (mark-read → u → message reverts to
-  unread visibly).
+---
 
-### PR 2 — Bindings config + Help overlay (spec 04 §17, §12) — `feat(spec-04): bindings + help`
-**Leverage:** #2 + partial #5. Right now `[bindings]` decodes from
-TOML but is silently ignored.
+### Category A — Triage completeness (specs 07 → 09 → 10)
 
-**Closes:**
-- spec 04 §17 "[bindings] silently ignored"
-- spec 04 §12 "no `?` help overlay"
-- spec 04 §6.4 "`:help` not registered"
+The core triage loop has three interdependent gaps. Ship in order:
+single-message correctness first (07), then batch engine (09),
+then bulk UX (10) which needs 09's composite undo.
 
-**Slice:**
-- `internal/ui/keys.go` — `applyBindingsOverrides(BindingsConfig)`
-  with unknown-name validation (startup error with line number).
-- `internal/ui/help.go` — full overlay model with section
-  headers (Movement / Triage / Filter / Compose / etc.).
-- `?` keybind handler; `:help` command.
-- Tests: dispatch for `?`; dispatch for `:help`; config
-  invalid-name produces typed error.
+**PR A-1 — Spec 07 finish** `feat(spec-07): replay + InFlight + move-id + triage config`
+- Replay-on-startup: scan Pending/InFlight rows on launch and re-dispatch (spec §10 `ReplayPending`)
+- InFlight state transition: Executor sets `InFlight` before each Graph call, not Pending→Done in one hop
+- Move-id stale fix: after a successful Move, replace the local message row's primary key with the Graph-returned new ID; delete the old row so subsequent ops don't 404
+- `[triage]` config section: `archive_folder`, `confirm_threshold`, `confirm_permanent_delete`, `undo_stack_size`, `optimistic_ui`, `recent_folders_count`
+- Closes: spec 07 — InFlight skipped; move-id stale; replay absent; `[triage]` config entirely absent
 
-### PR 3 — Engine event emission (spec 03 §3) — `feat(spec-03): emit ThrottledEvent + AuthRequiredEvent`
-**Leverage:** #3. UI handlers exist but the engine never sends
-the events.
+**PR A-2 — Spec 09 finish** `feat(spec-09): batch retry + concurrency + bulk undo + config`
+- Depends on: A-1 (executor InFlight correctness)
+- Per-sub-request 429 retry with Retry-After honouring (`executeChunkWithRetry`)
+- Concurrent chunk fan-out (`[batch].batch_concurrency`, default 3)
+- `add_category` / `remove_category` in `actionToSubRequest`
+- Permanent-delete sub-request shape (`POST /messages/{id}/permanentDelete` in $batch)
+- `OnProgress(done, total)` callback wired to the UI
+- 5,000-message soft cap enforcement
+- Composite undo entry per bulk operation (one `UndoEntry` for the whole bulk, not per message)
+- `[batch]` config section: `max_per_batch`, `batch_concurrency`, `batch_request_timeout`, `dry_run_default`, `max_retries_per_subrequest`, `bulk_size_warn_threshold`, `bulk_size_hard_max`
+- Closes: spec 09 — retry absent; serial-only dispatch; no bulk undo; no OnProgress; no [batch] config
 
-**Closes:**
-- spec 03 §3 "ThrottledEvent never emitted (`OnThrottle` not
-  forwarded)"
-- spec 03 §3 "AuthRequiredEvent never emitted (auth retry
-  doesn't propagate failure)"
+**PR A-3 — Spec 10 finish** `feat(spec-10): bulk verbs + progress + preview + dry-run`
+- Depends on: A-2 (composite undo)
+- Six missing `;` verbs: `;D` permanent-delete, `;m` move, `;r`/`;R` mark-read/unread, `;f`/`;F` flag/unflag, `;c`/`;C` category
+- `F` keybind: opens command bar pre-filled with `:filter `
+- Confirm modal: shows filter expression + first 3 affected subjects + total count (not just "Delete N?")
+- Preview screen with toggleable checkboxes up to 5,000 (spec §6 `[p] Preview all`)
+- Progress modal updating via `OnProgress`; `Esc` cancels in-flight bulk
+- Result modal: success / partial (X/Y) / pending breakdown; `[l] see failed` shortcut
+- Composite undo for bulk restores only the successful subset
+- Dry-run mode: `!` suffix to action letter (`;d!`) previews without applying; `[batch].dry_run_default`
+- `[bulk]` config section: `preview_sample_size`, `progress_threshold`, `progress_update_hz`, `suggest_save_after_n_uses`
+- Closes: spec 10 — 6 bulk verbs absent; no F handler; primitive confirm; no preview screen; no progress modal; no result breakdown; no dry-run; no [bulk] config
 
-**Slice:**
-- `internal/sync/engine.go` — `OnThrottle` callback wires to
-  `e.events <- ThrottledEvent{...}`.
-- `internal/graph/client.go::authTransport` — surface a
-  401-after-refresh as a typed error the engine can catch and
-  emit `AuthRequiredEvent` for.
-- Tests: integration via httptest — 429 → ThrottledEvent on
-  channel; 401-after-refresh → AuthRequiredEvent.
+---
 
-### PR 4 — Triage verbs: D / m / c / C (spec 07) — `feat(spec-07): permanent-delete + categories + move`
-**Leverage:** #4. `D`/`m`/`c`/`C` keybindings are declared but
-unbound; the underlying executor branches don't exist.
+### Category B — Knowledge management (spec 11 → spec 04 finish)
 
-**Closes:**
-- spec 07 §6.7 "permanent_delete unimplemented end-to-end"
-- spec 07 §6.9 / §6.10 "add_category / remove_category not in
-  applyLocal or dispatch"
-- spec 07 §12.1 "move-with-folder-picker absent"
+Spec 11 is the highest cross-cutting leverage remaining: it unblocks
+`:save`/`:rule` in spec 04, `inkwell rule` in spec 14, and live
+sidebar counts. Spec 04 has two items that only become trivial once
+spec 11 ships.
 
-**Slice:**
-- `internal/graph/triage.go` — `PermanentDelete`,
-  category PATCH (read-current-then-write-full-list).
-- `internal/action/executor.go` — branches for the new types.
-- `internal/ui/folder_picker.go` — modal for `m`.
-- `internal/ui/categories.go` — picker for `c` / `C`.
-- Tests: dispatch + e2e visible-delta for each verb;
-  permanent-delete confirm modal default-No.
+**PR B-1 — Spec 11** `feat(spec-11): Manager API + sidebar counts + :rule CRUD + seed defaults`
+- `internal/savedsearch/manager.go`: `Manager` interface — `Save`, `Get`, `List`, `Delete`, `Evaluate`, `Pinned`; implementation over the `saved_searches` DB table (replaces TOML-config-only runtime path)
+- Sidebar live counts: background goroutine at `[saved_search].background_refresh_interval` runs `Evaluate` per pinned search and updates the count badge
+- `:rule save <name>` / `:rule list` / `:rule show <name>` / `:rule delete <name>` / `:rule edit <name>` in-modal CRUD; `e` on saved-search row opens editor
+- Auto-suggest after `[saved_search].suggest_save_after_n_uses` matching runs of the same pattern (once per session per pattern)
+- Seed defaults on first launch: "Unread", "Flagged", "From me" (spec §7.3)
+- TOML mirror: writes `~/.config/inkwell/saved_searches.toml` on every mutation; divergence prompt on launch if DB and file differ
+- CLI stubs for `inkwell rule` (full verb surface wired in spec 14 PR G-1)
+- `[saved_search]` config section: `cache_ttl`, `background_refresh_interval`, `seed_defaults`, `toml_mirror_path`
+- Closes: spec 11 — Manager API absent; DB source of truth unwired; no live counts; no CRUD commands; no auto-suggest; no seed defaults; no TOML mirror; no [saved_search] config
 
-### PR 5 — Missing `:` commands (spec 04 §6.4) — `feat(spec-04): :refresh / :folder / :open / :backfill / :search / :rule / :save`
-**Leverage:** #5. 8 of 15 commands are dead.
+**PR B-2 — Spec 04 finish** `feat(spec-04): lifecycle + transient_ttl + min_terminal + :save/:rule`
+- Depends on: B-1 (`:save` / `:rule` use Manager)
+- Lifecycle teardown: `tea.Quit` path calls `engine.Stop()` + `store.Close()` before returning (spec §14)
+- `[ui].transient_status_ttl` (default 5s): auto-clear status-bar messages via a time-boxed `tea.Cmd`
+- Min-terminal check: `relayout` renders "terminal too small (need 80×24)" overlay below spec §13 minimum; normal UI unblocked on resize
+- `confirm_destructive_default` wired from `[ui]` config (defaults No; makes it overridable)
+- `ui.unread_indicator` / `ui.flag_indicator` / `ui.attachment_indicator` config keys wired to pane rendering
+- `:save <name>` command uses Manager.Save; `:rule` opens Manager edit modal
+- Closes: spec 04 — lifecycle teardown broken; transient_status_ttl absent; min_terminal check absent; :save/:rule unimplemented; indicator config absent
 
-**Closes:**
-- spec 04 §6.4 "8 commands unimplemented"
-- spec 03 `:backfill` (referenced cross-spec; needs the engine's
-  `Backfill(ctx, folderID, until)` already implemented).
+---
 
-**Slice:**
-- `dispatchCommand` in `internal/ui/app.go` — register handlers
-  for each. `:refresh` calls `Engine.Wake`; `:folder <name>`
-  jumps via the folder list; `:open` opens the current
-  message's webLink; `:save <name>` persists current filter as
-  saved search; `:backfill` calls `Engine.Backfill`.
-- `:rule` dispatches into PR 9's saved-search Manager (or stub
-  until then).
-- Tests: dispatch for each; e2e for the visible ones
-  (`:refresh` shows `engineActivity`; `:folder Inbox` switches
-  the list pane).
+### Category C — Message rendering completeness (spec 05 finish)
 
-### PR 6 — Calendar schema + persistence + delta (spec 12) — `feat(spec-12): events table + delta sync`
-**Leverage:** #6. Calendar is fetched live; no offline support.
+After PR 10 shipped viewer keys and attachments, 12 rendering items
+remain — reading-experience quality that a daily user hits constantly.
 
-**Closes:**
-- spec 12 §3 "events / event_attendees tables never migrated"
-- spec 12 §4.2 "calendar delta sync absent"
-- spec 12 §5.1 "window slide at midnight absent"
-- spec 12 §6 "calendar rendered as modal not pane (mismatch)"
-- spec 12 §6.2 "j/k/Enter/]/[ keybindings absent"
+**PR C-1 — Spec 05 finish** `feat(spec-05): quote-collapse + format-flowed + HTML config + body $select`
+- Quote collapse: fold runs of `> `-prefixed lines to `[… N quoted lines]` at `[rendering].quote_collapse_threshold`; `e` key expands one quote block; `Q` toggles all (spec §6.3)
+- Attribution-line detection: regex-match `On <date>, <name> wrote:` and apply muted style (spec §6.4)
+- Outlook noise stripping: `strip_patterns` config (list of regexes; defaults include "External email" banner and `Outlook-AltVw` blocks) (spec §6.5)
+- Format=flowed RFC 3676: detect `Content-Type: text/plain; format=flowed` and unwrap soft-wrapped lines before rendering (spec §7)
+- HTML converter fallback: `[rendering].html_converter` config (`html2text` default; `pandoc`/`lynx` as alternatives); `external_converter_timeout`
+- Full-headers $select: add `internetMessageHeaders` to `GetMessageBody` $select so `H` key renders actual SMTP headers, not just cached envelope fields (spec §5.2)
+- `BodyOpts.Width` from actual viewer pane width instead of hardcoded 80; `[rendering].wrap_columns` override
+- Single-flight per message ID: prevent duplicate Graph body fetches on concurrent `Enter` presses (spec §5.1)
+- `[rendering]` remaining keys: `quote_collapse_threshold`, `large_attachment_warn_mb`, `strip_patterns`, `external_converter_timeout`, `html_converter`, `html_converter_cmd`, `attachment_save_dir`, `wrap_columns`
+- Closes: spec 05 — quote collapse absent; format=flowed absent; strip_patterns absent; html_converter config absent; internetMessageHeaders missing from $select; hardcoded width; no single-flight; [rendering] keys incomplete
 
-**Slice:**
-- Migration `004_calendar.sql` — events, event_attendees,
-  indexes per spec §3.
-- `internal/store/events.go` — CRUD.
-- `internal/sync/calendar_sync.go` — third state in the engine
-  loop; consumes `/me/calendarView/delta`.
-- Window-slide goroutine.
-- `internal/ui/calendar_pane.go` — sidebar pane (replaces the
-  modal in §6) OR keep modal + add the missing keybindings;
-  decide in the PR after re-reading spec 12.
-- Tests.
+---
 
-### PR 7 — Drafts via action queue + crash recovery (spec 15) — `feat(spec-15): draft action types + compose_sessions`
-**Leverage:** #7.
+### Category D — Mailbox context (spec 13)
 
-**Closes:**
-- spec 15 §5 / §8 "drafts bypass action queue"
-- spec 15 §7 "compose_sessions migration absent; no
-  crash-recovery"
-- spec 15 §6.2 "no ReplyAllSkeleton / ForwardSkeleton /
-  NewSkeleton"
-- spec 15 §10 "App crash mid-edit → resume prompt unimplemented"
+Spec 13 provides the canonical timezone source of truth and unblocks
+spec 14's `inkwell ooo` / `inkwell settings` CLI. Spec 12's
+calendar TZ resolution also depends on it.
 
-**Slice:**
-- Migration `005_compose_sessions.sql`.
-- Add 4 typed actions to `store.ActionType` enum.
-- Refactor `internal/action/draft.go` — enqueue + apply via the
-  executor's optimistic + replay path.
-- `internal/ui/compose.go` — startup checks for
-  in-flight sessions and surfaces resume modal.
-- ReplyAll / Forward / NewMessage skeleton functions.
-- Tests.
+**PR D-1 — Spec 13 finish** `feat(spec-13): OOF editing + :settings + timezone Manager`
+- OOF full editing: scheduled mode with date-picker modal for start/end, audience picker (all / contactsOnly / none), `$EDITOR` drop-out for internal/external message bodies (spec §5)
+- `:ooo on` / `:ooo off` / `:ooo schedule <start> <end>` quick commands (spec §11)
+- `:settings` modal: read aggregates displayName, timezone, locale, working hours, auto-reply status (spec §6)
+- Status bar OOO indicator (`🌴 OOO`) when `status != disabled` (spec §8)
+- `settings.Manager` in `internal/settings/`: `ResolvedTimeZone()` reads `mailboxSettings.timeZone`, overridden by `[calendar].time_zone`, falls back to system TZ — used by calendar adapter and search
+- 5-minute background refresh timer + force-refresh after any PATCH (spec §4)
+- PATCH payload extended with `scheduledStartDateTime` / `scheduledEndDateTime` / `externalAudience` (spec §5.4)
+- CLI stubs for `inkwell ooo` / `inkwell settings` (full verb surface in PR G-1)
+- `[mailbox_settings]` config section: `confirm_ooo_change`, `default_ooo_audience`, `ooo_indicator`, `refresh_interval`, `default_internal_message`, `default_external_message`
+- Closes: spec 13 — OOF read-only beyond enable/disable; no schedule/audience editing; no :settings; no OOO indicator; no timezone source of truth; no refresh timer; PATCH misses schedule fields; no [mailbox_settings] config
 
-### PR 8 — Hybrid search streaming (spec 06) — `feat(spec-06): Searcher / Stream / merge`
-**Leverage:** #8. Whole spec is a stub; current `/` is a
-single-shot 2s call.
+---
 
-**Closes:** every spec 06 row.
+### Category E — Sync and auth reliability (specs 03, 01)
 
-**Slice:**
-- `internal/search/searcher.go` — `Searcher` interface,
-  `Stream`, `Result` types.
-- Local-first + server-second merge with debounce.
-- Field-prefix parsing (`from:`, `subject:`).
-- `:search` command dispatcher.
-- UI status line streaming `[searching local]` →
-  `[merged: N local, M server]`.
-- Tests + bench (first-result <100ms).
+The goroutine leak in spec 03 is the most dangerous correctness gap
+still open — it causes the UI goroutine to block forever on engine
+Stop. Ship before spec 14's daemon mode.
 
-### PR 9 — Pattern Compile/Execute + server evaluators (spec 08) — `feat(spec-08): server $filter and $search`
-**Leverage:** #9.
+**PR E-1 — Spec 03 finish** `feat(spec-03): goroutine fix + tombstone delta + priority queue + config keys`
+- Goroutine leak: `consumeSyncEventsCmd` selects on both the events channel and `ctx.Done()`; the engine closes the channel on `Stop()` so the UI goroutine drains cleanly (spec §3 "no goroutine leaks")
+- Tombstone-aware delta: `@removed` markers from `/me/mailFolders/delta` propagate as delete ops during initial backfill, not just during steady-state delta (spec §6.2)
+- Body-fetch priority queue: on-demand fetches (user opens a message) jump ahead of background backfill traffic in the concurrency semaphore (spec §11)
+- `[sync]` config keys: `subscribed_well_known`, `excluded_folders`, `delta_page_size`, `retry_max_backoff`, `prioritize_body_fetches`
+- Closes: spec 03 — UI goroutine leak on Stop; tombstone delta absent during backfill; no priority queue; sync config keys absent
 
-**Closes:**
-- spec 08 §6 "Compile/Execute API absent"
-- spec 08 §3 "server-side evaluators missing"
-- spec 08 §11 "two-stage execution absent"
+**PR E-2 — Spec 01 finish** `feat(spec-01): AADSTS classification + clock-skew + CLI PromptFn`
+- AADSTS code classification: parse MSAL error strings for `AADSTS530003` (device compliance), `AADSTS65001` (consent required), `AADSTS70011` (invalid scope); surface the spec §11 friendly messages
+- Clock-skew detection: identify MSAL clock-skew error text and surface "System clock is off by more than 5 minutes; please sync your clock" hint
+- CLI `PromptFn`: non-TUI device-code flow prints message + URL to stderr per spec §5.4
+- Closes: spec 01 — AADSTS classification absent; clock-skew hint absent; CLI PromptFn absent
 
-**Slice:**
-- `internal/pattern/compile.go` — strategy selection over
-  existing `CompileLocal` + new `CompileFilter` /
-  `CompileSearch`.
-- `internal/pattern/execute.go` — `Execute(ctx, c, store, gc)`
-  driving the strategy.
-- Wire `~h` server-only path (currently rejects).
-- Tests: ≥30 patterns through strategy table; explain output
-  human-readable.
+---
 
-### PR 10 — Body fetch + attachments + viewer keybindings (spec 05) — `feat(spec-05): full headers + attachments + viewer keys`
-**Leverage:** #10.
+### Category F — Compose completeness (spec 15 finish)
 
-**Closes:**
-- spec 05 §5.2 "body $select drift; no `attachments` /
-  `internetMessageHeaders` / `$expand=attachments`"
-- spec 05 §8 "no `GetAttachment` / save / open path"
-- spec 05 §12 "viewer keybindings: o, O, e, Q, 1-9, a-z,
-  Shift+A-Z, [, ] all absent"
-- spec 05 §11 "thread map absent"
+Three correctness gaps and one missing feature remain after the
+action-queue + crash-recovery + skeleton work shipped in PRs 7-i/ii/iii.
 
-**Slice:**
-- Fix `GetMessageBody` $select; add `GetAttachment`.
-- `internal/render/attachments.go` — accelerator letters in
-  rendering.
-- Viewer dispatch handlers for each key.
-- Path-traversal guard for attachment save (closes a deferred
-  spec 17 §4.4 bullet too).
-- Conversation-thread map under viewer.
-- Tests including spec 17 path-traversal regression.
+**PR F-1 — Spec 15 finish** `feat(spec-15): discard DELETE + webLink TTL + Mail.Send guard + attachments`
+- Graph DELETE on discard: `updateComposeConfirm` case `"d"` calls `DELETE /me/messages/{draftID}` (spec §6.3)
+- WebLink TTL: clear `lastDraftWebLink` 30 s after it is set via a `time.AfterFunc` Cmd; currently set indefinitely (spec §9)
+- `Mail.Send` CI lint guard: `scripts/check-no-mail-send.sh` greps for the literal string `Mail.Send` outside `docs/PRD.md` and `internal/auth/scopes.go`; fails CI (spec §11)
+- Compose attachments: `DraftParams.Attachments []AttachmentRef`; attach via `POST /me/messages/{id}/attachments`; spec 17 §4.4 path-traversal guard; `[compose]` config section
+- Closes: spec 15 — discard doesn't DELETE server draft; webLink never auto-clears; no Mail.Send lint guard; attachments absent
 
-### PR 11 — Engine maintenance (spec 02 §8) — `feat(spec-02): periodic Vacuum + EvictBodies + action retention`
-**Leverage:** moderate. The store's maintenance methods exist
-but are never called.
+---
 
-**Closes:**
-- spec 02 §8 "Vacuum never invoked"
-- spec 02 §8 "EvictBodies dead at runtime"
-- spec 02 §8 "actions retention sweep absent"
+### Category G — CLI surface (spec 14)
 
-**Slice:**
-- `internal/sync/maintenance.go` — periodic loop reading config
-  caps; runs nightly.
-- Wired into engine's run loop.
-- Tests.
+Spec 14 depends on specs 11, 13, and 15 being shipped first for
+`rule`, `ooo`/`settings`, and compose paths. Calendar CLI is
+unblocked since spec 12 PR 6b-ii already shipped.
 
-### PR 12 — Config defaults backfill (cross-cutting) — `feat(config): missing [triage] [batch] [bulk] [search] [calendar] [mailbox_settings] [cli] [pattern] [saved_search]`
-**Leverage:** documentation+correctness. Most of these are
-referenced by per-spec gaps above; this PR consolidates the
-config surface.
+**PR G-1 — Spec 14 build-out** `feat(spec-14): message + rule + calendar + ooo + settings + daemon + exit-codes`
+- Depends on: B-1 (rule Manager), D-1 (OOF/timezone Managers), F-1 (compose Graph paths)
+- `inkwell message` subcommand: `show` / `read` / `unread` / `flag` / `unflag` / `move` / `delete` / `permanent-delete` / `attachments` / `save-attachment` / `reply` / `reply-all` / `forward`
+- `inkwell folder subscribe/unsubscribe/show/tree`
+- `inkwell rule list/show/save/edit/delete/eval/apply` (uses spec 11 Manager)
+- `inkwell calendar today/week/agenda/show`
+- `inkwell ooo on/off/set` (uses spec 13 Manager)
+- `inkwell settings` (uses spec 13 Manager)
+- `inkwell export`, `inkwell daemon`, `inkwell backfill`
+- Exit code mapping per spec §5.3 (currently 0 or 1 only)
+- Line-delimited JSON output (replace current enclosing `{"messages": [...]}` array)
+- Progress bars on TTY; quiet on pipes
+- Global flags: `--output`, `--color`, `--log-level`, `--quiet`, `--no-sync`, `--yes`
+- `[cli]` config section: `default_output`, `color`, `confirm_destructive_in_cli`, `progress_bars`, `json_compact`, `export_default_dir`
+- Closes: spec 14 — ~60% CLI surface absent; exit codes wrong; array not line-delimited; no progress bars; global flags missing; no [cli] config
 
-**Closes:** every "Whole `[X]` section absent" row.
+---
 
-**Slice:**
-- `internal/config/defaults.go` + `config.go` parsing.
-- `docs/CONFIG.md` updates.
-- Validation errors with line numbers (existing pattern).
-- Tests for round-trip + invalid-key rejection.
+### Category H — Calendar completion and polish (specs 12, 02, 06, 08)
+
+These are the remaining deferred items after all primary specs ship.
+
+**PR H-1 — Spec 12 finish** `feat(spec-12): sidebar pane + week/agenda + timezone`
+- Depends on: D-1 (ResolvedTimeZone from settings.Manager)
+- Sidebar calendar pane below "Saved Searches" in folder-pane layout; shows today + next N days (configurable via `[calendar].sidebar_show_days`)
+- Week view and agenda toggle (`w` key in calendar list or sidebar)
+- `c` key from calendar list opens full-screen week/agenda view
+- `mailboxSettings.timeZone` resolution via `settings.Manager.ResolvedTimeZone()` (replaces `time.Now().Date()` in local TZ)
+- Closes: spec 12 deferred — sidebar pane; week/agenda view; timezone resolution
+
+**PR H-2 — Spec 02 finish** `fix(spec-02): flag_due_at persistence + saved-search delete-by-name`
+- Depends on: B-1 (delete-by-name consumed by Manager.Delete)
+- `flag_due_at` / `flag_completed_at` wired through `MessageFields` so the flag action's `due_date` param persists to the DB columns (columns exist in migration 001; just never written)
+- `DeleteSavedSearchByName(ctx, accountID, name)` store helper for Manager.Delete
+- Closes: spec 02 — flag_due_at not persisted; saved-search delete-by-name absent
+
+**PR H-3 — Spec 06 `--all` flag** `feat(spec-06): cross-folder --all search flag`
+- Depends on: G-1 (global flag infrastructure in spec 14)
+- `--all` flag for `inkwell filter` and the TUI `/` search: scopes query across all subscribed folders instead of the active one (spec §5.3)
+
+**PR H-4 — Spec 08 CI bench** `bench(spec-08): 100k-message bench + 10k-AST fuzz in CI`
+- Enable 100k-message bench gate in CI (deferred during PR 9 ship)
+- `go test -fuzz FuzzParse -fuzztime=30s` as a CI fuzz step
 
 ## Execution rules
 
@@ -283,7 +268,7 @@ config surface.
    there. Update `CLAUDE.md` §14 "Where things live" to remove
    the `audits/` line if it's listed (it isn't currently).
 
-## Status tracker
+## Phase 1 — Status tracker (historical)
 
 | PR | Spec(s) | Status | Branch | Audit rows closed | Plan file updated |
 |----|---------|--------|--------|-------------------|-------------------|
@@ -294,7 +279,7 @@ config surface.
 | 4b | 07      | shipped (v0.13.x) — categories closed; move-with-picker carved as PR 4c | main | spec 07 §6.9 / §6.10 add_category / remove_category | docs/plans/spec-07.md iter 4 |
 | 4c | 07      | shipped (v0.13.x) | main | spec 07 §6.5 / §12.1 move-with-folder-picker | docs/plans/spec-07.md iter 5 |
 | 5  | 04      | shipped (v0.13.x) | main | spec 04 §6.4 :refresh / :folder / :open / :backfill / :search | docs/plans/spec-04.md iter 10 |
-| 5b | 04 (+11)| not-started (`:save` + `:rule` block on spec 11) | — | — | — |
+| 5b | 04 (+11)| superseded by Phase 2 PRs B-1 (spec 11 Manager) + B-2 (spec 04 :save/:rule) | — | — | — |
 | 6a | 12      | shipped (v0.13.x) | main | spec 12 §3 events schema + persistence | docs/plans/spec-12.md iter 2 |
 | 6b-i | 12    | shipped (v0.13.x) | main | spec 12 §6.2 j/k/Enter + §4.3 GetEvent + §7 detail modal | docs/plans/spec-12.md iter 3 |
 | 6b-ii | 12   | shipped (v0.21.0) | main | spec 12 §4.2 delta sync + §5 engine 3rd state + §5.1 midnight slide + §6.2 day nav (]/[/{/}/t) + §3 event_attendees + attendees persistence | docs/plans/spec-12.md iter 4 |
@@ -305,7 +290,27 @@ config surface.
 | 9  | 08      | shipped (v0.18.x) | (this branch) | spec 08 §6 Compile/Execute API + §9 $filter + §10 $search + §11 TwoStage + [pattern] config | docs/plans/spec-08.md iter 2 |
 | 10 | 05 (+17)| shipped (v0.20.0) | main | spec 05 §8 GetAttachment + save/open; §11 thread map; §12 viewer keybindings (`o`/`O`/`1-9`/`[`/`]`/`a-z`/`A-Z`); spec 17 §4.4 path-traversal guard | docs/plans/spec-05.md iter 6 |
 | 11 | 02      | shipped (v0.13.x) | main | spec 02 §8 maintenance loop | docs/plans/spec-02.md iter 3 |
-| 12 | config  | partial (v0.13.x) — runtime-consumed [triage]/[bulk]/[calendar] sections shipped; aspirational sections (`[search]`, `[batch]`, `[saved_search]`, `[mailbox_settings]`, `[cli]`, `[pattern]`) wait for the specs that consume them | main | spec 02 §17 / spec 04 §17 / spec 12 §config | docs/plans/spec-04.md notes |
+| 12 | config  | partial (v0.13.x) — runtime-consumed [triage]/[bulk]/[calendar] sections shipped; remaining sections dissolve into Phase 2 spec PRs | main | spec 02 §17 / spec 04 §17 / spec 12 §config | docs/plans/spec-04.md notes |
+
+## Phase 2 — Status tracker
+
+| PR | Spec(s) | Status | Audit rows closed | Plan file updated |
+|----|---------|--------|-------------------|-------------------|
+| A-1 | 07 | not-started | spec 07 §5 InFlight; §5.5 move-id stale; §10 replay-on-startup; [triage] config | — |
+| A-2 | 09 | not-started | spec 09 §8 retry; §7 concurrency; bulk undo; [batch] config | — |
+| A-3 | 10 | not-started | spec 10 §4 6 missing bulk verbs; §5 F keybind; §8 confirm/preview/progress/result; §6 dry-run; [bulk] config | — |
+| B-1 | 11 | not-started | spec 11 §2 Manager API; §5 live counts; §4 CRUD commands; §7.3 seed defaults; §8 TOML mirror; [saved_search] config | — |
+| B-2 | 04 | not-started | spec 04 §14 lifecycle teardown; §5 transient_status_ttl; §13 min_terminal; :save/:rule; indicator config | — |
+| C-1 | 05 | not-started | spec 05 §6.3 quote collapse; §7 format=flowed; §6.5 strip_patterns; html_converter; §5.2 internetMessageHeaders; single-flight; [rendering] keys | — |
+| D-1 | 13 | not-started | spec 13 §5 OOF editing; §11 :ooo variants; §6 :settings; §8 OOO indicator; timezone Manager; §4 refresh timer; PATCH schedule fields; [mailbox_settings] config | — |
+| E-1 | 03 | not-started | spec 03 §3 goroutine leak; §6.2 tombstone delta backfill; §11 priority queue; [sync] config keys | — |
+| E-2 | 01 | not-started | spec 01 §11 AADSTS classification; clock-skew hint; §5.4 CLI PromptFn | — |
+| F-1 | 15 | not-started | spec 15 §6.3 discard DELETE; §9 webLink TTL; §11 Mail.Send lint guard; §5 compose attachments | — |
+| G-1 | 14 | not-started | spec 14 §6 message/rule/calendar/ooo/settings/export/daemon/backfill subcommands; §5.3 exit codes; §5.2 line-delimited JSON; progress bars; global flags; [cli] config | — |
+| H-1 | 12 | not-started | spec 12 deferred sidebar pane; week/agenda view; timezone resolution | — |
+| H-2 | 02 | not-started | spec 02 flag_due_at persistence; saved-search delete-by-name | — |
+| H-3 | 06 | not-started | spec 06 §5.3 --all cross-folder flag | — |
+| H-4 | 08 | not-started | spec 08 CI 100k bench + 10k-AST fuzz gate | — |
 
 ## Real-tenant gaps (outside the audit)
 
