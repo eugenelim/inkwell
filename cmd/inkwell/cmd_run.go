@@ -20,6 +20,7 @@ import (
 	"github.com/eugenelim/inkwell/internal/graph"
 	ilog "github.com/eugenelim/inkwell/internal/log"
 	"github.com/eugenelim/inkwell/internal/render"
+	"github.com/eugenelim/inkwell/internal/savedsearch"
 	"github.com/eugenelim/inkwell/internal/search"
 	"github.com/eugenelim/inkwell/internal/store"
 	isync "github.com/eugenelim/inkwell/internal/sync"
@@ -168,11 +169,30 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 			filepath.Join(home, "Library", "Logs", "inkwell", "inkwell.log"))
 	}
 
-	// UI
-	saved := make([]ui.SavedSearch, 0, len(cfg.SavedSearches))
-	for _, s := range cfg.SavedSearches {
-		saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern})
+	// Saved-search Manager (spec 11). Seeds defaults on first launch;
+	// loads initial list for the sidebar. Falls back to TOML config
+	// entries when the Manager is empty so legacy [[saved_searches]]
+	// config blocks still work.
+	ssm := savedsearch.New(st, acc.ID, cfg.SavedSearch)
+	if cfg.SavedSearch.SeedDefaults {
+		if seedErr := ssm.SeedDefaults(ctx, acc.UPN); seedErr != nil {
+			logger.Warn("saved searches: seed defaults failed", "err", seedErr)
+		}
 	}
+	var saved []ui.SavedSearch
+	if dbList, err := ssm.List(ctx); err != nil {
+		logger.Warn("saved searches: initial load failed", "err", err)
+	} else if len(dbList) > 0 {
+		saved = convertSavedSearchList(dbList)
+	} else {
+		// Fall back to TOML config entries (legacy path).
+		saved = make([]ui.SavedSearch, 0, len(cfg.SavedSearches))
+		for _, s := range cfg.SavedSearches {
+			saved = append(saved, ui.SavedSearch{Name: s.Name, Pattern: s.Pattern, Count: -1})
+		}
+	}
+
+	// UI
 	model, err := ui.New(ui.Deps{
 		Auth:                  a,
 		Store:                 st,
@@ -187,6 +207,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Drafts:                draftAdapter{exec: exec},
 		Search:                newSearchAdapter(st, gc, acc.ID, cfg.Search),
 		Unsubscribe:           newUnsubAdapter(st, gc, version),
+		SavedSearchSvc:        &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
 		ThemeName:             cfg.UI.Theme,
 		SavedSearches:         saved,
 		Bindings:              bindingsToOverrides(cfg.Bindings),
@@ -903,4 +924,79 @@ func resultToAction(r *unsub.Result) ui.UnsubscribeAction {
 		return ui.UnsubscribeAction{Kind: ui.UnsubscribeMailto, Mailto: r.MailtoAddr}
 	}
 	return ui.UnsubscribeAction{Kind: ui.UnsubscribeNone}
+}
+
+// savedSearchAdapter bridges *savedsearch.Manager → ui.SavedSearchService.
+// Defined here so the UI doesn't import internal/savedsearch (CLAUDE.md §2).
+type savedSearchAdapter struct {
+	mgr       *savedsearch.Manager
+	accountID int64
+}
+
+func (a *savedSearchAdapter) Save(ctx context.Context, name, pattern string, pinned bool) error {
+	return a.mgr.Save(ctx, store.SavedSearch{
+		AccountID: a.accountID,
+		Name:      name,
+		Pattern:   pattern,
+		Pinned:    pinned,
+	})
+}
+
+func (a *savedSearchAdapter) DeleteByName(ctx context.Context, name string) error {
+	return a.mgr.DeleteByName(ctx, name)
+}
+
+func (a *savedSearchAdapter) Reload(ctx context.Context) ([]ui.SavedSearch, error) {
+	list, err := a.mgr.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return convertSavedSearchList(list), nil
+}
+
+func (a *savedSearchAdapter) RefreshCounts(ctx context.Context) ([]ui.SavedSearch, error) {
+	counts, err := a.mgr.CountPinned(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := a.mgr.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ui.SavedSearch, len(list))
+	for i, ss := range list {
+		count := -1
+		if ss.Pinned {
+			if c, ok := counts[ss.ID]; ok {
+				count = c
+			} else {
+				count = 0
+			}
+		}
+		result[i] = ui.SavedSearch{
+			ID:      ss.ID,
+			Name:    ss.Name,
+			Pattern: ss.Pattern,
+			Pinned:  ss.Pinned,
+			Count:   count,
+		}
+	}
+	return result, nil
+}
+
+// convertSavedSearchList maps store.SavedSearch → ui.SavedSearch with
+// Count=-1 (not yet evaluated). The Init() refreshSavedSearchCountsCmd
+// fires immediately to populate live counts for pinned searches.
+func convertSavedSearchList(list []store.SavedSearch) []ui.SavedSearch {
+	out := make([]ui.SavedSearch, len(list))
+	for i, ss := range list {
+		out[i] = ui.SavedSearch{
+			ID:      ss.ID,
+			Name:    ss.Name,
+			Pattern: ss.Pattern,
+			Pinned:  ss.Pinned,
+			Count:   -1,
+		}
+	}
+	return out
 }

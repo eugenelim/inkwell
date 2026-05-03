@@ -35,8 +35,9 @@ type Config struct {
 	Batch         BatchConfig         `toml:"batch"`
 	Calendar      CalendarConfig      `toml:"calendar"`
 	Search        SearchConfig        `toml:"search"`
-	Pattern       PatternConfig       `toml:"pattern"`
-	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+	Pattern       PatternConfig        `toml:"pattern"`
+	SavedSearch   SavedSearchSettings  `toml:"saved_search"`
+	SavedSearches []SavedSearchConfig  `toml:"saved_searches"`
 }
 
 // PatternConfig owns the [pattern] section (spec 08 §13). Knobs
@@ -183,6 +184,24 @@ type CalendarConfig struct {
 type SavedSearchConfig struct {
 	Name    string `toml:"name"`
 	Pattern string `toml:"pattern"`
+}
+
+// SavedSearchSettings owns the [saved_search] section (spec 11 §9).
+// Operational knobs for the Manager: cache lifetime, refresh cadence,
+// first-launch seeding, and the TOML mirror path.
+type SavedSearchSettings struct {
+	// CacheTTL is how long Evaluate results are reused before re-querying.
+	CacheTTL time.Duration `toml:"cache_ttl"`
+	// BackgroundRefreshInterval controls how often pinned-search counts
+	// are refreshed in the sidebar even without user navigation.
+	BackgroundRefreshInterval time.Duration `toml:"background_refresh_interval"`
+	// SeedDefaults: if true, seed "Unread", "Flagged", "From me" on
+	// first launch (when the saved_searches table is empty).
+	SeedDefaults bool `toml:"seed_defaults"`
+	// TOMLMirrorPath is the path written after every save/delete as a
+	// human-readable snapshot (version-control friendly). Tilde is
+	// expanded. Empty string disables the mirror.
+	TOMLMirrorPath string `toml:"toml_mirror_path"`
 }
 
 // AccountConfig owns the [account] section (spec 01).

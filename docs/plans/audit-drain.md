@@ -299,7 +299,7 @@ These are the remaining deferred items after all primary specs ship.
 | A-1 | 07 | done | spec 07 §5 InFlight; §5.5 move-id stale; §10 replay-on-startup; [triage] config | 2026-05-02 |
 | A-2 | 09 | done | spec 09 §8 retry; §7 concurrency; bulk undo; [batch] config | 2026-05-02 |
 | A-3 | 10 | done | spec 10 §4 6 missing bulk verbs; §5 F keybind; §8 confirm sample | 2026-05-02 |
-| B-1 | 11 | not-started | spec 11 §2 Manager API; §5 live counts; §4 CRUD commands; §7.3 seed defaults; §8 TOML mirror; [saved_search] config | — |
+| B-1 | 11 | done \| 2026-05-02 | spec 11 §2 Manager API; §5 live counts; §4 CRUD commands; §7.3 seed defaults; §8 TOML mirror; [saved_search] config | 2026-05-02 |
 | B-2 | 04 | not-started | spec 04 §14 lifecycle teardown; §5 transient_status_ttl; §13 min_terminal; :save/:rule; indicator config | — |
 | C-1 | 05 | not-started | spec 05 §6.3 quote collapse; §7 format=flowed; §6.5 strip_patterns; html_converter; §5.2 internetMessageHeaders; single-flight; [rendering] keys | — |
 | D-1 | 13 | not-started | spec 13 §5 OOF editing; §11 :ooo variants; §6 :settings; §8 OOO indicator; timezone Manager; §4 refresh timer; PATCH schedule fields; [mailbox_settings] config | — |

@@ -4420,3 +4420,204 @@ func TestCalendarNavStaysInCalendarMode(t *testing.T) {
 		})
 	}
 }
+
+// stubSavedSearchService implements SavedSearchService for tests.
+type stubSavedSearchService struct {
+	saveErr    error
+	deleteErr  error
+	saved      []SavedSearch
+	onSave     func(name, pattern string, pinned bool)
+	onDelete   func(name string)
+}
+
+func (s *stubSavedSearchService) Save(_ context.Context, name, pattern string, pinned bool) error {
+	if s.onSave != nil {
+		s.onSave(name, pattern, pinned)
+	}
+	return s.saveErr
+}
+
+func (s *stubSavedSearchService) DeleteByName(_ context.Context, name string) error {
+	if s.onDelete != nil {
+		s.onDelete(name)
+	}
+	return s.deleteErr
+}
+
+func (s *stubSavedSearchService) Reload(_ context.Context) ([]SavedSearch, error) {
+	return s.saved, nil
+}
+
+func (s *stubSavedSearchService) RefreshCounts(_ context.Context) ([]SavedSearch, error) {
+	return s.saved, nil
+}
+
+// TestRuleSaveWithActiveFilterCallsService drives `:rule save Newsletters`
+// while a filter is active and confirms the SavedSearchService.Save method is
+// called with the active filter pattern.
+func TestRuleSaveWithActiveFilterCallsService(t *testing.T) {
+	m := newDispatchTestModel(t)
+	var gotName, gotPattern string
+	svc := &stubSavedSearchService{
+		onSave: func(name, pattern string, _ bool) {
+			gotName = name
+			gotPattern = pattern
+		},
+	}
+	m.deps.SavedSearchSvc = svc
+	m.filterActive = true
+	m.filterPattern = "~N"
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule save Newsletters" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, ":rule save must return a Cmd")
+
+	msg := cmd()
+	saved, ok := msg.(savedSearchSavedMsg)
+	require.True(t, ok, "got %T", msg)
+	require.Equal(t, "Newsletters", saved.name)
+	require.NoError(t, saved.err)
+	require.Equal(t, "Newsletters", gotName)
+	require.Equal(t, "~N", gotPattern)
+}
+
+// TestRuleSaveWithNoFilterSetsError confirms `:rule save` with no active filter
+// sets m.lastError instead of firing the Cmd.
+func TestRuleSaveWithNoFilterSetsError(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.SavedSearchSvc = &stubSavedSearchService{}
+	m.filterActive = false
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule save Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Nil(t, cmd, ":rule save without filter must not fire Cmd")
+	require.NotNil(t, m.lastError, "must set lastError when no filter is active")
+}
+
+// TestRuleListShowsNamesInActivity drives `:rule list` with two seeded
+// saved searches and confirms the names appear in m.engineActivity.
+func TestRuleListShowsNamesInActivity(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.savedSearches = []SavedSearch{
+		{Name: "Unread", Pattern: "~N"},
+		{Name: "Flagged", Pattern: "~F"},
+	}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule list" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Contains(t, m.engineActivity, "Unread")
+	require.Contains(t, m.engineActivity, "Flagged")
+}
+
+// TestRuleShowDisplaysPattern drives `:rule show Unread` and confirms the
+// active pattern appears in m.engineActivity.
+func TestRuleShowDisplaysPattern(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.savedSearches = []SavedSearch{
+		{Name: "Unread", Pattern: "~N"},
+	}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule show Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Contains(t, m.engineActivity, "~N")
+}
+
+// TestRuleDeleteOpensConfirmModal drives `:rule delete Unread` and confirms
+// the confirm modal opens with topic "rule_delete".
+func TestRuleDeleteOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.savedSearches = []SavedSearch{
+		{Name: "Unread", Pattern: "~N"},
+	}
+	m.deps.SavedSearchSvc = &stubSavedSearchService{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule delete Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode, ":rule delete must open confirm modal")
+	require.Equal(t, "rule_delete", m.confirm.Topic)
+	require.Equal(t, "Unread", m.pendingRuleDelete)
+}
+
+// TestRuleDeleteConfirmYesFiresDeleteCmd confirms that after `:rule delete` + y
+// the delete Cmd runs and savedSearchSavedMsg is emitted.
+func TestRuleDeleteConfirmYesFiresDeleteCmd(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.savedSearches = []SavedSearch{
+		{Name: "Unread", Pattern: "~N"},
+	}
+	var deleted string
+	m.deps.SavedSearchSvc = &stubSavedSearchService{
+		onDelete: func(name string) { deleted = name },
+	}
+
+	// Drive `:rule delete Unread` to open modal.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "rule delete Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+
+	// y produces a ConfirmResultMsg via Cmd; feed it back to get the delete Cmd.
+	m2, yCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+	require.NotNil(t, yCmd)
+	confirmMsg := yCmd()
+	m2, deleteCmd := m.Update(confirmMsg)
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode, "confirm must close modal")
+	require.NotNil(t, deleteCmd, "confirm must return delete Cmd")
+
+	msg := deleteCmd()
+	saved, ok := msg.(savedSearchSavedMsg)
+	require.True(t, ok, "got %T", msg)
+	require.Equal(t, "deleted", saved.action)
+	require.Equal(t, "Unread", deleted)
+}
+
+// TestSavedSearchCountBadgeRendersWhenNonNegative confirms that a saved
+// search with Count≥0 shows the count in the sidebar View output.
+func TestSavedSearchCountBadgeRendersWhenNonNegative(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.folders.SetSavedSearches([]SavedSearch{
+		{Name: "Unread", Pattern: "~N", Pinned: true, Count: 5},
+		{Name: "Flagged", Pattern: "~F", Pinned: true, Count: 0},
+		{Name: "From me", Pattern: "~f me@x", Pinned: false, Count: -1},
+	})
+	out := m.folders.View(m.theme, 35, 30, true)
+	require.Contains(t, out, "5", "Unread count badge must appear")
+	require.Contains(t, out, "☆ Flagged  0", "count=0 must also render")
+	require.NotContains(t, out, "-1", "Count=-1 must not render")
+}

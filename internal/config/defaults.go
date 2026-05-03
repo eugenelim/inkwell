@@ -134,5 +134,11 @@ func Defaults() *Config {
 			ServerCandidateLimit:   1000,
 			PreferLocalWhenOffline: true,
 		},
+		SavedSearch: SavedSearchSettings{
+			CacheTTL:                  60 * time.Second,
+			BackgroundRefreshInterval: 2 * time.Minute,
+			SeedDefaults:              true,
+			TOMLMirrorPath:            "~/.config/inkwell/saved_searches.toml",
+		},
 	}
 }

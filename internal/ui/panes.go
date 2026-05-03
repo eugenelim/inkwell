@@ -27,10 +27,14 @@ type displayedFolder struct {
 	hasKids  bool
 	expanded bool
 	// Saved-search fields (used when isSaved). The dispatcher reads
-	// savedPattern when Enter fires.
+	// savedPattern when Enter fires; savedID + savedCount drive the
+	// sidebar count badge (spec 11 §5.1).
 	isSaved      bool
+	savedID      int64
 	savedName    string
 	savedPattern string
+	savedPinned  bool
+	savedCount   int // -1 = not yet evaluated; ≥0 = match count from last refresh
 	// isSavedHeader marks the synthetic "Saved Searches" section
 	// divider — non-selectable, not a saved search itself.
 	isSavedHeader bool
@@ -96,8 +100,11 @@ func (m *FoldersModel) rebuild() {
 		for _, s := range m.saved {
 			m.items = append(m.items, displayedFolder{
 				isSaved:      true,
+				savedID:      s.ID,
 				savedName:    s.Name,
 				savedPattern: s.Pattern,
+				savedPinned:  s.Pinned,
+				savedCount:   s.Count,
 			})
 		}
 	}
@@ -310,7 +317,7 @@ func (m FoldersModel) SelectedSavedSearch() (SavedSearch, bool) {
 	if !it.isSaved {
 		return SavedSearch{}, false
 	}
-	return SavedSearch{Name: it.savedName, Pattern: it.savedPattern}, true
+	return SavedSearch{ID: it.savedID, Name: it.savedName, Pattern: it.savedPattern, Pinned: it.savedPinned, Count: it.savedCount}, true
 }
 
 // FindByName returns the folder whose DisplayName or WellKnownName
@@ -365,6 +372,9 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 				marker = "· "
 			}
 			line = marker + "☆ " + it.savedName
+			if it.savedCount >= 0 {
+				line = fmt.Sprintf("%s  %d", line, it.savedCount)
+			}
 			styled := truncate(line, width-1)
 			if i == m.cursor && focused {
 				styled = t.FoldersSel.Render(styled)

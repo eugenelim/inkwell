@@ -171,11 +171,13 @@ type Deps struct {
 	// ThemeName is the [ui] theme key from config. Empty falls back to
 	// "default". Unknown values fall back with a logged warning.
 	ThemeName string
-	// SavedSearches is the list of [[saved_searches]] entries from
-	// config. They render in the folders pane as virtual folders;
-	// selecting one runs its pattern via the same machinery as
-	// `:filter` (spec 10).
+	// SavedSearches is the initial list of saved searches. Loaded from
+	// the DB by cmd_run.go (spec 11); falls back to [[saved_searches]]
+	// TOML config entries when the Manager is not wired.
 	SavedSearches []SavedSearch
+	// SavedSearchSvc enables CRUD and count refresh (spec 11). Optional —
+	// when nil, `:rule` commands show a friendly "not wired" error.
+	SavedSearchSvc SavedSearchService
 	// Bindings carries the user's [bindings] overrides decoded from
 	// config. Empty fields leave the default in place. Spec 04 §17:
 	// unknown keys cause a startup error in config.Load (the TOML
@@ -253,10 +255,27 @@ type AttachmentFetcher interface {
 }
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
-// at the consumer site so the UI doesn't import internal/config.
+// at the consumer site so the UI doesn't import internal/savedsearch.
 type SavedSearch struct {
+	ID      int64
 	Name    string
 	Pattern string
+	Pinned  bool
+	Count   int // -1 = not yet evaluated; ≥0 = match count from last refresh
+}
+
+// SavedSearchService is the CRUD + count-refresh surface the UI consumes.
+// Defined here at the consumer site (CLAUDE.md §2 layering).
+type SavedSearchService interface {
+	// Save creates or updates a saved search by name. Pattern is validated.
+	Save(ctx context.Context, name, pattern string, pinned bool) error
+	// DeleteByName removes by name. Returns an error if not found.
+	DeleteByName(ctx context.Context, name string) error
+	// Reload returns the full list with current metadata (no evaluation).
+	Reload(ctx context.Context) ([]SavedSearch, error)
+	// RefreshCounts evaluates all pinned searches and returns the full
+	// list with updated Count fields. Errors per-search are silently skipped.
+	RefreshCounts(ctx context.Context) ([]SavedSearch, error)
 }
 
 // CalendarFetcher is the read-only calendar surface the UI consumes
@@ -476,6 +495,13 @@ type Model struct {
 	pendingBulkCategory       string
 	pendingBulkCategoryAction string // "add_category" | "remove_category" while CategoryInputMode is bulk
 
+	// savedSearches is the live sidebar list (spec 11). Updated after
+	// every CRUD operation and on background count refresh.
+	savedSearches []SavedSearch
+	// pendingRuleDelete holds the name of the saved search being deleted
+	// while the confirm modal is open.
+	pendingRuleDelete string
+
 	// Compose / reply (spec 15). Tracks the most-recently-saved draft
 	// so the viewer-pane `s` shortcut can open it in Outlook. Cleared
 	// when the user starts another compose flow or moves on.
@@ -564,8 +590,9 @@ func New(deps Deps) (Model, error) {
 		theme = t
 	}
 	folders := NewFolders()
-	if len(deps.SavedSearches) > 0 {
-		folders.SetSavedSearches(deps.SavedSearches)
+	savedSearches := append([]SavedSearch(nil), deps.SavedSearches...)
+	if len(savedSearches) > 0 {
+		folders.SetSavedSearches(savedSearches)
 	}
 	keymap, err := ApplyBindingOverrides(DefaultKeyMap(), deps.Bindings)
 	if err != nil {
@@ -579,6 +606,7 @@ func New(deps Deps) (Model, error) {
 		keymap:         keymap,
 		theme:          theme,
 		folders:        folders,
+		savedSearches:  savedSearches,
 		list:           NewList(),
 		viewer:         NewViewer(),
 		cmd:            NewCommand(),
@@ -613,11 +641,15 @@ var stdoutOSC52Writer = func(seq string) error {
 // Update handler surfaces a confirm modal asking the user whether
 // to resume editing or discard.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.loadFoldersCmd(),
 		m.consumeSyncEventsCmd(),
 		m.scanComposeSessionsCmd(),
-	)
+	}
+	if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
+		cmds = append(cmds, refreshCmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update implements the Bubble Tea contract. The function is
@@ -917,6 +949,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "draft discarded"
 			return m, nil
 		}
+		// Rule-delete confirmation (spec 11): pendingRuleDelete carries the name.
+		if m.pendingRuleDelete != "" && msg.Topic == "rule_delete" {
+			name := m.pendingRuleDelete
+			m.pendingRuleDelete = ""
+			if msg.Confirm {
+				return m, m.ruleDeleteCmd(name)
+			}
+			m.engineActivity = "rule delete cancelled"
+			return m, nil
+		}
 		// Unsubscribe confirmation (spec 16): pendingUnsub carries the
 		// resolved action; y fires execution, n drops it.
 		if m.pendingUnsub != nil && msg.Topic == "unsubscribe" {
@@ -992,6 +1034,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.clearFilter()
 		if m.priorFolderID != "" {
 			return m, m.loadMessagesCmd(m.priorFolderID)
+		}
+		return m, nil
+
+	case savedSearchesUpdatedMsg:
+		m.savedSearches = msg.searches
+		m.folders.SetSavedSearches(msg.searches)
+		return m, nil
+
+	case savedSearchSavedMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("rule %s: %w", msg.action, msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		m.engineActivity = fmt.Sprintf("✓ rule %s %q", msg.action, msg.name)
+		if len(msg.searches) > 0 {
+			m.savedSearches = msg.searches
+			m.folders.SetSavedSearches(msg.searches)
 		}
 		return m, nil
 
@@ -1850,6 +1910,8 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		patternSrc := strings.TrimSpace(strings.TrimPrefix(line, "filter"))
 		return m, m.runFilterCmd(patternSrc)
+	case "rule":
+		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "unfilter":
 		prior := m.priorFolderID
 		m = m.clearFilter()
@@ -2057,6 +2119,114 @@ func (m Model) clearFilter() Model {
 type filterAppliedMsg struct {
 	src      string
 	messages []store.Message
+}
+
+// dispatchRule handles the :rule sub-command surface (spec 11 §5.4 / §5.5).
+// line is the full argument string after "rule " (for multi-word names).
+func (m Model) dispatchRule(args []string, line string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		m.lastError = fmt.Errorf("rule: usage :rule save <name> | list | show <name> | delete <name>")
+		return m, nil
+	}
+	switch args[0] {
+	case "save":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("rule save: usage :rule save <name>")
+			return m, nil
+		}
+		if !m.filterActive || m.filterPattern == "" {
+			m.lastError = fmt.Errorf("rule save: no active filter — run :filter <pattern> first")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "save"))
+		return m, m.ruleSaveCmd(name, m.filterPattern)
+	case "list":
+		if len(m.savedSearches) == 0 {
+			m.engineActivity = "no saved searches (use :rule save <name>)"
+			return m, nil
+		}
+		var parts []string
+		for _, ss := range m.savedSearches {
+			parts = append(parts, ss.Name)
+		}
+		m.engineActivity = "saved: " + strings.Join(parts, ", ")
+		return m, nil
+	case "show":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("rule show: usage :rule show <name>")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "show"))
+		for _, ss := range m.savedSearches {
+			if ss.Name == name {
+				m.engineActivity = fmt.Sprintf("%s: %s", ss.Name, ss.Pattern)
+				return m, nil
+			}
+		}
+		m.lastError = fmt.Errorf("rule show: %q not found", name)
+		return m, nil
+	case "delete":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("rule delete: usage :rule delete <name>")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "delete"))
+		m.pendingRuleDelete = name
+		m.confirm = m.confirm.Ask(fmt.Sprintf("Delete saved search %q?", name), "rule_delete")
+		m.mode = ConfirmMode
+		return m, nil
+	}
+	m.lastError = fmt.Errorf("rule: unknown sub-command %q (save / list / show / delete)", args[0])
+	return m, nil
+}
+
+// refreshSavedSearchCountsCmd evaluates all pinned saved searches and
+// emits a savedSearchesUpdatedMsg with fresh count badges for the sidebar.
+func (m Model) refreshSavedSearchCountsCmd() tea.Cmd {
+	if m.deps.SavedSearchSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		searches, err := m.deps.SavedSearchSvc.RefreshCounts(ctx)
+		if err != nil {
+			return nil // non-fatal: sidebar keeps stale counts
+		}
+		return savedSearchesUpdatedMsg{searches: searches}
+	}
+}
+
+// ruleSaveCmd persists the current filter as a named saved search.
+func (m Model) ruleSaveCmd(name, patternSrc string) tea.Cmd {
+	if m.deps.SavedSearchSvc == nil {
+		return func() tea.Msg { return savedSearchSavedMsg{action: "saved", name: name, err: fmt.Errorf("saved search: not wired")} }
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.deps.SavedSearchSvc.Save(ctx, name, patternSrc, true); err != nil {
+			return savedSearchSavedMsg{action: "saved", name: name, err: err}
+		}
+		searches, _ := m.deps.SavedSearchSvc.Reload(ctx)
+		return savedSearchSavedMsg{action: "saved", name: name, searches: searches}
+	}
+}
+
+// ruleDeleteCmd removes a named saved search after the user confirmed.
+func (m Model) ruleDeleteCmd(name string) tea.Cmd {
+	if m.deps.SavedSearchSvc == nil {
+		return func() tea.Msg { return savedSearchSavedMsg{action: "deleted", name: name, err: fmt.Errorf("saved search: not wired")} }
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.deps.SavedSearchSvc.DeleteByName(ctx, name); err != nil {
+			return savedSearchSavedMsg{action: "deleted", name: name, err: err}
+		}
+		searches, _ := m.deps.SavedSearchSvc.Reload(ctx)
+		return savedSearchSavedMsg{action: "deleted", name: name, searches: searches}
+	}
 }
 
 type bulkDoneMsg struct {
@@ -3600,6 +3770,12 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.loadFoldersCmd()}
 		if e.FolderID == m.list.FolderID {
 			cmds = append(cmds, m.loadMessagesCmd(e.FolderID))
+		}
+		// Invalidate saved-search counts so sidebar badges stay fresh
+		// after a sync delivers new messages. The counts Cmd is cheap
+		// because the Manager's cache absorbs repeat calls within TTL.
+		if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
+			cmds = append(cmds, refreshCmd)
 		}
 		return m, tea.Batch(cmds...)
 	}

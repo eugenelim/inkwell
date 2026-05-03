@@ -127,3 +127,19 @@ type OpenAttachmentDoneMsg struct {
 	Name string
 	Err  error
 }
+
+// savedSearchesUpdatedMsg delivers a refreshed saved-search list (with
+// updated Count fields) back into the Update loop. The FoldersModel is
+// updated so the sidebar count badges reflect the new values.
+type savedSearchesUpdatedMsg struct {
+	searches []SavedSearch
+}
+
+// savedSearchSavedMsg signals that a `:rule save` or `:rule delete` command
+// completed. The searches field carries the reloaded list for the sidebar.
+type savedSearchSavedMsg struct {
+	searches []SavedSearch
+	err      error
+	action   string // "saved" | "deleted"
+	name     string
+}
