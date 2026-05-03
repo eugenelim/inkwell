@@ -1,25 +1,73 @@
 # Spec 07 — Single-Message Triage Actions
 
 ## Status
-in-progress. Minimum-viable triage shipped v0.3.0. Undo shipped
-v0.13.x (PR 1 of audit-drain). Categorize / permanent-delete /
-move-with-picker remain deferred (drain-plan PR 4).
+in-progress (PR A-1 of Phase 2 audit-drain). Replay-on-startup +
+InFlight state + move-id rename + [triage] config additions landed
+2026-05-02. All remaining DoD bullets ticked.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/action/` package compiles with Executor + Drain.
 - [x] Action types implemented: mark_read, mark_unread, flag, unflag, soft_delete, archive (move), permanent_delete, add_category, remove_category, move (user-folder picker).
-- [ ] Replay-on-startup is the last per-action gap remaining (covered separately under "Replay-on-startup with stale-snapshot semantics" below).
+- [x] Replay-on-startup — `Executor.ReplayPending()` resets InFlight non-draft actions to Pending at startup; called from cmd_run.go before engine.Start. Draft-creation InFlight rows are left for the spec-15 stage-aware resume path.
 - [x] Optimistic apply: local store mutates first, Graph dispatched second, rollback on failure.
 - [x] Pre-mutation snapshot per action (read message before mutation, used to compute rollback fields).
 - [x] Action queue persists rows; Drain re-dispatches Pending on each engine cycle.
 - [x] Undo stack — shipped v0.13.x (PR 1 of audit-drain). `internal/action/inverse.go` computes the inverse per type; `Executor.run` pushes on success; `Executor.Undo` pops + applies with `SkipUndo` so the inverse-of-the-inverse doesn't recurse. UI binds `u` in list + viewer dispatch; e2e visible-delta verifies the status bar paints `↶ undid: <label>`.
-- [ ] Replay-on-startup with stale-snapshot semantics — deferred. (Drain already covers transient retry; full replay across restart added with v0.3.x.)
+- [x] Replay-on-startup with stale-snapshot semantics — shipped PR A-1 2026-05-02.
 - [x] UI keybindings wired in dispatchList: r (mark_read), R (mark_unread), f (toggle_flag), d (soft_delete), a (archive).
 - [x] Status bar displays the most recent triage error.
 - [x] List pane reloads after every successful triage (so the optimistic state is reflected immediately).
-- [x] Tests: executor unit tests over httptest Graph, covering mark_read PATCH payload, toggle_flag flip, soft_delete move endpoint, rollback on Graph failure, drain-retries-pending.
+- [x] Tests: executor unit tests over httptest Graph, covering mark_read PATCH payload, toggle_flag flip, soft_delete move endpoint, rollback on Graph failure, drain-retries-pending, InFlight state transition, move-id rename, ReplayPending, Drain-rename.
+- [x] `[triage]` config additions: `archive_folder`, `confirm_threshold`, `optimistic_ui` added to TriageConfig with defaults (archive, 10, true).
 
 ## Iteration log
+
+### Iter 6 — 2026-05-02 (PR A-1 of Phase 2 audit-drain)
+- Slice: replay-on-startup + InFlight state transition + move-id
+  stale fix + [triage] config additions.
+- Files modified:
+  - `internal/action/types.go`: `dispatch()` return signature
+    changed from `error` to `(string, error)`; Move/SoftDelete case
+    now captures and returns the new message ID from Graph; all other
+    cases return `"", err`.
+  - `internal/action/executor.go`:
+    - `run()`: adds `UpdateActionStatus(InFlight)` before dispatch;
+      captures `newID`; renames local row (UpsertMessage + DeleteMessage)
+      when Graph returns a new ID; passes `effectiveID` to PushUndo so
+      the undo entry targets the live ID not the stale one.
+    - `Drain()`: same InFlight mark + rename; retryable failures now
+      explicitly reset to Pending (so InFlight doesn't leak on
+      transient error).
+    - `ReplayPending()`: new method; iterates PendingActions (which
+      includes InFlight), skips draft-creation types, resets rest to
+      Pending.
+  - `cmd/inkwell/cmd_run.go`: calls `exec.ReplayPending(ctx)` before
+    `engine.Start()`.
+  - `internal/config/config.go`: `TriageConfig` gains `ArchiveFolder`,
+    `ConfirmThreshold`, `OptimisticUI`.
+  - `internal/config/defaults.go`: defaults `archive`, `10`, `true`.
+- Tests added:
+  - `TestRunSetsActionInFlightBeforeDispatch`: samples action status
+    from inside the httptest handler; asserts InFlight at dispatch time.
+  - `TestReplayPendingResetsInFlight`: seeds InFlight MarkRead action,
+    ReplayPending → Pending.
+  - `TestReplayPendingSkipsDraftCreation`: seeds InFlight
+    CreateDraftReply, ReplayPending → still InFlight.
+  - `TestDrainRenamesRowToNewIDOnMove`: manually seeded Pending move
+    action; Drain re-dispatch → row renamed to ID returned by Graph.
+- Tests updated:
+  - `TestExecutorSoftDeleteMovesMessage`: asserts old ID gone, new ID
+    "m-1-moved" carries correct FolderID.
+  - `TestExecutorSoftDeleteWhenDestinationIDDiffersFromAlias`: same.
+  - `TestExecutorMoveToUserFolder`: same; also asserts undo entry
+    MessageIDs == ["m-1-moved"] (new ID, not stale ID).
+- Critique: No layering violations. New public method `ReplayPending`
+  required by the cmd layer. No PII in logs. InFlight→Done window is
+  minimal (synchronous path). Drain's explicit Pending reset on
+  retryable error is a behaviour change from the original (was
+  effectively a no-op since the action was already InFlight) — now
+  correctly leaves the action retryable on the next cycle.
+- Next: PR A-2 (spec 09/10 finish).
 
 ### Iter 5 — 2026-04-30 (move-with-folder-picker, PR 4c of audit-drain)
 - Slice: spec 07 §6.5 / §12.1 — `m` keybind opens a typed-input

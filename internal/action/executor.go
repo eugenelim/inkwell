@@ -231,15 +231,38 @@ func (e *Executor) run(ctx context.Context, a store.Action) error {
 		return fmt.Errorf("action: enqueue: %w", err)
 	}
 
+	// Mark in-flight before dispatching so a crash between enqueue
+	// and completion is visible to ReplayPending on next startup.
+	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusInFlight, ""); err != nil {
+		e.logger.Warn("action: in-flight mark failed", "action_id", a.ID, "err", err)
+	}
+
 	// Dispatch synchronously. Most triage actions are <1s on Graph.
-	if err := e.dispatch(ctx, a); err != nil {
+	newID, err := e.dispatch(ctx, a)
+	if err != nil {
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
 		_ = rollbackLocal(ctx, e.st, a, pre)
 		return fmt.Errorf("action: dispatch: %w", err)
 	}
+
 	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
 		e.logger.Warn("action: status update failed", "action_id", a.ID, "err", err)
 	}
+
+	// Graph assigns a new message ID on a successful move. Rename the
+	// local row so future ops (re-read, undo) use the live ID.
+	effectiveID := id
+	if newID != "" && newID != id {
+		if current, readErr := e.st.GetMessage(ctx, id); readErr == nil && current != nil {
+			renamed := *current
+			renamed.ID = newID
+			if upsertErr := e.st.UpsertMessage(ctx, renamed); upsertErr == nil {
+				_ = e.st.DeleteMessage(ctx, id)
+				effectiveID = newID
+			}
+		}
+	}
+
 	// Spec 07 §11 — push an inverse-action descriptor so the next `u`
 	// keystroke can roll this back. Only the first-dispatch path
 	// (run) pushes; Drain replays don't (the entry is already on the
@@ -247,6 +270,12 @@ func (e *Executor) run(ctx context.Context, a store.Action) error {
 	// (permanent_delete) skip the push.
 	if !a.SkipUndo {
 		if entry, ok := Inverse(a, pre); ok {
+			// If the local row was renamed, the undo target must
+			// use the new ID — otherwise the undo action would try
+			// to operate on a stale ID that no longer exists locally.
+			if effectiveID != id {
+				entry.MessageIDs = []string{effectiveID}
+			}
 			if err := e.st.PushUndo(ctx, entry); err != nil {
 				// Push failure isn't fatal to the action itself —
 				// the user's data is in the desired state. Log + move on.
@@ -310,11 +339,16 @@ func (e *Executor) Drain(ctx context.Context) error {
 		if isDraftCreationAction(a.Type) {
 			continue
 		}
-		if err := e.dispatch(ctx, a); err != nil {
+		if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusInFlight, ""); err != nil {
+			e.logger.Warn("action drain: in-flight mark failed", "action_id", a.ID, "err", err)
+		}
+		newID, err := e.dispatch(ctx, a)
+		if err != nil {
 			classification := classifyDispatchError(err)
 			switch classification {
 			case classRetryable:
 				e.logger.Warn("action drain: retry next cycle", "action_id", a.ID, "err", err)
+				_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusPending, "")
 				continue
 			default:
 				e.logger.Error("action drain: hard failure", "action_id", a.ID, "err", err)
@@ -322,7 +356,43 @@ func (e *Executor) Drain(ctx context.Context) error {
 			}
 			continue
 		}
+		// Rename the local row if Graph assigned a new message ID.
+		if len(a.MessageIDs) == 1 && newID != "" && newID != a.MessageIDs[0] {
+			oldID := a.MessageIDs[0]
+			if current, readErr := e.st.GetMessage(ctx, oldID); readErr == nil && current != nil {
+				renamed := *current
+				renamed.ID = newID
+				if upsertErr := e.st.UpsertMessage(ctx, renamed); upsertErr == nil {
+					_ = e.st.DeleteMessage(ctx, oldID)
+				}
+			}
+		}
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, "")
+	}
+	return nil
+}
+
+// ReplayPending resets all non-draft-creation InFlight actions to
+// Pending so the Drain loop can re-dispatch them on the next engine
+// cycle. Called once at startup to recover from a crash that left
+// actions in the InFlight state.
+func (e *Executor) ReplayPending(ctx context.Context) error {
+	actions, err := e.st.PendingActions(ctx)
+	if err != nil {
+		return fmt.Errorf("replay pending: list actions: %w", err)
+	}
+	for _, a := range actions {
+		if a.Status != store.StatusInFlight {
+			continue
+		}
+		if isDraftCreationAction(a.Type) {
+			// Draft creation is non-idempotent at stage 1; the
+			// dedicated crash-recovery path in cmd_run handles these.
+			continue
+		}
+		if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusPending, ""); err != nil {
+			e.logger.Warn("replay pending: reset in-flight failed", "action_id", a.ID, "err", err)
+		}
 	}
 	return nil
 }

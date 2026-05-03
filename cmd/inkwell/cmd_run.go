@@ -123,6 +123,13 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	// cycle (handles transient throttle / network failure).
 	exec := action.New(st, gc, logger)
 
+	// Crash recovery: reset any InFlight (non-draft) actions to
+	// Pending so the engine's first Drain cycle picks them up. Must
+	// run before engine.Start so the first sync cycle sees them.
+	if err := exec.ReplayPending(ctx); err != nil {
+		logger.Warn("startup: replay pending failed", "err", err)
+	}
+
 	// Sync engine
 	engine, err = isync.New(gc, st, exec, isync.Options{
 		AccountID:             acc.ID,

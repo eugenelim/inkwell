@@ -88,8 +88,15 @@ type SearchConfig struct {
 // stay under [cache] for back-compat; this section adds the
 // triage-flow controls.
 type TriageConfig struct {
-	// ConfirmThreshold: a single-message triage acts immediately;
-	// no threshold here, kept for forward compat with bulk.
+	// ArchiveFolder is the destination for the `a` keybinding.
+	// Default "archive" (Graph well-known name). Set to a folder
+	// display name to route to a custom archive folder.
+	ArchiveFolder string `toml:"archive_folder"`
+	// ConfirmThreshold: bulk operations affecting more than this
+	// many messages require an explicit confirm step. 0 = always
+	// confirm. Single-message triage always acts immediately.
+	// Reserved for spec 09/10 bulk paths.
+	ConfirmThreshold int `toml:"confirm_threshold"`
 	// ConfirmPermanentDelete: always true today (the modal is hard-
 	// coded). Surface the knob so a power user can opt out at their
 	// own risk.
@@ -103,6 +110,9 @@ type TriageConfig struct {
 	// so frequent destinations stay one keystroke away. 0 disables
 	// the recent section entirely. Default 5.
 	RecentFoldersCount int `toml:"recent_folders_count"`
+	// OptimisticUI applies changes locally before Graph confirms.
+	// Default true. Disable only for debugging.
+	OptimisticUI bool `toml:"optimistic_ui"`
 }
 
 // BulkConfig owns the [bulk] section (spec 09 / 10).

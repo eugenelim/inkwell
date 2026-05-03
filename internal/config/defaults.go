@@ -88,9 +88,12 @@ func Defaults() *Config {
 			MaxSize: 10,
 		},
 		Triage: TriageConfig{
+			ArchiveFolder:          "archive",
+			ConfirmThreshold:       10,
 			ConfirmPermanentDelete: true,
 			UndoStackSize:          0, // 0 = unlimited; v1 doesn't enforce
 			RecentFoldersCount:     5,
+			OptimisticUI:           true,
 		},
 		Bulk: BulkConfig{
 			ProgressThreshold: 50,

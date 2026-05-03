@@ -234,25 +234,28 @@ func rollbackLocalMessage(ctx context.Context, st store.Store, a store.Action, p
 	return nil
 }
 
-// dispatch issues the Graph call corresponding to the action.
-func (e *Executor) dispatch(ctx context.Context, a store.Action) error {
+// dispatch issues the Graph call corresponding to the action. For
+// Move/SoftDelete it returns the new message ID assigned by Graph at
+// the destination (the original ID is invalidated by Graph after a
+// successful move). All other action types return an empty string.
+func (e *Executor) dispatch(ctx context.Context, a store.Action) (string, error) {
 	if len(a.MessageIDs) != 1 {
-		return fmt.Errorf("dispatch: expected single message ID, got %d", len(a.MessageIDs))
+		return "", fmt.Errorf("dispatch: expected single message ID, got %d", len(a.MessageIDs))
 	}
 	id := a.MessageIDs[0]
 	switch a.Type {
 	case store.ActionMarkRead:
-		return e.gc.PatchMessage(ctx, id, map[string]any{"isRead": true})
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{"isRead": true})
 	case store.ActionMarkUnread:
-		return e.gc.PatchMessage(ctx, id, map[string]any{"isRead": false})
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{"isRead": false})
 	case store.ActionFlag:
-		return e.gc.PatchMessage(ctx, id, map[string]any{
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{
 			"flag": map[string]any{
 				"flagStatus": "flagged",
 			},
 		})
 	case store.ActionUnflag:
-		return e.gc.PatchMessage(ctx, id, map[string]any{
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{
 			"flag": map[string]any{
 				"flagStatus": "notFlagged",
 			},
@@ -267,39 +270,42 @@ func (e *Executor) dispatch(ctx context.Context, a store.Action) error {
 			dest = paramString(a.Params, "destination_folder_id")
 		}
 		if dest == "" {
-			return fmt.Errorf("dispatch: move missing destination")
+			return "", fmt.Errorf("dispatch: move missing destination")
 		}
-		_, err := e.gc.MoveMessage(ctx, id, dest)
+		newID, err := e.gc.MoveMessage(ctx, id, dest)
 		// Graph 404 means the message is already where we wanted it
 		// (or removed entirely). Treat as success per CLAUDE.md §3.
 		if graph.IsNotFound(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		if err != nil {
+			return "", err
+		}
+		return newID, nil
 	case store.ActionPermanentDelete:
 		// Spec 07 §6.7: POST /me/messages/{id}/permanentDelete.
 		// Irreversible from the tenant; the UI must guard with a
 		// confirm modal before reaching this method.
-		return e.gc.PermanentDelete(ctx, id)
+		return "", e.gc.PermanentDelete(ctx, id)
 	case store.ActionAddCategory, store.ActionRemoveCategory:
 		// Spec 07 §6.9 / §6.10: PATCH the full categories array.
 		// Graph requires the post-state list (no append / remove
 		// primitive); we recompute from the snapshot + the param.
 		cat := paramString(a.Params, "category")
 		if cat == "" {
-			return fmt.Errorf("dispatch: %s missing category param", a.Type)
+			return "", fmt.Errorf("dispatch: %s missing category param", a.Type)
 		}
 		// Re-fetch the post-apply local row so the dispatch payload
 		// matches the optimistic state.
 		row, err := e.st.GetMessage(ctx, id)
 		if err != nil {
-			return fmt.Errorf("dispatch %s: read row: %w", a.Type, err)
+			return "", fmt.Errorf("dispatch %s: read row: %w", a.Type, err)
 		}
-		return e.gc.PatchMessage(ctx, id, map[string]any{
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{
 			"categories": row.Categories,
 		})
 	default:
-		return fmt.Errorf("dispatch: unsupported action type %q", a.Type)
+		return "", fmt.Errorf("dispatch: unsupported action type %q", a.Type)
 	}
 }
 

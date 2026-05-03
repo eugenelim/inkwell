@@ -390,7 +390,11 @@ func TestExecutorSoftDeleteMovesMessage(t *testing.T) {
 	require.NoError(t, exec.SoftDelete(context.Background(), accID, "m-1"))
 
 	require.Equal(t, int32(1), moveCalls.Load())
-	got, err := st.GetMessage(context.Background(), "m-1")
+	// After the move Graph returns a new message ID; the old row must
+	// be gone and the new row carries the destination folder.
+	_, oldErr := st.GetMessage(context.Background(), "m-1")
+	require.ErrorIs(t, oldErr, store.ErrNotFound, "old ID must be deleted after rename")
+	got, err := st.GetMessage(context.Background(), "m-1-moved")
 	require.NoError(t, err)
 	// Local folder uses the REAL folder ID resolved from the well-
 	// known alias, not the alias literal — otherwise the FK
@@ -425,7 +429,10 @@ func TestExecutorSoftDeleteWhenDestinationIDDiffersFromAlias(t *testing.T) {
 
 	require.NoError(t, exec.SoftDelete(context.Background(), accID, "m-1"))
 
-	got, err := st.GetMessage(context.Background(), "m-1")
+	// Old ID must be gone; new ID carries the real destination folder ID.
+	_, oldErr := st.GetMessage(context.Background(), "m-1")
+	require.ErrorIs(t, oldErr, store.ErrNotFound, "old ID must be deleted after rename")
+	got, err := st.GetMessage(context.Background(), "m-1-moved")
 	require.NoError(t, err)
 	require.Equal(t, "real-deleted-id-AAMkA", got.FolderID,
 		"local folder MUST be the real folder ID resolved from well-known alias (FK)")
@@ -460,7 +467,10 @@ func TestExecutorMoveToUserFolder(t *testing.T) {
 
 	require.NoError(t, exec.Move(context.Background(), accID, "m-1", "f-projects", ""))
 
-	got, err := st.GetMessage(context.Background(), "m-1")
+	// Old ID must be gone; new ID carries the destination folder.
+	_, oldErr := st.GetMessage(context.Background(), "m-1")
+	require.ErrorIs(t, oldErr, store.ErrNotFound, "old ID must be deleted after rename")
+	got, err := st.GetMessage(context.Background(), "m-1-moved")
 	require.NoError(t, err)
 	require.Equal(t, "f-projects", got.FolderID, "local row must reflect the destination folder")
 
@@ -468,13 +478,16 @@ func TestExecutorMoveToUserFolder(t *testing.T) {
 	require.NotNil(t, dest)
 	require.Equal(t, "f-projects", *dest, "user-folder moves use the folder ID (no alias)")
 
-	// Inverse pushed: undo entry restores the original folder.
+	// Inverse pushed: undo entry uses the NEW message ID and restores
+	// the original folder (pre.FolderID from snapshot).
 	entry, err := st.PeekUndo(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 	require.Equal(t, store.ActionMove, entry.ActionType)
 	require.Equal(t, "f-inbox", entry.Params["destination_folder_id"],
 		"undo entry must point back at the source folder")
+	require.Equal(t, []string{"m-1-moved"}, entry.MessageIDs,
+		"undo entry must carry the new message ID so undo can find the row")
 }
 
 // TestExecutorMoveRejectsEmptyDestination guards the API contract:
@@ -1041,4 +1054,121 @@ func TestExecutorDrainRetriesPending(t *testing.T) {
 	pending, err := st.PendingActions(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, pending, "drain marks action Done")
+}
+
+// TestRunSetsActionInFlightBeforeDispatch verifies that run() transitions
+// the action from Pending to InFlight before firing the Graph call, so a
+// crash during dispatch is visible to ReplayPending on next startup.
+func TestRunSetsActionInFlightBeforeDispatch(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	observed := make(chan store.ActionStatus, 1)
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-1", func(w http.ResponseWriter, r *http.Request) {
+		// Sample the action status from inside the handler — this is the
+		// window between InFlight mark and Done mark.
+		actions, _ := st.PendingActions(context.Background())
+		for _, a := range actions {
+			if a.Type == store.ActionMarkRead {
+				observed <- a.Status
+				break
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	require.NoError(t, exec.MarkRead(context.Background(), accID, "m-1"))
+
+	select {
+	case status := <-observed:
+		require.Equal(t, store.StatusInFlight, status,
+			"action must be InFlight while the Graph call is in-flight")
+	default:
+		t.Fatal("Graph handler was not called — InFlight observation skipped")
+	}
+}
+
+// TestReplayPendingResetsInFlight confirms that InFlight non-draft actions
+// are demoted back to Pending so the next Drain cycle re-dispatches them.
+func TestReplayPendingResetsInFlight(t *testing.T) {
+	exec, st, accID, _ := newTestExec(t)
+	a := store.Action{
+		ID:         newActionID(),
+		AccountID:  accID,
+		Type:       store.ActionMarkRead,
+		MessageIDs: []string{"m-1"},
+		Status:     store.StatusInFlight,
+	}
+	require.NoError(t, st.EnqueueAction(context.Background(), a))
+	// Manually bump to InFlight to simulate a crash during dispatch.
+	require.NoError(t, st.UpdateActionStatus(context.Background(), a.ID, store.StatusInFlight, ""))
+
+	require.NoError(t, exec.ReplayPending(context.Background()))
+
+	actions, err := st.PendingActions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	require.Equal(t, store.StatusPending, actions[0].Status,
+		"InFlight non-draft must be reset to Pending by ReplayPending")
+}
+
+// TestReplayPendingSkipsDraftCreation ensures draft-creation InFlight
+// rows are left untouched — they use a separate stage-aware resume path.
+func TestReplayPendingSkipsDraftCreation(t *testing.T) {
+	exec, st, accID, _ := newTestExec(t)
+	a := store.Action{
+		ID:         newActionID(),
+		AccountID:  accID,
+		Type:       store.ActionCreateDraftReply,
+		MessageIDs: []string{"src-1"},
+		Status:     store.StatusPending,
+	}
+	require.NoError(t, st.EnqueueAction(context.Background(), a))
+	require.NoError(t, st.UpdateActionStatus(context.Background(), a.ID, store.StatusInFlight, ""))
+
+	require.NoError(t, exec.ReplayPending(context.Background()))
+
+	actions, err := st.PendingActions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	require.Equal(t, store.StatusInFlight, actions[0].Status,
+		"draft-creation InFlight must not be touched by ReplayPending")
+}
+
+// TestDrainRenamesRowToNewIDOnMove verifies that Drain re-dispatch of a
+// Pending move action renames the local row when Graph returns a new ID.
+func TestDrainRenamesRowToNewIDOnMove(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-projects", AccountID: accID, DisplayName: "Projects", LastSyncedAt: time.Now(),
+	}))
+	// Seed a message that was moved locally but hasn't been dispatched yet.
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "m-drain", AccountID: accID, FolderID: "f-projects", Subject: "drain test",
+		FromAddress: "x@example.invalid",
+	}))
+	// Hand-craft a Pending move action (simulates what ReplayPending
+	// leaves behind after a crash mid-dispatch).
+	a := store.Action{
+		ID:         newActionID(),
+		AccountID:  accID,
+		Type:       store.ActionMove,
+		MessageIDs: []string{"m-drain"},
+		Status:     store.StatusPending,
+		Params: map[string]any{
+			"destination_folder_id": "f-projects",
+		},
+	}
+	require.NoError(t, st.EnqueueAction(context.Background(), a))
+
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/me/messages/m-drain/move", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "m-drain-renamed"})
+	})
+
+	require.NoError(t, exec.Drain(context.Background()))
+
+	_, oldErr := st.GetMessage(context.Background(), "m-drain")
+	require.ErrorIs(t, oldErr, store.ErrNotFound, "old row must be deleted after drain rename")
+	got, err := st.GetMessage(context.Background(), "m-drain-renamed")
+	require.NoError(t, err)
+	require.Equal(t, "f-projects", got.FolderID)
 }
