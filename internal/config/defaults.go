@@ -102,6 +102,14 @@ func Defaults() *Config {
 			SizeHardMax:       5000,
 			DryRunDefault:     false,
 		},
+		Batch: BatchConfig{
+			MaxPerBatch:             20,
+			Concurrency:             3,
+			RequestTimeout:          60 * time.Second,
+			MaxRetriesPerSubrequest: 5,
+			WarnThreshold:           1000,
+			HardMax:                 5000,
+		},
 		Calendar: CalendarConfig{
 			LookaheadDays:          30,
 			LookbackDays:           7,

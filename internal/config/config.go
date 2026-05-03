@@ -32,6 +32,7 @@ type Config struct {
 	Logging       LoggingConfig       `toml:"logging"`
 	Triage        TriageConfig        `toml:"triage"`
 	Bulk          BulkConfig          `toml:"bulk"`
+	Batch         BatchConfig         `toml:"batch"`
 	Calendar      CalendarConfig      `toml:"calendar"`
 	Search        SearchConfig        `toml:"search"`
 	Pattern       PatternConfig       `toml:"pattern"`
@@ -129,6 +130,24 @@ type BulkConfig struct {
 	// DryRunDefault: when true, `:filter --apply` requires `!`
 	// suffix to actually mutate (spec 10 §6).
 	DryRunDefault bool `toml:"dry_run_default"`
+}
+
+// BatchConfig owns the [batch] section (spec 09). Engine-level knobs
+// for $batch fan-out, retry, and bulk size limits.
+type BatchConfig struct {
+	// MaxPerBatch caps sub-requests per $batch call. Graph hard limit is 20.
+	MaxPerBatch int `toml:"max_per_batch"`
+	// Concurrency caps the number of $batch calls in flight simultaneously.
+	Concurrency int `toml:"batch_concurrency"`
+	// RequestTimeout is the timeout for a single $batch HTTP call.
+	RequestTimeout time.Duration `toml:"batch_request_timeout"`
+	// MaxRetriesPerSubrequest is the maximum 429-retry attempts per
+	// individual sub-request.
+	MaxRetriesPerSubrequest int `toml:"max_retries_per_subrequest"`
+	// WarnThreshold: bulk operations with N≥this show a time estimate.
+	WarnThreshold int `toml:"bulk_size_warn_threshold"`
+	// HardMax: bulk operations exceeding this are refused.
+	HardMax int `toml:"bulk_size_hard_max"`
 }
 
 // CalendarConfig owns the [calendar] section (spec 12). Matches the

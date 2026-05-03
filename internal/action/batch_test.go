@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -155,6 +157,7 @@ func TestBatchExecuteChunksAt20(t *testing.T) {
 	}
 
 	var calls atomic.Int32
+	var sizesMu sync.Mutex
 	var sizes []int
 	srv.Config.Handler.(*http.ServeMux).HandleFunc("/$batch", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -164,7 +167,9 @@ func TestBatchExecuteChunksAt20(t *testing.T) {
 			} `json:"requests"`
 		}
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		sizesMu.Lock()
 		sizes = append(sizes, len(payload.Requests))
+		sizesMu.Unlock()
 		out := struct {
 			Responses []map[string]any `json:"responses"`
 		}{}
@@ -179,6 +184,8 @@ func TestBatchExecuteChunksAt20(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 25)
 	require.Equal(t, int32(2), calls.Load(), "25 actions → 2 $batch calls")
+	// Chunks run concurrently — sort before comparing.
+	sort.Sort(sort.Reverse(sort.IntSlice(sizes)))
 	require.Equal(t, []int{20, 5}, sizes)
 }
 

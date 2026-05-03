@@ -122,6 +122,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	// sync.ActionDrainer so the engine retries pending actions every
 	// cycle (handles transient throttle / network failure).
 	exec := action.New(st, gc, logger)
+	exec.SetBatchConfig(cfg.Batch)
 
 	// Crash recovery: reset any InFlight (non-draft) actions to
 	// Pending so the engine's first Drain cycle picks them up. Must

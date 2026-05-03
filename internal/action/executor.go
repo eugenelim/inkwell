@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eugenelim/inkwell/internal/config"
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -34,9 +35,16 @@ const (
 // calls. It implements [sync.ActionDrainer] so the sync engine drains
 // the queue at every cycle (handles retry-after-failure transparently).
 type Executor struct {
-	st     store.Store
-	gc     *graph.Client
-	logger *slog.Logger
+	st       store.Store
+	gc       *graph.Client
+	logger   *slog.Logger
+	batchCfg config.BatchConfig
+}
+
+// SetBatchConfig configures the batch execution parameters. Call once
+// after New before any batch operations are started.
+func (e *Executor) SetBatchConfig(cfg config.BatchConfig) {
+	e.batchCfg = cfg
 }
 
 // New constructs an executor.
@@ -300,6 +308,15 @@ func (e *Executor) Undo(ctx context.Context, accountID int64) (store.UndoEntry, 
 	if entry == nil {
 		return store.UndoEntry{}, store.ErrNotFound
 	}
+	// Bulk undo entry: dispatch via batchExecute with skipUndo=true.
+	if len(entry.MessageIDs) > 1 {
+		if _, err := e.batchExecute(ctx, accountID, entry.ActionType, entry.MessageIDs, entry.Params, true); err != nil {
+			_ = e.st.PushUndo(ctx, *entry)
+			return store.UndoEntry{}, err
+		}
+		return *entry, nil
+	}
+
 	a := store.Action{
 		ID:         newActionID(),
 		AccountID:  accountID,
