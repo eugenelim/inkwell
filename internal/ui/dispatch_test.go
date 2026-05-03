@@ -793,29 +793,159 @@ type stubBulkExecutor struct {
 	onSoftDelete func()
 }
 
+func bulkOK(ids []string) ([]BulkResult, error) {
+	out := make([]BulkResult, len(ids))
+	for i, id := range ids {
+		out[i] = BulkResult{MessageID: id}
+	}
+	return out, nil
+}
+
 func (s stubBulkExecutor) BulkSoftDelete(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
 	if s.onSoftDelete != nil {
 		s.onSoftDelete()
 	}
-	out := make([]BulkResult, len(ids))
-	for i, id := range ids {
-		out[i] = BulkResult{MessageID: id}
-	}
-	return out, nil
+	return bulkOK(ids)
 }
 func (s stubBulkExecutor) BulkArchive(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
-	out := make([]BulkResult, len(ids))
-	for i, id := range ids {
-		out[i] = BulkResult{MessageID: id}
-	}
-	return out, nil
+	return bulkOK(ids)
 }
 func (s stubBulkExecutor) BulkMarkRead(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
-	out := make([]BulkResult, len(ids))
-	for i, id := range ids {
-		out[i] = BulkResult{MessageID: id}
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkMarkUnread(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkFlag(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkUnflag(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkPermanentDelete(_ context.Context, _ int64, ids []string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkAddCategory(_ context.Context, _ int64, ids []string, _ string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+func (s stubBulkExecutor) BulkRemoveCategory(_ context.Context, _ int64, ids []string, _ string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
+
+// TestFKeyPreFillsFilterCommand confirms pressing F (capital) opens
+// command mode pre-filled with "filter ".
+func TestFKeyPreFillsFilterCommand(t *testing.T) {
+	m := newDispatchTestModel(t)
+	require.Equal(t, NormalMode, m.mode)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("F")})
+	m = m2.(Model)
+
+	require.Equal(t, CommandMode, m.mode, "F must enter command mode")
+	require.Equal(t, "filter ", m.cmd.buf, "F must pre-fill 'filter '")
+}
+
+// TestFKeyInsideBulkChordUnflags confirms ;F opens the confirm modal
+// for bulk unflag rather than opening the filter command bar.
+func TestFKeyInsideBulkChordUnflags(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.filterActive = true
+	m.filterIDs = []string{"m-1", "m-2"}
+	m.deps.Bulk = stubBulkExecutor{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	require.True(t, m.bulkPending)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("F")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode, ";F must enter confirm mode (bulk unflag)")
+	require.Equal(t, "unflag", m.pendingBulk)
+}
+
+// TestSemicolonNewVerbsOpenConfirmModal checks that each new ; chord
+// opens a confirm modal with the expected pendingBulk value.
+func TestSemicolonNewVerbsOpenConfirmModal(t *testing.T) {
+	cases := []struct {
+		key    string
+		action string
+	}{
+		{"D", "permanent_delete"},
+		{"r", "mark_read"},
+		{"R", "mark_unread"},
+		{"f", "flag"},
 	}
-	return out, nil
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			m := newDispatchTestModel(t)
+			m.filterActive = true
+			m.filterIDs = []string{"m-1", "m-2"}
+			m.deps.Bulk = stubBulkExecutor{}
+
+			m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+			m = m2.(Model)
+			require.True(t, m.bulkPending)
+
+			m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tc.key)})
+			m = m2.(Model)
+			require.Equal(t, ConfirmMode, m.mode, ";"+tc.key+" must enter confirm mode")
+			require.Equal(t, tc.action, m.pendingBulk)
+		})
+	}
+}
+
+// TestSemicolonCEntersCategoryInputMode confirms ;c opens the category
+// input modal with the bulk flag set (not a single-message path).
+func TestSemicolonCEntersCategoryInputMode(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.filterActive = true
+	m.filterIDs = []string{"m-1"}
+	m.deps.Bulk = stubBulkExecutor{}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+
+	require.Equal(t, CategoryInputMode, m.mode, ";c must enter category input mode")
+	require.Equal(t, "add_category", m.pendingBulkCategoryAction, ";c must set bulk action to add_category")
+}
+
+// TestSemicolonCategoryConfirmFlowReachesRunBulk drives ;c → type
+// "News" → Enter → confirm modal → y → verifies runBulkCmd is returned.
+func TestSemicolonCategoryConfirmFlowReachesRunBulk(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.filterActive = true
+	m.filterIDs = []string{"m-1", "m-2"}
+	m.deps.Bulk = stubBulkExecutor{}
+
+	// ;c
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+	require.Equal(t, CategoryInputMode, m.mode)
+
+	// type "News"
+	for _, r := range "News" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	// Enter → confirm modal
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode, "Enter after category name must open confirm modal")
+	require.Equal(t, "add_category", m.pendingBulk)
+	require.Equal(t, "News", m.pendingBulkCategory)
+
+	// y → bulk cmd
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = m2.(Model)
+	require.NotNil(t, cmd)
+	confirmMsg := cmd()
+	m2, bulkCmd := m.Update(confirmMsg)
+	_ = m2
+	require.NotNil(t, bulkCmd, "confirmed bulk add_category must return runBulkCmd")
 }
 
 // stubUnsubService satisfies ui.UnsubscribeService for dispatch tests.

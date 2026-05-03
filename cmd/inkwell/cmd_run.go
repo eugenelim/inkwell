@@ -335,6 +335,36 @@ func (b bulkAdapter) BulkMarkRead(ctx context.Context, accountID int64, ids []st
 	return convertBatchResults(got), err
 }
 
+func (b bulkAdapter) BulkMarkUnread(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkMarkUnread(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkFlag(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkFlag(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkUnflag(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkUnflag(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkPermanentDelete(ctx context.Context, accountID int64, ids []string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkPermanentDelete(ctx, accountID, ids)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkAddCategory(ctx context.Context, accountID int64, ids []string, category string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkAddCategory(ctx, accountID, ids, category)
+	return convertBatchResults(got), err
+}
+
+func (b bulkAdapter) BulkRemoveCategory(ctx context.Context, accountID int64, ids []string, category string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkRemoveCategory(ctx, accountID, ids, category)
+	return convertBatchResults(got), err
+}
+
 // draftAdapter bridges action.Executor.CreateDraftReply →
 // ui.DraftCreator. Same shape; the adapter exists so the UI doesn't
 // import internal/action.

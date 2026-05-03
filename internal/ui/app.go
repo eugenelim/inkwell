@@ -146,6 +146,12 @@ type BulkExecutor interface {
 	BulkSoftDelete(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
 	BulkArchive(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
 	BulkMarkRead(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkMarkUnread(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkFlag(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkUnflag(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkPermanentDelete(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
+	BulkAddCategory(ctx context.Context, accountID int64, messageIDs []string, category string) ([]BulkResult, error)
+	BulkRemoveCategory(ctx context.Context, accountID int64, messageIDs []string, category string) ([]BulkResult, error)
 }
 
 // Deps wires the UI to its lower-layer collaborators.
@@ -464,7 +470,11 @@ type Model struct {
 	filterPattern string
 	filterIDs     []string // matched message IDs (for bulk apply)
 	bulkPending   bool     // true after `;` is pressed; next d/a fires bulk
-	pendingBulk   string   // "soft_delete" / "archive" while in ConfirmMode
+	pendingBulk   string   // action key while in ConfirmMode (bulk ops)
+	// pendingBulkCategory holds the category name for ;c / ;C bulk ops
+	// while ConfirmMode or CategoryInputMode is active. Cleared after dispatch.
+	pendingBulkCategory       string
+	pendingBulkCategoryAction string // "add_category" | "remove_category" while CategoryInputMode is bulk
 
 	// Compose / reply (spec 15). Tracks the most-recently-saved draft
 	// so the viewer-pane `s` shortcut can open it in Outlook. Cleared
@@ -855,6 +865,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingBulk != "" {
 			action := m.pendingBulk
 			m.pendingBulk = ""
+			m.pendingBulkCategory = "" // always clear after confirm or cancel
 			if msg.Confirm {
 				return m, m.runBulkCmd(action)
 			}
@@ -1565,6 +1576,15 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case key.Matches(keyMsg, m.keymap.PrevPane):
 		m.focused = prevPane(m.focused)
 		return m, nil
+	case key.Matches(keyMsg, m.keymap.Filter):
+		// When bulkPending is true the user typed `;F` (unflag chord);
+		// let dispatchList handle it rather than opening the command bar.
+		if !m.bulkPending {
+			m.mode = CommandMode
+			m.cmd.Activate()
+			m.cmd.buf = "filter "
+			return m, nil
+		}
 	}
 	// Pane-scoped dispatch (spec 04 §5). The list pane handles list
 	// movement, the folders pane handles tree movement, etc.
@@ -2120,19 +2140,62 @@ func (m Model) fetchCalendarForDateCmd(day time.Time) tea.Cmd {
 	}
 }
 
-// confirmBulk pops up the confirm modal for a destructive bulk
-// operation. Stores the action name in pendingBulk so the
-// ConfirmResult handler knows what to dispatch on `y`.
+// confirmBulk pops up the confirm modal for a bulk operation. Stores
+// the action name in pendingBulk so the ConfirmResult handler knows
+// what to dispatch on `y`. Shows the filter pattern and a 5-message
+// sample so the user can sanity-check before committing.
 func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 	if m.deps.Bulk == nil {
 		m.lastError = fmt.Errorf("bulk: not wired")
 		return m, nil
 	}
 	verb := action
-	if action == "soft_delete" {
+	switch action {
+	case "soft_delete":
 		verb = "delete"
+	case "permanent_delete":
+		verb = "permanently delete"
+	case "mark_read":
+		verb = "mark read"
+	case "mark_unread":
+		verb = "mark unread"
+	case "add_category":
+		if m.pendingBulkCategory != "" {
+			verb = "add category " + m.pendingBulkCategory + " to"
+		} else {
+			verb = "add category to"
+		}
+	case "remove_category":
+		if m.pendingBulkCategory != "" {
+			verb = "remove category " + m.pendingBulkCategory + " from"
+		} else {
+			verb = "remove category from"
+		}
 	}
-	m.confirm = m.confirm.Ask(fmt.Sprintf("%s %d messages?", titleCase(verb), count), "bulk:"+action)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s %d messages?", titleCase(verb), count))
+	if m.filterPattern != "" {
+		sb.WriteString("\n\nFilter: " + m.filterPattern)
+	}
+	n := len(m.list.messages)
+	if n > 5 {
+		n = 5
+	}
+	if n > 0 {
+		sb.WriteString("\n\nSample:")
+		for i := 0; i < n; i++ {
+			msg := m.list.messages[i]
+			subj := msg.Subject
+			if len(subj) > 44 {
+				subj = subj[:41] + "..."
+			}
+			sb.WriteString("\n  " + subj)
+		}
+		if count > n {
+			sb.WriteString(fmt.Sprintf("\n  … and %d more", count-n))
+		}
+	}
+	m.confirm = m.confirm.Ask(sb.String(), "bulk:"+action)
 	m.pendingBulk = action
 	m.mode = ConfirmMode
 	return m, nil
@@ -2145,6 +2208,7 @@ func (m Model) runBulkCmd(action string) tea.Cmd {
 		return nil
 	}
 	ids := append([]string(nil), m.filterIDs...) // copy to avoid races with model mutation
+	category := m.pendingBulkCategory            // captured before any model mutation
 	var accountID int64
 	if m.deps.Account != nil {
 		accountID = m.deps.Account.ID
@@ -2163,6 +2227,18 @@ func (m Model) runBulkCmd(action string) tea.Cmd {
 			results, err = m.deps.Bulk.BulkArchive(ctx, accountID, ids)
 		case "mark_read":
 			results, err = m.deps.Bulk.BulkMarkRead(ctx, accountID, ids)
+		case "mark_unread":
+			results, err = m.deps.Bulk.BulkMarkUnread(ctx, accountID, ids)
+		case "flag":
+			results, err = m.deps.Bulk.BulkFlag(ctx, accountID, ids)
+		case "unflag":
+			results, err = m.deps.Bulk.BulkUnflag(ctx, accountID, ids)
+		case "permanent_delete":
+			results, err = m.deps.Bulk.BulkPermanentDelete(ctx, accountID, ids)
+		case "add_category":
+			results, err = m.deps.Bulk.BulkAddCategory(ctx, accountID, ids, category)
+		case "remove_category":
+			results, err = m.deps.Bulk.BulkRemoveCategory(ctx, accountID, ids, category)
 		default:
 			return ErrorMsg{Err: fmt.Errorf("runBulkCmd: unknown action %q", action)}
 		}
@@ -2277,8 +2353,30 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch string(msg.Runes) {
 		case "d":
 			return m.confirmBulk("soft_delete", len(m.filterIDs))
+		case "D":
+			return m.confirmBulk("permanent_delete", len(m.filterIDs))
 		case "a":
 			return m.confirmBulk("archive", len(m.filterIDs))
+		case "r":
+			return m.confirmBulk("mark_read", len(m.filterIDs))
+		case "R":
+			return m.confirmBulk("mark_unread", len(m.filterIDs))
+		case "f":
+			return m.confirmBulk("flag", len(m.filterIDs))
+		case "F":
+			return m.confirmBulk("unflag", len(m.filterIDs))
+		case "c":
+			m.pendingBulkCategoryAction = "add_category"
+			m.pendingCategoryMsg = nil
+			m.categoryBuf = ""
+			m.mode = CategoryInputMode
+			return m, nil
+		case "C":
+			m.pendingBulkCategoryAction = "remove_category"
+			m.pendingCategoryMsg = nil
+			m.categoryBuf = ""
+			m.mode = CategoryInputMode
+			return m, nil
 		}
 		// Unknown chord follow-up: clear pending, fall through.
 	}
@@ -2595,6 +2693,7 @@ func (m Model) updateCategoryInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = NormalMode
 		m.pendingCategoryAction = ""
 		m.pendingCategoryMsg = nil
+		m.pendingBulkCategoryAction = ""
 		m.categoryBuf = ""
 		m.engineActivity = "category input cancelled"
 		return m, nil
@@ -2604,7 +2703,17 @@ func (m Model) updateCategoryInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = NormalMode
 			m.pendingCategoryAction = ""
 			m.pendingCategoryMsg = nil
+			m.pendingBulkCategoryAction = ""
 			return m, nil
+		}
+		// Bulk path: ;c / ;C entered a category name — confirm before applying.
+		if m.pendingBulkCategoryAction != "" {
+			bulkAction := m.pendingBulkCategoryAction
+			m.pendingBulkCategoryAction = ""
+			m.categoryBuf = ""
+			m.mode = NormalMode
+			m.pendingBulkCategory = cat
+			return m.confirmBulk(bulkAction, len(m.filterIDs))
 		}
 		action := m.pendingCategoryAction
 		src := *m.pendingCategoryMsg
@@ -3591,11 +3700,24 @@ func (m Model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.mode == CategoryInputMode {
-		verb := m.pendingCategoryAction
-		if verb == "" {
-			verb = "set"
+		var title, verb string
+		if m.pendingBulkCategoryAction != "" {
+			switch m.pendingBulkCategoryAction {
+			case "add_category":
+				verb = "add"
+			case "remove_category":
+				verb = "remove"
+			default:
+				verb = "set"
+			}
+			title = titleCase(verb) + " category (bulk · " + fmt.Sprintf("%d messages", len(m.filterIDs)) + ")"
+		} else {
+			verb = m.pendingCategoryAction
+			if verb == "" {
+				verb = "set"
+			}
+			title = titleCase(verb) + " category"
 		}
-		title := titleCase(verb) + " category"
 		body := title + "\n\n" + m.theme.HelpKey.Render(verb+":") + " " + m.categoryBuf + "▎\n\n" +
 			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
 		box := m.theme.Modal.Render(body)

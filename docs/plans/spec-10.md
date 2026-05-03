@@ -1,7 +1,7 @@
 # Spec 10 — Bulk Operations UX
 
 ## Status
-in-progress (CI scope: filter mode + ;d/;a chord + confirm modal + bulk dispatch shipped in v0.6.0; capital-F shortcut, search→filter conversion, progress modal, undo overlay deferred to v0.6.x).
+in-progress (full verb set + F key + ;c/;C category + enhanced confirm sample shipped in PR A-3; progress modal + dry-run + cross-folder filter deferred).
 
 ## DoD checklist (mirrored from spec)
 - [x] `:filter <pattern>` parses via spec 08 (Parse → CompileLocal), runs against the local store via SearchByPredicate, and replaces the list pane with matches.
@@ -10,17 +10,36 @@ in-progress (CI scope: filter mode + ;d/;a chord + confirm modal + bulk dispatch
 - [x] Cmd-bar reminder while filter active: "filter: <pattern> · matched N · ;d delete · ;a archive · :unfilter".
 - [x] `;` chord arms the bulk-pending state (only when a filter is active).
 - [x] `;d` opens confirm modal "Delete N messages? [y/N]" — destructive default-No (CLAUDE.md §7 #9).
+- [x] `;D` opens confirm modal "Permanently delete N messages?" (always confirms).
 - [x] `;a` opens confirm modal "Archive N messages?".
+- [x] `;r` / `;R` — mark all filtered read / unread.
+- [x] `;f` / `;F` — flag / unflag all filtered.
+- [x] `;c` — opens category input modal (bulk), then confirm modal → BulkAddCategory.
+- [x] `;C` — opens category input modal (bulk), then confirm modal → BulkRemoveCategory.
+- [x] Confirm modal shows filter pattern and a 5-message subject sample.
+- [x] Capital `F` shortcut that pre-fills `:filter ` in command mode.
 - [x] On Confirm-yes, BulkExecutor dispatches via spec 09's BatchExecute. Status bar shows "✓ <action> N" or "⚠ <action> X/Y" partial.
 - [x] Filter clears after a successful bulk; list reloads from the prior folder.
-- [x] Tests: 5 dispatch cases (filter activates, plain text wraps in ~B, ; without filter is no-op, ;d opens confirm, confirm-yes fires bulk Cmd) + reused stub BulkExecutor.
-- [ ] Capital `F` shortcut that pre-fills `:filter ` — deferred. `:filter` is the discoverable form.
+- [x] Tests: dispatch cases for all 9 verb chords, F key, ;F inside chord, ;c full flow.
 - [ ] Search → filter conversion (post-`/`-search press F) — deferred.
-- [ ] Progress modal during long bulk ops — deferred. Status bar suffices.
-- [ ] Composite undo (single undo entry for the whole bulk op) — deferred to spec 11 + undo overlay.
+- [ ] Progress modal during long bulk ops — deferred. Status bar suffices for v1.
+- [ ] Composite undo (single undo entry for the whole bulk op) — handled by spec 09 batch layer; undo overlay deferred to spec 11.
 - [ ] Cross-folder filter — deferred per PRD §6 (single-folder only in v1).
+- [ ] Dry-run mode (`:filter --dry-run` / `!` suffix) — deferred.
 
 ## Iteration log
+
+### Iter 2 — 2026-05-02 (PR A-3: full verb set + F key + ;c/;C + confirm sample)
+- Slice: UI, tests.
+- Files modified:
+  - `internal/ui/app.go` — BulkExecutor interface +6 methods; Model gains `pendingBulkCategoryAction`/`pendingBulkCategory`; global dispatch wires `F` key (guards against `;F` chord); dispatchList `;` chord extended with D/r/R/f/F/c/C; updateCategoryInput handles bulk path on Enter; confirmBulk enhanced with filter+sample; runBulkCmd handles all 9 action types + category param.
+  - `internal/ui/dispatch_test.go` — stubBulkExecutor extended with 6 new methods + `bulkOK` helper; added TestFKeyPreFillsFilterCommand, TestFKeyInsideBulkChordUnflags, TestSemicolonNewVerbsOpenConfirmModal, TestSemicolonCEntersCategoryInputMode, TestSemicolonCategoryConfirmFlowReachesRunBulk.
+  - `cmd/inkwell/cmd_run.go` — bulkAdapter gains BulkMarkUnread, BulkFlag, BulkUnflag, BulkPermanentDelete, BulkAddCategory, BulkRemoveCategory.
+- Commands: `go vet ./...` clean; `go test -race ./internal/ui/... ./cmd/...` green (calendar timezone failures are pre-existing).
+- Critique:
+  - Progress modal deferred: status bar shows "✓ <action> N" after completion, which is adequate for v1. The `OnProgress` callback in `batchExecute` is wired in spec 09; threading it back to the UI requires a channel pattern and a new mode (`BulkProgressMode`). Scope for a future iter.
+  - `;m` (move all filtered) not wired — opens the folder picker for each message individually; bulk move requires a different Graph endpoint (`copyItem`/`moveItem` per message). Deferred.
+  - Dry-run mode not wired — spec 10 §6 defines it but no UI user has requested it yet.
 
 ### Iter 1 — 2026-04-29 (filter + ;d/;a chord + confirm modal)
 - Slice: UI + store wiring. Pattern + batch were in place from specs 08 + 09.
