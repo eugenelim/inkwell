@@ -216,6 +216,12 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Attachments:           gc,
 		AttachmentSaveDir:     expandHome(cfg.Rendering.AttachmentSaveDir),
 		LargeAttachmentWarnMB: cfg.Rendering.LargeAttachmentWarnMB,
+		UnreadIndicator:       cfg.UI.UnreadIndicator,
+		FlagIndicator:         cfg.UI.FlagIndicator,
+		AttachmentIndicator:   cfg.UI.AttachmentIndicator,
+		TransientStatusTTL:    cfg.UI.TransientStatusTTL,
+		MinTerminalCols:       cfg.UI.MinTerminalCols,
+		MinTerminalRows:       cfg.UI.MinTerminalRows,
 	})
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
@@ -224,6 +230,9 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	if _, err := prog.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
 	}
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stopCancel()
+	_ = engine.Stop(stopCtx)
 	return nil
 }
 

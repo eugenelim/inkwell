@@ -35,9 +35,9 @@ type Config struct {
 	Batch         BatchConfig         `toml:"batch"`
 	Calendar      CalendarConfig      `toml:"calendar"`
 	Search        SearchConfig        `toml:"search"`
-	Pattern       PatternConfig        `toml:"pattern"`
-	SavedSearch   SavedSearchSettings  `toml:"saved_search"`
-	SavedSearches []SavedSearchConfig  `toml:"saved_searches"`
+	Pattern       PatternConfig       `toml:"pattern"`
+	SavedSearch   SavedSearchSettings `toml:"saved_search"`
+	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
 }
 
 // PatternConfig owns the [pattern] section (spec 08 §13). Knobs
@@ -241,7 +241,13 @@ type UIConfig struct {
 	// Theme is the named color scheme. One of: "default", "dark",
 	// "light", "solarized-dark", "solarized-light", "high-contrast".
 	// Unknown values fall back to "default" with a logged warning.
-	Theme string `toml:"theme"`
+	Theme               string        `toml:"theme"`
+	UnreadIndicator     string        `toml:"unread_indicator"`
+	FlagIndicator       string        `toml:"flag_indicator"`
+	AttachmentIndicator string        `toml:"attachment_indicator"`
+	TransientStatusTTL  time.Duration `toml:"transient_status_ttl"`
+	MinTerminalCols     int           `toml:"min_terminal_cols"`
+	MinTerminalRows     int           `toml:"min_terminal_rows"`
 }
 
 // BindingsConfig owns the [bindings] section (spec 04).

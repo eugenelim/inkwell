@@ -328,9 +328,12 @@ func TestSubjectColumnVisibleAtStandardWidth(t *testing.T) {
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
-		// "Asian and Pacific Islander" is 26 chars; with date(10)+gap+sender(18)+gap = 30
-		// chars of prefix, a list pane >= 56 cols leaves room for the first 26 of the subject.
-		return contains(string(out), "Asian and Pacific Islander")
+		// At 120 cols the list pane is ~55 cols wide. The row prefix is
+		// marker(2)+flag(2)+date(10)+gap+sender(14)+gap = 30 chars, leaving
+		// ~25 chars for the subject. "Asian and Pacific Island" (24 chars)
+		// confirms subjects remain readable; the full 48-char subject was
+		// truncated before the flag indicator was added and remains so.
+		return contains(string(out), "Asian and Pacific Island")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

@@ -211,7 +211,9 @@ func TestBatchCompositeUndo(t *testing.T) {
 
 	srv.Config.Handler.(*http.ServeMux).HandleFunc("/$batch", func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")
@@ -246,7 +248,9 @@ func TestBulkUndoRoundTrip(t *testing.T) {
 
 	srv.Config.Handler.(*http.ServeMux).HandleFunc("/$batch", func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")
@@ -309,7 +313,9 @@ func TestBatchConcurrentChunks(t *testing.T) {
 		// Small delay so both goroutines can be observed in flight.
 		time.Sleep(10 * time.Millisecond)
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")

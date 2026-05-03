@@ -26,6 +26,10 @@ type Theme struct {
 	Throttled  lipgloss.Style
 	Dim        lipgloss.Style
 	Bold       lipgloss.Style
+
+	UnreadIndicator     string
+	FlagIndicator       string
+	AttachmentIndicator string
 }
 
 // palette is the small set of semantic colors a theme builder picks
@@ -121,5 +125,9 @@ func paletteToTheme(p palette) Theme {
 		Throttled:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.warn)),
 		Dim:        lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.muted)),
 		Bold:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
+
+		UnreadIndicator:     "●",
+		FlagIndicator:       "⚑",
+		AttachmentIndicator: "📎",
 	}
 }

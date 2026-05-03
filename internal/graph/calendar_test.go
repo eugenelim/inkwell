@@ -25,10 +25,10 @@ func TestListCalendarDeltaFirstCall(t *testing.T) {
 
 		resp := map[string]any{
 			"value": []map[string]any{{
-				"id":      "ev-1",
-				"subject": "Standup",
-				"start":   map[string]any{"dateTime": "2026-05-01T09:00:00.0000000"},
-				"end":     map[string]any{"dateTime": "2026-05-01T09:30:00.0000000"},
+				"id":       "ev-1",
+				"subject":  "Standup",
+				"start":    map[string]any{"dateTime": "2026-05-01T09:00:00.0000000"},
+				"end":      map[string]any{"dateTime": "2026-05-01T09:30:00.0000000"},
 				"isAllDay": false,
 				"organizer": map[string]any{"emailAddress": map[string]any{
 					"name": "Alice", "address": "alice@example.invalid",
@@ -69,15 +69,15 @@ func TestListCalendarDeltaRemovedEntries(t *testing.T) {
 		resp := map[string]any{
 			"value": []map[string]any{
 				{
-					"id":      "ev-gone",
+					"id":       "ev-gone",
 					"@removed": map[string]any{"reason": "deleted"},
 				},
 				{
-					"id":      "ev-2",
-					"subject": "Still here",
-					"start":   map[string]any{"dateTime": "2026-05-02T10:00:00.0000000"},
-					"end":     map[string]any{"dateTime": "2026-05-02T11:00:00.0000000"},
-					"isAllDay": false,
+					"id":        "ev-2",
+					"subject":   "Still here",
+					"start":     map[string]any{"dateTime": "2026-05-02T10:00:00.0000000"},
+					"end":       map[string]any{"dateTime": "2026-05-02T11:00:00.0000000"},
+					"isAllDay":  false,
 					"organizer": map[string]any{"emailAddress": map[string]any{"name": "", "address": ""}},
 				},
 			},

@@ -219,6 +219,21 @@ type Deps struct {
 	// LargeAttachmentWarnMB triggers a confirm modal before
 	// downloading files larger than this many MB. 0 disables.
 	LargeAttachmentWarnMB int
+
+	// UnreadIndicator / FlagIndicator / AttachmentIndicator override
+	// the default theme glyphs for their respective row decorations.
+	// Empty strings leave the theme default in place.
+	UnreadIndicator     string
+	FlagIndicator       string
+	AttachmentIndicator string
+	// TransientStatusTTL controls how long engineActivity messages
+	// persist before auto-clearing. 0 disables auto-clear.
+	TransientStatusTTL time.Duration
+	// MinTerminalCols / MinTerminalRows trigger the "terminal too
+	// small" overlay when the window is narrower/shorter than the
+	// minimums. 0 disables each check.
+	MinTerminalCols int
+	MinTerminalRows int
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -589,6 +604,15 @@ func New(deps Deps) (Model, error) {
 		}
 		theme = t
 	}
+	if deps.UnreadIndicator != "" {
+		theme.UnreadIndicator = deps.UnreadIndicator
+	}
+	if deps.FlagIndicator != "" {
+		theme.FlagIndicator = deps.FlagIndicator
+	}
+	if deps.AttachmentIndicator != "" {
+		theme.AttachmentIndicator = deps.AttachmentIndicator
+	}
 	folders := NewFolders()
 	savedSearches := append([]SavedSearch(nil), deps.SavedSearches...)
 	if len(savedSearches) > 0 {
@@ -697,6 +721,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case composeResumeNoneMsg:
 		// Nothing to resume; this exists so tests can assert the
 		// scan-Cmd ran end-to-end on Init.
+		return m, nil
+
+	case clearTransientMsg:
+		m.engineActivity = ""
 		return m, nil
 
 	case FoldersLoadedMsg:
@@ -1910,6 +1938,17 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		patternSrc := strings.TrimSpace(strings.TrimPrefix(line, "filter"))
 		return m, m.runFilterCmd(patternSrc)
+	case "save":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("save: usage `:save <name>`")
+			return m, nil
+		}
+		if !m.filterActive || m.filterPattern == "" {
+			m.lastError = fmt.Errorf("save: no active filter — run :filter <pattern> first")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "save"))
+		return m, m.ruleSaveCmd(name, m.filterPattern)
 	case "rule":
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "unfilter":
@@ -2198,9 +2237,25 @@ func (m Model) refreshSavedSearchCountsCmd() tea.Cmd {
 }
 
 // ruleSaveCmd persists the current filter as a named saved search.
+// clearTransientCmd returns a Cmd that sleeps TransientStatusTTL then
+// emits clearTransientMsg to auto-clear m.engineActivity. Returns nil
+// when TTL is zero (auto-clear disabled).
+func (m Model) clearTransientCmd() tea.Cmd {
+	if m.deps.TransientStatusTTL <= 0 {
+		return nil
+	}
+	ttl := m.deps.TransientStatusTTL
+	return func() tea.Msg {
+		time.Sleep(ttl)
+		return clearTransientMsg{}
+	}
+}
+
 func (m Model) ruleSaveCmd(name, patternSrc string) tea.Cmd {
 	if m.deps.SavedSearchSvc == nil {
-		return func() tea.Msg { return savedSearchSavedMsg{action: "saved", name: name, err: fmt.Errorf("saved search: not wired")} }
+		return func() tea.Msg {
+			return savedSearchSavedMsg{action: "saved", name: name, err: fmt.Errorf("saved search: not wired")}
+		}
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2216,7 +2271,9 @@ func (m Model) ruleSaveCmd(name, patternSrc string) tea.Cmd {
 // ruleDeleteCmd removes a named saved search after the user confirmed.
 func (m Model) ruleDeleteCmd(name string) tea.Cmd {
 	if m.deps.SavedSearchSvc == nil {
-		return func() tea.Msg { return savedSearchSavedMsg{action: "deleted", name: name, err: fmt.Errorf("saved search: not wired")} }
+		return func() tea.Msg {
+			return savedSearchSavedMsg{action: "deleted", name: name, err: fmt.Errorf("saved search: not wired")}
+		}
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -3820,6 +3877,12 @@ func (m Model) relayout() Model {
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "loading…"
+	}
+	if m.deps.MinTerminalCols > 0 && m.width < m.deps.MinTerminalCols ||
+		m.deps.MinTerminalRows > 0 && m.height < m.deps.MinTerminalRows {
+		msg := fmt.Sprintf("terminal too small\nneed %d×%d, have %d×%d",
+			m.deps.MinTerminalCols, m.deps.MinTerminalRows, m.width, m.height)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 	if m.mode == SignInMode {
 		return m.signin.View(m.theme, m.width, m.height)

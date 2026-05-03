@@ -4423,11 +4423,11 @@ func TestCalendarNavStaysInCalendarMode(t *testing.T) {
 
 // stubSavedSearchService implements SavedSearchService for tests.
 type stubSavedSearchService struct {
-	saveErr    error
-	deleteErr  error
-	saved      []SavedSearch
-	onSave     func(name, pattern string, pinned bool)
-	onDelete   func(name string)
+	saveErr   error
+	deleteErr error
+	saved     []SavedSearch
+	onSave    func(name, pattern string, pinned bool)
+	onDelete  func(name string)
 }
 
 func (s *stubSavedSearchService) Save(_ context.Context, name, pattern string, pinned bool) error {
@@ -4620,4 +4620,153 @@ func TestSavedSearchCountBadgeRendersWhenNonNegative(t *testing.T) {
 	require.Contains(t, out, "5", "Unread count badge must appear")
 	require.Contains(t, out, "☆ Flagged  0", "count=0 must also render")
 	require.NotContains(t, out, "-1", "Count=-1 must not render")
+}
+
+// TestFlagIndicatorRendersOnFlaggedMessage seeds a flagged message and
+// asserts the flag indicator (⚑) appears in the list view output.
+func TestFlagIndicatorRendersOnFlaggedMessage(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.list.messages = []store.Message{
+		{
+			ID:         "m-flagged",
+			AccountID:  m.deps.Account.ID,
+			FolderID:   "f-inbox",
+			Subject:    "Important flagged message",
+			FromName:   "Bob",
+			FlagStatus: "flagged",
+			ReceivedAt: time.Now(),
+		},
+	}
+	out := m.list.View(m.theme, 80, 20, true)
+	require.Contains(t, out, "⚑", "flag indicator must appear for flagged message")
+}
+
+// TestAttachmentIndicatorRendersOnMessageWithAttachments seeds a
+// message with HasAttachments=true and asserts the attachment
+// indicator (📎) appears in the list view output.
+func TestAttachmentIndicatorRendersOnMessageWithAttachments(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.list.messages = []store.Message{
+		{
+			ID:             "m-attach",
+			AccountID:      m.deps.Account.ID,
+			FolderID:       "f-inbox",
+			Subject:        "Report with attachments",
+			FromName:       "Carol",
+			HasAttachments: true,
+			ReceivedAt:     time.Now(),
+		},
+	}
+	out := m.list.View(m.theme, 80, 20, true)
+	require.Contains(t, out, "📎", "attachment indicator must appear when HasAttachments=true")
+}
+
+// TestNoFlagIndicatorOnUnflaggedMessage confirms that the flag
+// indicator does NOT appear for a normal (unflagged) message.
+func TestNoFlagIndicatorOnUnflaggedMessage(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.list.messages = []store.Message{
+		{
+			ID:         "m-normal",
+			AccountID:  m.deps.Account.ID,
+			FolderID:   "f-inbox",
+			Subject:    "Normal message",
+			FromName:   "Dave",
+			FlagStatus: "notFlagged",
+			ReceivedAt: time.Now(),
+		},
+	}
+	out := m.list.View(m.theme, 80, 20, true)
+	require.NotContains(t, out, "⚑", "flag indicator must not appear for unflagged message")
+}
+
+// TestSaveCommandAliasesRulesSave drives `:save Unread` with an active
+// filter and asserts a non-nil Cmd is returned that produces
+// savedSearchSavedMsg.
+func TestSaveCommandAliasesRulesSave(t *testing.T) {
+	m := newDispatchTestModel(t)
+	var gotName, gotPattern string
+	svc := &stubSavedSearchService{
+		onSave: func(name, pattern string, _ bool) {
+			gotName = name
+			gotPattern = pattern
+		},
+	}
+	m.deps.SavedSearchSvc = svc
+	m.filterActive = true
+	m.filterPattern = "~N"
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "save Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, ":save must return a Cmd")
+
+	msg := cmd()
+	saved, ok := msg.(savedSearchSavedMsg)
+	require.True(t, ok, "got %T", msg)
+	require.Equal(t, "Unread", saved.name)
+	require.NoError(t, saved.err)
+	require.Equal(t, "Unread", gotName)
+	require.Equal(t, "~N", gotPattern)
+}
+
+// TestSaveCommandRequiresActiveFilter confirms that `:save Unread`
+// without an active filter sets m.lastError and returns no Cmd.
+func TestSaveCommandRequiresActiveFilter(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.SavedSearchSvc = &stubSavedSearchService{}
+	m.filterActive = false
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = m2.(Model)
+	for _, r := range "save Unread" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Nil(t, cmd, ":save without filter must not fire Cmd")
+	require.NotNil(t, m.lastError, "must set lastError when no filter is active")
+}
+
+// TestMinTerminalCheckRendersOverlay sets a minimum terminal size and
+// a window smaller than the minimum, then confirms View returns the
+// "terminal too small" overlay.
+func TestMinTerminalCheckRendersOverlay(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.MinTerminalCols = 80
+	m.deps.MinTerminalRows = 24
+	m.width = 40
+	m.height = 20
+	out := m.View()
+	require.Contains(t, out, "terminal too small", "must show overlay when window is under minimum size")
+}
+
+// TestMinTerminalCheckAbsentWhenLargeEnough confirms the overlay is
+// absent when the window meets the minimum size.
+func TestMinTerminalCheckAbsentWhenLargeEnough(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.MinTerminalCols = 80
+	m.deps.MinTerminalRows = 24
+	m.width = 120
+	m.height = 40
+	out := m.View()
+	require.NotContains(t, out, "terminal too small", "must not show overlay when window is large enough")
+}
+
+// TestTransientClearCmdFires sets a 1ms TTL, calls clearTransientCmd,
+// runs the returned Cmd, and asserts it emits clearTransientMsg.
+func TestTransientClearCmdFires(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.TransientStatusTTL = 1 * time.Millisecond
+	m.engineActivity = "syncing…"
+	cmd := m.clearTransientCmd()
+	require.NotNil(t, cmd, "clearTransientCmd must return non-nil Cmd when TTL > 0")
+	msg := cmd()
+	_, ok := msg.(clearTransientMsg)
+	require.True(t, ok, "Cmd must emit clearTransientMsg, got %T", msg)
 }

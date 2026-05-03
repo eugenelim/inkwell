@@ -26,10 +26,10 @@ func testManager(t *testing.T) (*Manager, store.Store, int64) {
 		ID: "f-inbox", AccountID: accID, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now(),
 	}))
 	cfg := config.SavedSearchSettings{
-		CacheTTL:               30 * time.Second,
-		SeedDefaults:           true,
+		CacheTTL:                  30 * time.Second,
+		SeedDefaults:              true,
 		BackgroundRefreshInterval: 2 * time.Minute,
-		TOMLMirrorPath:         "",
+		TOMLMirrorPath:            "",
 	}
 	mgr := New(st, accID, cfg)
 	return mgr, st, accID

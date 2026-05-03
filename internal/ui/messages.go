@@ -143,3 +143,7 @@ type savedSearchSavedMsg struct {
 	action   string // "saved" | "deleted"
 	name     string
 }
+
+// clearTransientMsg is emitted by clearTransientCmd after the TTL elapses
+// to auto-clear m.engineActivity.
+type clearTransientMsg struct{}

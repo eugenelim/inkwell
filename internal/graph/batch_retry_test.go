@@ -50,7 +50,9 @@ func TestExecuteChunkWithRetryOuter429(t *testing.T) {
 			return
 		}
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		responses := make([]map[string]any, len(payload.Requests))
@@ -78,7 +80,9 @@ func TestExecuteChunkWithRetrySubrequest429(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")
@@ -116,7 +120,9 @@ func TestExecuteChunkWithRetrySubrequest429(t *testing.T) {
 func TestExecuteAllInputOrderPreserved(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")
@@ -146,7 +152,9 @@ func TestExecuteAllInputOrderPreserved(t *testing.T) {
 func TestExecuteAllOnProgressCallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Requests []struct{ ID string `json:"id"` } `json:"requests"`
+			Requests []struct {
+				ID string `json:"id"`
+			} `json:"requests"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		w.Header().Set("Content-Type", "application/json")

@@ -34,6 +34,12 @@ func Defaults() *Config {
 			RelativeDatesWithin: 24 * time.Hour,
 			Timezone:            "Local",
 			Theme:               "default",
+			UnreadIndicator:     "●",
+			FlagIndicator:       "⚑",
+			AttachmentIndicator: "📎",
+			TransientStatusTTL:  5 * time.Second,
+			MinTerminalCols:     80,
+			MinTerminalRows:     24,
 		},
 		Bindings: BindingsConfig{
 			Quit:         "q",

@@ -20,9 +20,9 @@ type CalendarModel struct {
 	viewDate time.Time // date whose events are displayed; zero = today
 }
 
-// NewCalendar returns an empty calendar modal with viewDate = today.
+// NewCalendar returns an empty calendar modal with viewDate = today (UTC).
 func NewCalendar() CalendarModel {
-	y, m, d := time.Now().Date()
+	y, m, d := time.Now().UTC().Date()
 	return CalendarModel{viewDate: time.Date(y, m, d, 0, 0, 0, 0, time.UTC)}
 }
 
@@ -42,9 +42,9 @@ func (m *CalendarModel) NavNextWeek() { m.viewDate = m.viewDate.AddDate(0, 0, 7)
 // NavPrevWeek moves the view back seven days.
 func (m *CalendarModel) NavPrevWeek() { m.viewDate = m.viewDate.AddDate(0, 0, -7); m.cursor = 0 }
 
-// GotoToday resets the view to today.
+// GotoToday resets the view to today (UTC).
 func (m *CalendarModel) GotoToday() {
-	y, mo, d := time.Now().Date()
+	y, mo, d := time.Now().UTC().Date()
 	m.viewDate = time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
 	m.cursor = 0
 }
@@ -100,9 +100,9 @@ func (m CalendarModel) Selected() *CalendarEvent {
 func (m CalendarModel) View(t Theme, width, height int) string {
 	vd := m.viewDate
 	if vd.IsZero() {
-		vd = time.Now()
+		vd = time.Now().UTC()
 	}
-	isToday := sameDay(vd, time.Now())
+	isToday := sameDay(vd, time.Now().UTC())
 	dayLabel := "Today — " + vd.Format("Mon 2006-01-02")
 	if !isToday {
 		dayLabel = vd.Format("Mon 2006-01-02")

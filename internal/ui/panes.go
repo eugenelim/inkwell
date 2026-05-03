@@ -675,7 +675,23 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		if isMeetingMessage(msg) {
 			invite = "📅 "
 		}
-		line := fmt.Sprintf("%s%s%-10s %-14s %s", marker, invite, when, truncate(from, 14), msg.Subject)
+		flag := "  "
+		if msg.FlagStatus == "flagged" {
+			fi := t.FlagIndicator
+			if fi == "" {
+				fi = "⚑"
+			}
+			flag = fi + " "
+		}
+		attach := ""
+		if msg.HasAttachments {
+			ai := t.AttachmentIndicator
+			if ai == "" {
+				ai = "📎"
+			}
+			attach = " " + ai
+		}
+		line := fmt.Sprintf("%s%s%s%-10s %-14s %s%s", marker, flag, invite, when, truncate(from, 14), msg.Subject, attach)
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
