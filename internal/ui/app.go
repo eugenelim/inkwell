@@ -1422,7 +1422,6 @@ func (m Model) updateFullscreenBody(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(keyMsg, m.keymap.PermanentDelete):
 		if m.lastDraftID != "" {
-			m.mode = NormalMode
 			m.pendingDiscardDraftID = m.lastDraftID
 			m.confirm = m.confirm.Ask("Discard saved draft?", "discard_draft")
 			m.mode = ConfirmMode
