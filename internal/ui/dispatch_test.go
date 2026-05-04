@@ -4145,7 +4145,7 @@ type stubSearchService struct {
 	cancelled bool
 }
 
-func (s *stubSearchService) Search(_ context.Context, query string) (<-chan SearchSnapshot, func()) {
+func (s *stubSearchService) Search(_ context.Context, query, _ string) (<-chan SearchSnapshot, func()) {
 	s.mu.Lock()
 	s.calls++
 	s.lastQuery = query
@@ -5255,4 +5255,56 @@ func TestSidebarCalendarEventsRender(t *testing.T) {
 	ev, ok := m.SelectedCalendarEvent()
 	require.Nil(t, ev, "no calendar event selected initially")
 	require.False(t, ok)
+}
+
+// TestSearchAllPrefixSetsEmptyFolderScope verifies that `--all ` prefix
+// in the search query sets searchFolderID to "" (cross-folder, spec 06 §5.3).
+func TestSearchAllPrefixSetsEmptyFolderScope(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubSearchService{
+		snapshots: []SearchSnapshot{{Status: "[searching…]"}},
+	}
+	m.deps.Search = stub
+	// Seed a prior folder so we know it's not copied into searchFolderID.
+	m.list.FolderID = "f-inbox"
+
+	// Enter SearchMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+
+	for _, r := range "--all budget" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, "budget", m.searchQuery, "--all must be stripped from the committed query")
+	require.Equal(t, "", m.searchFolderID, "--all must set empty folder scope")
+}
+
+// TestSearchDefaultScopeIsCurrentFolder verifies that a search without
+// `--all` sets searchFolderID to the prior folder (spec 06 §5.3 default).
+func TestSearchDefaultScopeIsCurrentFolder(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubSearchService{
+		snapshots: []SearchSnapshot{{Status: "[searching…]"}},
+	}
+	m.deps.Search = stub
+	m.list.FolderID = "f-inbox"
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+
+	for _, r := range "budget" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, "budget", m.searchQuery)
+	require.Equal(t, "f-inbox", m.searchFolderID, "without --all, folder scope must be the prior folder")
 }

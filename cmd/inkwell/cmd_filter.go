@@ -22,6 +22,7 @@ func newFilterCmd(rc *rootContext) *cobra.Command {
 		yes        bool
 		output     string
 		limit      int
+		allFolders bool
 	)
 	cmd := &cobra.Command{
 		Use:   "filter <pattern>",
@@ -123,6 +124,7 @@ Examples:
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip the destructive-action confirmation prompt")
 	cmd.Flags().IntVar(&limit, "limit", 1000, "max matches to consider")
 	cmd.Flags().StringVar(&output, "output", "text", "output format: text|json")
+	cmd.Flags().BoolVar(&allFolders, "all", false, "search across all subscribed folders (default behaviour; flag is explicit)")
 	return cmd
 }
 

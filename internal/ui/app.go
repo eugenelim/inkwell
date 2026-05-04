@@ -281,8 +281,11 @@ type SearchSnapshot struct {
 // returns a channel of progressive SearchSnapshots; the channel
 // closes when both branches finish or when cancel() is called.
 // Cancel is idempotent.
+//
+// folderID scopes the search to a single folder. Empty means
+// cross-folder (spec 06 §5.3 `--all` mode).
 type SearchService interface {
-	Search(ctx context.Context, query string) (<-chan SearchSnapshot, func())
+	Search(ctx context.Context, query, folderID string) (<-chan SearchSnapshot, func())
 }
 
 // AttachmentFetcher downloads raw attachment bytes on demand (spec 05
@@ -526,10 +529,11 @@ type Model struct {
 
 	// Search-mode buffer + last-committed query. The list pane renders
 	// search results in place of folder messages when searchActive.
-	searchBuf     string
-	searchActive  bool
-	searchQuery   string // committed query (the one that produced m.list contents)
-	priorFolderID string // folder to restore when search is cleared
+	searchBuf      string
+	searchActive   bool
+	searchQuery    string // committed query (the one that produced m.list contents)
+	searchFolderID string // folder scope: empty = all-folders (--all), non-empty = scoped
+	priorFolderID  string // folder to restore when search is cleared
 	// searchStatus mirrors the spec 06 §5.1 streaming hint —
 	// "[searching local]", "[📡 searching server…]", "[merged: N
 	// local, M server]", or "[local only — offline]". Empty
@@ -1970,6 +1974,15 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
+		// Detect spec 06 §5.3 `--all` prefix: cross-folder search.
+		allFolders := false
+		if strings.HasPrefix(q, "--all") {
+			q = strings.TrimSpace(q[5:])
+			allFolders = true
+		}
+		if q == "" {
+			return m, nil
+		}
 		// Cancel any in-flight search before kicking the new one
 		// so the prior stream's stale snapshots can't overwrite
 		// the new query's results.
@@ -1980,6 +1993,11 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchUpdates = nil
 		m.searchActive = true
 		m.searchQuery = q
+		if allFolders {
+			m.searchFolderID = ""
+		} else {
+			m.searchFolderID = m.priorFolderID
+		}
 		m.searchStatus = "[searching…]"
 		m.list.FolderID = searchFolderID(q)
 		m.focused = ListPane
@@ -2019,6 +2037,7 @@ func (m Model) runSearchCmd(q string) tea.Cmd {
 	if m.deps.Search != nil {
 		return m.startStreamingSearchCmd(q)
 	}
+	folderID := m.searchFolderID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -2029,6 +2048,7 @@ func (m Model) runSearchCmd(q string) tea.Cmd {
 		hits, err := m.deps.Store.Search(ctx, store.SearchQuery{
 			Query:     q,
 			AccountID: accountID,
+			FolderID:  folderID,
 			Limit:     200,
 		})
 		if err != nil {
@@ -2054,9 +2074,10 @@ func (m Model) runSearchCmd(q string) tea.Cmd {
 // itself to be idempotent on Cancel.
 func (m Model) startStreamingSearchCmd(q string) tea.Cmd {
 	svc := m.deps.Search
+	folderID := m.searchFolderID
 	return func() tea.Msg {
 		ctx := context.Background()
-		ch, cancel := svc.Search(ctx, q)
+		ch, cancel := svc.Search(ctx, q, folderID)
 		// Block for the first snapshot so the user sees results
 		// before the next render frame. The streaming continuation
 		// is handed off via SearchUpdateMsg.Done routing in the

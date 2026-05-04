@@ -308,9 +308,17 @@ matches any message whose subject or body contains `[External]`.
 
 | Key            | Action                                                         |
 | -------------- | -------------------------------------------------------------- |
-| `<text> Enter` | Run FTS query, replace list pane with hits                     |
+| `<text> Enter` | Run FTS query scoped to the current folder, replace list pane with hits |
+| `--all <text> Enter` | Run FTS query across **all** subscribed folders (spec 06 §5.3) |
 | `Esc`          | Cancel; if a search is active, clear it and restore the folder |
 | `Backspace`    | Delete the last character of the buffer                        |
+
+By default, `/` search is scoped to the folder visible in the list pane.
+Prefix the query with `--all` to search across all subscribed folders:
+
+```
+/--all budget review
+```
 
 Search is local-only (FTS5 against the SQLite cache) in v0.8.
 Server-side `$search` merge is post-v0.8.

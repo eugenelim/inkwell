@@ -108,7 +108,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - `:search <query>` command from spec §5.2 — still routed via the existing command dispatcher (re-uses the same streaming searcher as `/`); the command path matches spec.
   - ~~Spec §5.1 status indicators (`[searching local]`, `[📡 searching server…]`, `[merged: 12 local, 47 server]`).~~ **Closed.** The cmd-bar's "search: <q>" hint now appends the streaming status from the merger.
   - ~~`from:bob` / `subject:Q4` field-prefix syntax (§4.1).~~ **Closed.** `internal/search/local.go::ParseQuery` extracts; BuildFTSQuery / BuildGraphSearchQuery render to the per-engine column scopes.
-  - `--all` cross-folder flag (§5.3) — still **deferred** (depends on the broader CLI-flag parsing work in spec 14).
+  - ~~`--all` cross-folder flag (§5.3)~~ **Closed by PR H-3 (2026-05-04).** `SearchService.Search` now takes `folderID string`; `/--all <query>` strips the prefix and passes `folderID=""`; default scopes to `priorFolderID`. `inkwell filter --all` flag added (CLI filter is already cross-folder).
 - Design drifts:
   - ~~Spec §3.1 "first local result emission <100ms" — current implementation has a 2-second context timeout.~~ **Closed.** `TestSearcherFirstLocalResultLatencyUnder100ms` pins the latency invariant; the streaming Searcher emits the first local snapshot inline inside the start Cmd so there's no extra Bubble Tea round-trip.
 - Schema/config gaps:
@@ -339,7 +339,7 @@ inline. Refresh after every audit-drain PR.
 | 03   | partial | 5 | ThrottledEvent + AuthRequiredEvent emission (PR 3) | tombstone-aware delta; engine-Stop UI goroutine leak; priority queue absent |
 | 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
-| 06   | shipped | 1 | streaming Searcher + graph $search + merger + field prefixes + UI streaming integration (PR 8) | `--all` cross-folder flag + saved-search promotion (depend on spec 14 CLI flags / spec 11 Manager) |
+| 06   | closed  | 0 | streaming Searcher + graph $search + merger + field prefixes + UI streaming integration (PR 8), --all cross-folder flag (PR H-3) | all gaps addressed |
 | 07   | partial | 9 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1); move-with-folder-picker (PR 4c) | replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
 | 08   | shipped | 1 | Compile/Execute API + $filter/$search evaluators + TwoStage + strategy selector + [pattern] config (PR 9) | 100k-message bench + 10k-AST property test in CI deferred |
 | 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |

@@ -1,11 +1,10 @@
 # Spec 06 — Hybrid Search
 
 ## Status
-shipped (CI scope, v0.17.x — 2026-05-01). PR 8 closed every spec
-06 audit row: streaming hybrid search package + graph $search +
-field-prefix syntax + UI streaming integration with merger,
-status indicator, and Esc-cancels-stream. Manual real-tenant
-smoke (see §5 of spec) deferred per CLAUDE.md §5.5.
+done. All deferred bullets shipped in PR H-3: `--all` cross-folder
+search prefix for TUI `/` mode and `SearchService` folderID scoping.
+Earlier: streaming hybrid search + graph $search + field-prefix +
+UI streaming (v0.17.x, PR 8).
 
 ## DoD checklist (mirrored from spec)
 - [x] Local FTS5 query layer — store.Search() over messages_fts (already in spec 02).
@@ -23,6 +22,26 @@ smoke (see §5 of spec) deferred per CLAUDE.md §5.5.
 - [ ] CLI `:search --all` flag — deferred (depends on the same `--flag` parser the CLI mode work in spec 14 will land).
 
 ## Iteration log
+
+### Iter 3 — 2026-05-04 (`--all` cross-folder search, PR H-3)
+- Slice: spec 06 §5.3 — `--all` prefix scopes TUI search across all
+  subscribed folders; default scopes to current folder.
+- Files modified:
+  - `internal/ui/app.go`: `SearchService.Search` interface gains `folderID string`
+    param; `Model` gains `searchFolderID` field; `updateSearch` Enter handler
+    strips `--all ` prefix and sets `searchFolderID=""` vs `m.priorFolderID`;
+    `runSearchCmd` / `startStreamingSearchCmd` pass `folderID` to search service.
+  - `cmd/inkwell/cmd_run.go`: `searchAdapter.Search` passes `folderID` to
+    `search.Query{FolderID: folderID}`.
+  - `cmd/inkwell/cmd_filter.go`: adds `--all` flag (doc-only; filter is
+    always cross-folder in CLI).
+  - `internal/ui/dispatch_test.go`: updated `stubSearchService.Search` signature;
+    added `TestSearchAllPrefixSetsEmptyFolderScope`,
+    `TestSearchDefaultScopeIsCurrentFolder`.
+  - `docs/user/reference.md`: updated Search mode section with `--all` prefix
+    usage and folder-scope semantics.
+- Commands: `go build ./...` ✓, `go vet ./...` ✓, `go test -race ./...` ✓,
+  `go test -tags=e2e ./...` ✓. All 6 regress gates green.
 
 ### Iter 2 — 2026-05-01 (streaming hybrid search, PR 8 of audit-drain)
 - Trigger: spec 06 audit row + audit-drain PR 8. `/`-search ran

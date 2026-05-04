@@ -964,9 +964,12 @@ func newSearchAdapter(st store.Store, gc *graph.Client, accountID int64, cfg con
 // into the ui.SearchSnapshot channel. The returned cancel
 // terminates both branches and closes the snapshot channel
 // cleanly. Status hints follow spec 06 §5.1.
-func (a searchAdapter) Search(ctx context.Context, query string) (<-chan ui.SearchSnapshot, func()) {
+//
+// folderID scopes the search to a single folder; empty = all folders
+// (spec 06 §5.3 --all mode).
+func (a searchAdapter) Search(ctx context.Context, query, folderID string) (<-chan ui.SearchSnapshot, func()) {
 	out := make(chan ui.SearchSnapshot, 4)
-	stream := a.searcher.Search(ctx, search.Query{Text: query})
+	stream := a.searcher.Search(ctx, search.Query{Text: query, FolderID: folderID})
 	go func() {
 		defer close(out)
 		var localCount, serverCount, bothCount int
