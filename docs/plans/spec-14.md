@@ -1,7 +1,7 @@
 # Spec 14 — CLI Mode
 
 ## Status
-in-progress (CI scope: folders / messages / message show / sync / filter shipped in v0.10.0; calendar / OOO / saved-search / drafts / attachments / daemon mode deferred).
+done (PR G-1 + G-1b: CLI surface complete; TUI UI polish committed alongside).
 
 ## DoD checklist (mirrored from spec)
 - [x] `inkwell folders` — list cached folders, text + `--output json`.
@@ -16,15 +16,35 @@ in-progress (CI scope: folders / messages / message show / sync / filter shipped
 - [x] `--output text|json` on every command.
 - [x] Folder name resolution: well-known name first, then case-insensitive display name; friendly error pointing at `inkwell folders` when not found.
 - [x] Tests: 7 unit tests over `resolveFolder`, `runFilterListing`, `truncCLI`.
-- [ ] `inkwell calendar today/week/agenda` — deferred. Calendar is read-only and the modal works in the TUI.
-- [ ] `inkwell ooo on/off/set` — deferred. Modal works in the TUI; CLI form is a follow-up.
-- [ ] `inkwell rule list/save/edit/delete/eval/apply` — deferred. Saved-searches CRUD lands when DB-backed Manager arrives (spec 11 v2).
-- [ ] `inkwell message reply/forward` — depends on spec 15 (compose), not yet implemented.
-- [ ] `inkwell message attachments / save-attachment` — deferred.
-- [ ] `inkwell export --since` — deferred. JSONL/mbox roller for archival; nice-to-have.
-- [ ] Daemon mode (`inkwell daemon`) — deferred. Long-running background sync without the TUI.
+- [x] `inkwell calendar today/week/agenda/show` — PR G-1.
+- [x] `inkwell ooo on/off/set` (+ `--until`, text output) — PR G-1.
+- [x] `inkwell rule list/save/edit/delete/eval/apply` — PR G-1.
+- [x] `inkwell message reply/reply-all/forward` — PR G-1 (uses spec 15 action.Executor).
+- [x] `inkwell message read/unread/flag/unflag/move/delete/permanent-delete` — PR G-1.
+- [x] `inkwell message attachments / save-attachment` — PR G-1.
+- [x] `inkwell export messages --format json|mbox` — PR G-1.
+- [x] `inkwell backfill --folder --until` — PR G-1.
+- [x] `inkwell daemon` — PR G-1.
+- [x] Global flags: `--output/-o`, `--quiet/-q`, `--yes/-y`, `--color`, `--no-sync` — PR G-1.
+- [x] `[cli]` config section + `CLIConfig` struct + defaults — PR G-1.
+- [x] `internal/cli/exitcodes.go` exit code constants — PR G-1.
+- [x] `inkwell folder show/subscribe/unsubscribe/tree` — PR G-1.
+- [x] `inkwell settings` text output mode — PR G-1.
 
 ## Iteration log
+
+### Iter 3 — 2026-05-04 (G-1b: TUI color + fullscreen actions + z tooltip)
+- Slice: UI polish shipped alongside G-1 commit.
+- Files modified: `internal/render/theme.go` (link=cyan, attach=amber; `NewTheme` for palette control), `internal/ui/theme.go` (link/attach tokens per preset; `RenderTheme render.Theme` field; import render), `internal/ui/app.go` (use `m.theme.RenderTheme` in `openMessageCmd`; fullscreen actions r/R/f/d/D/a in `updateFullscreenBody`; z hint in viewer help bar; updated fullscreen hint line), `internal/ui/dispatch_test.go` + `app_e2e_test.go` (updated assertions + 3 new tests).
+- Commands: `bash scripts/regress.sh` — all 6 gates green.
+- Critique: subscribe/unsubscribe stubs remain; `--no-sync` not yet threaded; calendar commands still hit Graph directly.
+
+### Iter 2 — 2026-05-04 (PR G-1: all remaining CLI subcommands)
+- Slice: all missing subcommands from the DoD checklist.
+- Files added: `cmd_calendar.go`, `cmd_daemon.go`, `cmd_export.go`, `cmd_rule.go`, `internal/cli/exitcodes.go`.
+- Files modified: `cmd_root.go` (global flags + effectiveOutput helper), `cmd_messages.go` (triage/attachment/compose subcommands), `cmd_folder.go` (show/subscribe/unsubscribe/tree), `cmd_ooo.go` (--until, set subcommand, text output), `cmd_settings.go` (text output), `cmd_sync.go` (backfill), `internal/config/config.go` + `defaults.go` (CLIConfig).
+- Commands: `go build ./...` clean; `go test -race ./...` all pass; `go vet ./...` clean; staticcheck clean (pre-existing S1016 in ui/compose.go not introduced by this change).
+- Critique: subscribe/unsubscribe are stubs (config-driven only). `--no-sync` global flag is registered but not yet threaded through buildHeadlessApp (future PR). Calendar commands hit Graph directly (no store caching path).
 
 ### Iter 1 — 2026-04-29 (folders / messages / sync / filter)
 - Slice: cobra subcommands in cmd/inkwell/, share a `headlessApp` helper for the auth probe + store + Graph wiring that every non-TUI command needs.

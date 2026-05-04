@@ -132,6 +132,13 @@ disabled because of a real-tenant 400 regression on the bare
 | `y`       | Yank a URL to the clipboard (single URL → fast path; multi → picker) |
 | `z`       | Toggle fullscreen body (hide folders + list panes for drag-select) |
 
+**Fullscreen body** (`z`): hides the folder and list panes so the
+viewer occupies the full terminal width. Inside fullscreen, all the
+usual triage and compose actions are available — `r` reply, `R`
+reply-all, `f` forward, `d` delete, `a` archive — so you rarely
+need to exit before acting. Press `z`, `Esc`, or `q` to return to
+the three-pane layout.
+
 **Compact headers** (default): only From / Date / Subject + first 3
 recipients with "+ N more". On a 50-attendee thread, the body
 gets the room. Press `H` to expand To / Cc / Bcc on their own
@@ -513,6 +520,9 @@ Deferred to v0.10+: `inkwell calendar`, `inkwell ooo`, `inkwell rule`
 ```toml
 [ui]
 theme = "default"  # default | dark | light | solarized-dark | solarized-light | high-contrast
+# Each theme assigns distinct semantic colors:
+#   links    → cyan family (visually distinct, universally "hyperlink")
+#   attachments → amber family (visually distinct from links and body text)
 
 [account]
 upn = "you@example.invalid"  # optional safety check

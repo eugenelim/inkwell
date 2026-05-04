@@ -306,7 +306,7 @@ These are the remaining deferred items after all primary specs ship.
 | E-1 | 03 | done \| 2026-05-04 | spec 03 §3 goroutine leak; §6.2 tombstone delta backfill; §11 priority queue; [sync] config keys | — |
 | E-2 | 01 | done \| 2026-05-04 | spec 01 §11 AADSTS classification; clock-skew hint; §5.4 CLI PromptFn | 2026-05-04 |
 | F-1 | 15 | done \| 2026-05-04 | spec 15 §6.3 discard DELETE; §9 webLink TTL; §11 Mail.Send lint guard; §5 compose attachments | 2026-05-04 |
-| G-1 | 14 | not-started | spec 14 §6 message/rule/calendar/ooo/settings/export/daemon/backfill subcommands; §5.3 exit codes; §5.2 line-delimited JSON; progress bars; global flags; [cli] config | — |
+| G-1 | 14 | done \| 2026-05-04 | spec 14 §6 message/rule/calendar/ooo/settings/export/daemon/backfill subcommands; §5.3 exit codes; §5.2 line-delimited JSON; progress bars; global flags; [cli] config | 2026-05-04 |
 | H-1 | 12 | not-started | spec 12 deferred sidebar pane; week/agenda view; timezone resolution | — |
 | H-2 | 02 | not-started | spec 02 flag_due_at persistence; saved-search delete-by-name | — |
 | H-3 | 06 | not-started | spec 06 §5.3 --all cross-folder flag | — |

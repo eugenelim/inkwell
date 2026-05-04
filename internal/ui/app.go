@@ -1370,9 +1370,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updateFullscreenBody handles input while the body is in
-// fullscreen mode. j/k scroll the body; Esc / q / z return to
-// the three-pane layout.
+// updateFullscreenBody handles input while the body is in fullscreen
+// mode. j/k scroll; r/R/f compose; d/D/a triage; Esc/q/z return.
 func (m Model) updateFullscreenBody(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -1392,6 +1391,54 @@ func (m Model) updateFullscreenBody(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.yankURL(m.viewer.Links()[0].URL)
 		}
 		return m, nil
+
+	// Triage and compose actions mirror the viewer pane in NormalMode
+	// so the user does not need to exit fullscreen to act on a message.
+	// Mode is reset to NormalMode first so triageDoneMsg lands cleanly.
+	case key.Matches(keyMsg, m.keymap.MarkRead):
+		// r → reply (viewer-pane pane-scoped meaning, same as NormalMode)
+		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
+			m.mode = NormalMode
+			return m.startCompose(*cur)
+		}
+	case key.Matches(keyMsg, m.keymap.MarkUnread):
+		// R → reply-all
+		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
+			m.mode = NormalMode
+			return m.startComposeReplyAll(*cur)
+		}
+	case key.Matches(keyMsg, m.keymap.ToggleFlag):
+		// f → forward (viewer-pane meaning)
+		if cur := m.viewer.current; cur != nil && m.deps.Drafts != nil {
+			m.mode = NormalMode
+			return m.startComposeForward(*cur)
+		}
+	case key.Matches(keyMsg, m.keymap.Delete):
+		if cur := m.viewer.current; cur != nil {
+			m.mode = NormalMode
+			return m.runTriage("soft_delete", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+				return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
+			})
+		}
+	case key.Matches(keyMsg, m.keymap.PermanentDelete):
+		if m.lastDraftID != "" {
+			m.mode = NormalMode
+			m.pendingDiscardDraftID = m.lastDraftID
+			m.confirm = m.confirm.Ask("Discard saved draft?", "discard_draft")
+			m.mode = ConfirmMode
+			return m, nil
+		}
+		if cur := m.viewer.current; cur != nil {
+			m.mode = NormalMode
+			return m.startPermanentDelete(*cur)
+		}
+	case key.Matches(keyMsg, m.keymap.Archive):
+		if cur := m.viewer.current; cur != nil {
+			m.mode = NormalMode
+			return m.runTriage("archive", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+				return m.deps.Triage.Archive(ctx, accID, src.ID)
+			})
+		}
 	}
 	switch keyMsg.String() {
 	case "esc", "q", "z":
@@ -3494,7 +3541,7 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 		}
 		opts := render.BodyOpts{
 			Width:              viewerW,
-			Theme:              render.DefaultTheme(),
+			Theme:              m.theme.RenderTheme,
 			URLDisplayMaxWidth: m.deps.URLDisplayMaxWidth,
 		}
 		loadAtts := func() []store.Attachment {
@@ -4186,7 +4233,7 @@ func (m Model) View() string {
 		// surrounding pane chrome so terminal selection drag works
 		// end-to-end. Reserves the bottom row for a hint line.
 		body := m.viewer.View(m.theme, m.width, m.height-1, true)
-		hint := m.theme.Dim.Render("z / Esc / q  exit fullscreen  ·  drag to select  ·  y  yank URL")
+		hint := m.theme.Dim.Render("z/Esc/q  exit  ·  r  reply  ·  R  reply-all  ·  f  forward  ·  d  delete  ·  a  archive  ·  y  yank URL")
 		return body + "\n" + hint
 	}
 	if m.mode == FolderNameInputMode {
@@ -4309,7 +4356,7 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case ListPane:
 		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"r", "reply"}, {"f", "flag"}, {"a", "archive"}, {"d", "delete"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"r", "reply"}, {"f", "fwd"}, {"a", "archive"}, {"d", "delete"}, {"z", "fullscreen"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}

@@ -2820,7 +2820,7 @@ func TestDispatchViewerZEntersFullscreenAndExits(t *testing.T) {
 
 	frame := m.View()
 	require.NotContains(t, frame, "Folders", "fullscreen frame must hide the folders pane header")
-	require.Contains(t, frame, "exit fullscreen", "fullscreen hint must be visible")
+	require.Contains(t, frame, "z/Esc/q", "fullscreen hint must be visible")
 
 	// z again exits.
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})

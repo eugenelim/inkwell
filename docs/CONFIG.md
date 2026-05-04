@@ -234,7 +234,7 @@ Controls non-interactive CLI mode.
 | --- | --- | --- | --- | --- |
 | `default_output` | string | `"text"` | `text`, `json` | Default output format. CLI flag `--output json` overrides. |
 | `color` | string | `"auto"` | `auto`, `always`, `never` | Whether to colorize CLI output. |
-| `confirm_destructive_in_cli` | bool | `false` | — | Whether destructive CLI commands prompt by default. CLI users typically want non-interactive. |
+| `confirm_destructive_in_cli` | bool | `true` | — | Whether destructive CLI commands prompt by default. Set to `false` for scripting; use `--yes` per-invocation. |
 | `progress_bars` | string | `"auto"` | `auto`, `always`, `never` | Show progress bars during long operations. `auto` enables on TTY, disables on pipes. |
 | `json_compact` | bool | `false` | — | Emit compact (single-line) JSON instead of pretty-printed. |
 | `export_default_dir` | string | `"."` | path | Default output directory for `inkwell export`. |

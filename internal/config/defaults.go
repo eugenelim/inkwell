@@ -170,5 +170,13 @@ func Defaults() *Config {
 			MaxAttachments:      20,
 			WebLinkTTL:          30 * time.Second,
 		},
+		CLI: CLIConfig{
+			DefaultOutput:           "text",
+			Color:                   "auto",
+			ConfirmDestructiveInCLI: true,
+			ProgressBars:            "auto",
+			JSONCompact:             false,
+			ExportDefaultDir:        ".",
+		},
 	}
 }

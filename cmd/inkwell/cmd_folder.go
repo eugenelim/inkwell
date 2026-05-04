@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/eugenelim/inkwell/internal/action"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // newFolderCmd is the spec 18 §6 singular `inkwell folder` group.
@@ -30,6 +32,10 @@ Examples:
 `,
 	}
 	cmd.AddCommand(newFolderNewCmd(rc), newFolderRenameCmd(rc), newFolderDeleteCmd(rc))
+	cmd.AddCommand(newFolderShowCmd(rc))
+	cmd.AddCommand(newFolderSubscribeCmd(rc))
+	cmd.AddCommand(newFolderUnsubscribeCmd(rc))
+	cmd.AddCommand(newFolderTreeCmd(rc))
 	return cmd
 }
 
@@ -188,4 +194,142 @@ prints what would be deleted and exits.
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip the confirmation prompt")
 	return cmd
+}
+
+func newFolderShowCmd(rc *rootContext) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "show <name>",
+		Short: "Show details for a single folder",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			app, err := buildHeadlessApp(ctx, rc)
+			if err != nil {
+				return err
+			}
+			defer app.Close()
+			id, _, _, err := resolveFolderByNameCtx(ctx, app, args[0])
+			if err != nil {
+				return err
+			}
+			all, err := app.store.ListFolders(ctx, app.account.ID)
+			if err != nil {
+				return fmt.Errorf("list folders: %w", err)
+			}
+			var f *store.Folder
+			for i := range all {
+				if all[i].ID == id {
+					f = &all[i]
+					break
+				}
+			}
+			if f == nil {
+				return fmt.Errorf("folder not found after resolve")
+			}
+			if output == "json" {
+				return json.NewEncoder(os.Stdout).Encode(f)
+			}
+			fmt.Fprintf(os.Stdout, "ID:           %s\n", f.ID)
+			fmt.Fprintf(os.Stdout, "DisplayName:  %s\n", f.DisplayName)
+			fmt.Fprintf(os.Stdout, "WellKnown:    %s\n", f.WellKnownName)
+			fmt.Fprintf(os.Stdout, "ParentID:     %s\n", f.ParentFolderID)
+			fmt.Fprintf(os.Stdout, "TotalCount:   %d\n", f.TotalCount)
+			fmt.Fprintf(os.Stdout, "UnreadCount:  %d\n", f.UnreadCount)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&output, "output", "text", "output format: text|json")
+	return cmd
+}
+
+func newFolderSubscribeCmd(_ *rootContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "subscribe <name>",
+		Short: "Mark a folder as subscribed (manage via [sync].subscribed_well_known in config)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			fmt.Fprintf(os.Stdout, "Subscription management is via the [sync].subscribed_well_known config key.\n")
+			fmt.Fprintf(os.Stdout, "Add %q to that list and restart inkwell.\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newFolderUnsubscribeCmd(_ *rootContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unsubscribe <name>",
+		Short: "Mark a folder as unsubscribed (manage via [sync].subscribed_well_known in config)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			fmt.Fprintf(os.Stdout, "Subscription management is via the [sync].subscribed_well_known config key.\n")
+			fmt.Fprintf(os.Stdout, "Remove %q from that list and restart inkwell.\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newFolderTreeCmd(rc *rootContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tree",
+		Short: "Print folder hierarchy as an indented tree",
+		RunE: func(c *cobra.Command, _ []string) error {
+			ctx := c.Context()
+			app, err := buildHeadlessApp(ctx, rc)
+			if err != nil {
+				return err
+			}
+			defer app.Close()
+			all, err := app.store.ListFolders(ctx, app.account.ID)
+			if err != nil {
+				return fmt.Errorf("list folders: %w", err)
+			}
+			printFolderTree(os.Stdout, all)
+			return nil
+		},
+	}
+}
+
+// printFolderTree renders all folders as a depth-indented tree sorted
+// by display name within each level.
+func printFolderTree(w *os.File, folders []store.Folder) {
+	byParent := make(map[string][]store.Folder)
+	for _, f := range folders {
+		byParent[f.ParentFolderID] = append(byParent[f.ParentFolderID], f)
+	}
+	// Sort within each parent group.
+	for k := range byParent {
+		sort.Slice(byParent[k], func(i, j int) bool {
+			return byParent[k][i].DisplayName < byParent[k][j].DisplayName
+		})
+	}
+	// Collect root folder IDs (no parent or parent not in our list).
+	knownIDs := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		knownIDs[f.ID] = true
+	}
+	roots := byParent[""]
+	for _, f := range folders {
+		if f.ParentFolderID != "" && !knownIDs[f.ParentFolderID] {
+			roots = append(roots, f)
+		}
+	}
+	sort.Slice(roots, func(i, j int) bool {
+		return roots[i].DisplayName < roots[j].DisplayName
+	})
+	var walk func(f store.Folder, depth int)
+	walk = func(f store.Folder, depth int) {
+		indent := strings.Repeat("  ", depth)
+		unread := ""
+		if f.UnreadCount > 0 {
+			unread = fmt.Sprintf(" (%d)", f.UnreadCount)
+		}
+		fmt.Fprintf(w, "%s%s%s\n", indent, f.DisplayName, unread)
+		for _, child := range byParent[f.ID] {
+			walk(child, depth+1)
+		}
+	}
+	for _, r := range roots {
+		walk(r, 0)
+	}
 }

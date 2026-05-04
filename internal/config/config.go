@@ -40,6 +40,28 @@ type Config struct {
 	SavedSearches   []SavedSearchConfig   `toml:"saved_searches"`
 	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
 	Compose         ComposeConfig         `toml:"compose"`
+	CLI             CLIConfig             `toml:"cli"`
+}
+
+// CLIConfig owns the [cli] section (spec 14). Controls output format,
+// colour, and interactive confirmation for non-TUI subcommands.
+type CLIConfig struct {
+	// DefaultOutput sets the default output format for all subcommands.
+	// Valid values: "text", "json". Overridden by --output flag.
+	DefaultOutput string `toml:"default_output"`
+	// Color controls ANSI colour output. Values: "auto", "always", "never".
+	Color string `toml:"color"`
+	// ConfirmDestructiveInCLI mirrors [triage].confirm_permanent_delete
+	// for the CLI path. When true, permanent-delete requires --yes or
+	// an interactive prompt.
+	ConfirmDestructiveInCLI bool `toml:"confirm_destructive_in_cli"`
+	// ProgressBars controls progress output. Values: "auto", "always", "never".
+	ProgressBars string `toml:"progress_bars"`
+	// JSONCompact emits compacted (single-line) JSON instead of pretty-printed.
+	JSONCompact bool `toml:"json_compact"`
+	// ExportDefaultDir is the destination directory for `inkwell export`.
+	// Tilde is expanded. Default ".".
+	ExportDefaultDir string `toml:"export_default_dir"`
 }
 
 // MailboxSettingsConfig owns the [mailbox_settings] section (spec 13).

@@ -901,20 +901,80 @@ func TestFullscreenBodyZHidesPanesAndShowsHint(t *testing.T) {
 	}, teatest.WithDuration(2*time.Second))
 
 	// `z` enters fullscreen body. Folders pane header (and list pane
-	// header) must disappear; exit hint must render.
+	// header) must disappear; the action hint line must render with
+	// exit and triage keys.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
-		return contains(s, "exit fullscreen") &&
-			!contains(s, "Folders") &&
-			!contains(s, "Messages")
+		return contains(s, "z/Esc/q") && contains(s, "reply") &&
+			!contains(s, "Folders") && !contains(s, "Messages")
 	}, teatest.WithDuration(2*time.Second))
 
-	// `z` again exits — pane chrome returns.
+	// `z` again exits — pane chrome returns, hint line is gone.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		s := string(out)
-		return contains(s, "Folders") && !contains(s, "exit fullscreen")
+		return contains(s, "Folders") && !contains(s, "z/Esc/q")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestViewerHelpBarShowsZFullscreenHint verifies the viewer-pane help
+// bar renders the "z fullscreen" tooltip so users discover the feature
+// without consulting docs. The hint must appear when the viewer pane is
+// focused and disappear (replaced by the fullscreen hint line) once z
+// is pressed.
+func TestViewerHelpBarShowsZFullscreenHint(t *testing.T) {
+	m, _ := newE2EModel(t)
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(200, 40))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open first message — viewer pane becomes focused and help bar
+	// must show the "z fullscreen" hint.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "▌ Message") && contains(s, "fullscreen")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFullscreenBodyDeleteExitsAndTriages verifies that pressing `d`
+// inside fullscreen body mode exits fullscreen, soft-deletes the
+// message, and shifts focus back to the list pane — the same visible
+// delta as `d` in the normal viewer pane.
+func TestFullscreenBodyDeleteExitsAndTriages(t *testing.T) {
+	m, _ := newE2EModel(t)
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Q4 forecast")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Open first message and enter fullscreen.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "▌ Message")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "z/Esc/q")
+	}, teatest.WithDuration(2*time.Second))
+
+	// `d` should exit fullscreen; pane chrome reappears and the list
+	// pane receives focus (focus marker moves off the viewer).
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return !contains(s, "z/Esc/q") && contains(s, "Folders")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

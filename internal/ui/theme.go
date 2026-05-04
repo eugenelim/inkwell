@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/eugenelim/inkwell/internal/render"
 )
 
 // Theme groups the lipgloss styles used by every pane. All styling
@@ -26,6 +27,11 @@ type Theme struct {
 	Throttled  lipgloss.Style
 	Dim        lipgloss.Style
 	Bold       lipgloss.Style
+
+	// RenderTheme is the viewer-body content theme derived from this
+	// palette. Passed to render.BodyOpts so links and attachments
+	// share the palette's semantic colors.
+	RenderTheme render.Theme
 
 	UnreadIndicator     string
 	FlagIndicator       string
@@ -52,6 +58,12 @@ type palette struct {
 	helpKey  string
 	helpDesc string
 	helpSep  string
+	// Viewer content colors. link is the hyperlink foreground (cyan
+	// family); attach is the attachment-list foreground (amber family).
+	// These two must be visually distinct from each other and from the
+	// primary foreground so the user can scan at a glance.
+	link   string
+	attach string
 }
 
 // presetPalettes maps a config name to a [palette]. Names are fixed
@@ -65,31 +77,37 @@ var presetPalettes = map[string]palette{
 		fg: "252", muted: "245", accent: "229", selectBG: "24",
 		unread: "231", warn: "214", err: "203", border: "240", cmd: "215",
 		helpKey: "215", helpDesc: "250", helpSep: "240",
+		link: "45", attach: "214",
 	},
 	"dark": {
 		fg: "252", muted: "243", accent: "159", selectBG: "24",
 		unread: "231", warn: "214", err: "203", border: "238", cmd: "117",
 		helpKey: "215", helpDesc: "252", helpSep: "240",
+		link: "45", attach: "220",
 	},
 	"light": {
 		fg: "232", muted: "247", accent: "232", selectBG: "153",
 		unread: "16", warn: "130", err: "124", border: "250", cmd: "26",
 		helpKey: "166", helpDesc: "238", helpSep: "248",
+		link: "26", attach: "166",
 	},
 	"solarized-dark": {
 		fg: "230", muted: "240", accent: "254", selectBG: "23",
 		unread: "230", warn: "136", err: "160", border: "239", cmd: "37",
 		helpKey: "136", helpDesc: "245", helpSep: "240",
+		link: "37", attach: "136",
 	},
 	"solarized-light": {
 		fg: "235", muted: "245", accent: "235", selectBG: "230",
 		unread: "234", warn: "136", err: "160", border: "250", cmd: "33",
 		helpKey: "166", helpDesc: "240", helpSep: "248",
+		link: "33", attach: "136",
 	},
 	"high-contrast": {
 		fg: "15", muted: "15", accent: "0", selectBG: "11",
 		unread: "15", warn: "11", err: "9", border: "15", cmd: "14",
 		helpKey: "11", helpDesc: "15", helpSep: "8",
+		link: "14", attach: "11",
 	},
 }
 
@@ -109,22 +127,23 @@ func DefaultTheme() Theme { return paletteToTheme(presetPalettes["default"]) }
 func paletteToTheme(p palette) Theme {
 	border := lipgloss.NormalBorder()
 	return Theme{
-		Status:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
-		Folders:    lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
-		FoldersSel: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
-		List:       lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
-		ListSel:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
-		ListUnread: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.unread)),
-		Viewer:     lipgloss.NewStyle(),
-		CommandBar: lipgloss.NewStyle().Foreground(lipgloss.Color(p.cmd)),
-		Help:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.helpDesc)),
-		HelpKey:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.helpKey)),
-		HelpSep:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.helpSep)),
-		Modal:      lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(p.border)).Padding(1, 2),
-		ErrorBar:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.err)).Bold(true),
-		Throttled:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.warn)),
-		Dim:        lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.muted)),
-		Bold:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
+		Status:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
+		Folders:     lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
+		FoldersSel:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
+		List:        lipgloss.NewStyle().Border(border, false, true, false, false).BorderForeground(lipgloss.Color(p.border)),
+		ListSel:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.accent)).Background(lipgloss.Color(p.selectBG)),
+		ListUnread:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.unread)),
+		Viewer:      lipgloss.NewStyle(),
+		CommandBar:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.cmd)),
+		Help:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.helpDesc)),
+		HelpKey:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.helpKey)),
+		HelpSep:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.helpSep)),
+		Modal:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(p.border)).Padding(1, 2),
+		ErrorBar:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.err)).Bold(true),
+		Throttled:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.warn)),
+		Dim:         lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.muted)),
+		Bold:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.fg)),
+		RenderTheme: render.NewTheme(p.link, p.attach),
 
 		UnreadIndicator:     "●",
 		FlagIndicator:       "⚑",

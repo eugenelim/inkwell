@@ -21,6 +21,11 @@ type rootContext struct {
 	configPath string
 	cfg        *config.Config
 	verbose    bool
+	output     string
+	color      string
+	quiet      bool
+	noSync     bool
+	yes        bool
 }
 
 func newRootCmd() *cobra.Command {
@@ -34,6 +39,11 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&rc.configPath, "config", config.DefaultPath(), "path to config.toml")
 	cmd.PersistentFlags().BoolVar(&rc.verbose, "verbose", false, "enable debug logging")
+	cmd.PersistentFlags().StringVarP(&rc.output, "output", "o", "", "output format: text|json (overrides [cli].default_output)")
+	cmd.PersistentFlags().StringVar(&rc.color, "color", "", "color output: auto|always|never")
+	cmd.PersistentFlags().BoolVarP(&rc.quiet, "quiet", "q", false, "suppress progress and INFO logs")
+	cmd.PersistentFlags().BoolVarP(&rc.yes, "yes", "y", false, "skip confirmation prompts")
+	cmd.PersistentFlags().BoolVar(&rc.noSync, "no-sync", false, "use cached data only, skip sync")
 	cmd.AddCommand(newSigninCmd(rc))
 	cmd.AddCommand(newSignoutCmd(rc))
 	cmd.AddCommand(newWhoamiCmd(rc))
@@ -46,9 +56,26 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newFilterCmd(rc))
 	cmd.AddCommand(newOOOCmd(rc))
 	cmd.AddCommand(newSettingsCmd(rc))
+	cmd.AddCommand(newRuleCmd(rc))
+	cmd.AddCommand(newCalendarCmd(rc))
+	cmd.AddCommand(newDaemonCmd(rc))
+	cmd.AddCommand(newExportCmd(rc))
+	cmd.AddCommand(newBackfillCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd
+}
+
+// effectiveOutput returns the output format to use for a command: the
+// --output flag if set, otherwise [cli].default_output, otherwise "text".
+func effectiveOutput(rc *rootContext, cfg *config.Config) string {
+	if rc.output != "" {
+		return rc.output
+	}
+	if cfg != nil && cfg.CLI.DefaultOutput != "" {
+		return cfg.CLI.DefaultOutput
+	}
+	return "text"
 }
 
 // loadConfig is called by subcommands that need credentials. It is
