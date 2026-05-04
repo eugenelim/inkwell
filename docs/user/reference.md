@@ -115,8 +115,8 @@ disabled because of a real-tenant 400 regression on the bare
 | `f`       | Forward — opens compose with the canonical "Forwarded message" header block |
 | `m`       | New message — opens compose with a blank form (focuses To)    |
 | `s`       | Open the most-recently-saved draft in Outlook (after `r`/`R`/`f`/`m` saves) |
+| `D`       | **If a draft was just saved:** discard that draft (DELETE server-side, with confirm). Otherwise: permanent delete of the focused message (**NOT undoable**) |
 | `d`       | Soft-delete (focus pops back to list)                         |
-| `D`       | Permanent delete (with confirm; **NOT undoable**)             |
 | `a`       | Archive (focus pops back to list)                             |
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
@@ -238,10 +238,15 @@ Save dispatches via the action queue to Microsoft Graph: Reply /
 Reply All / Forward use a two-stage createReply* + PATCH; New
 uses a single-stage POST /me/messages with the full payload. The
 draft lands in your Drafts folder. The status bar shows `✓ draft
-saved · press s to open in Outlook`. Press `s` (in Normal mode)
-to launch the draft in your browser / Outlook desktop, where you
-finalise send. inkwell never sends mail — see the
+saved · s open · D discard`. Press `s` (in Normal mode) to launch
+the draft in your browser / Outlook desktop, where you finalise
+send. Press `D` (in Normal mode) to DELETE the draft from the
+server (with confirm). inkwell never sends mail — see the
 [explanation](explanation.md#why-no-send) for why.
+
+The status-bar hint auto-clears after `[compose].web_link_ttl`
+(default 30 s). Once it clears, `D` reverts to permanent-delete
+of the focused message.
 
 **Recipient recovery**: if you clear the `To:` field by accident
 on a Reply / Reply All / Forward, Save falls back to the original

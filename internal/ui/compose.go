@@ -197,11 +197,44 @@ func (m Model) scanComposeSessionsCmd() tea.Cmd {
 }
 
 // draftSavedMsg fires after the Graph round-trip completes.
-// On success, .webLink is set so the user can press `s` to open the
-// draft in Outlook. On failure, .err carries the reason.
+// On success, .webLink and .draftID are set so the user can press
+// `s` to open the draft in Outlook or `D` to discard it.
+// On failure, .err carries the reason.
 type draftSavedMsg struct {
+	draftID string
 	webLink string
 	err     error
+}
+
+// clearDraftWebLinkCmd returns a Cmd that fires draftWebLinkExpiredMsg
+// after delay. Used by the draftSavedMsg handler to auto-clear the
+// status-bar hint per spec 15 §9 / F-1.
+func clearDraftWebLinkCmd(delay time.Duration) tea.Cmd {
+	if delay <= 0 {
+		return nil
+	}
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return draftWebLinkExpiredMsg{}
+	})
+}
+
+// discardSavedDraftCmd issues DiscardDraft via the DraftCreator
+// interface, returning draftDiscardDoneMsg on completion.
+func (m Model) discardSavedDraftCmd(draftID string) tea.Cmd {
+	if m.deps.Drafts == nil || draftID == "" {
+		return func() tea.Msg { return draftDiscardDoneMsg{} }
+	}
+	drafts := m.deps.Drafts
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := drafts.DiscardDraft(ctx, accountID, draftID)
+		return draftDiscardDoneMsg{err: err}
+	}
 }
 
 // confirmComposeSessionInline writes confirmed_at synchronously.
@@ -277,21 +310,22 @@ func (m Model) saveComposeCmd(snap ComposeSnapshot, sessionID string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		ccList := splitAddressList(snap.Cc)
+		atts := snapshotRefsToAction(snap.Attachments)
 		var ref *DraftRef
 		var err error
 		switch snap.Kind {
 		case ComposeKindReplyAll:
 			ref, err = m.deps.Drafts.CreateDraftReplyAll(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject)
+				snap.Body, toList, ccList, nil, snap.Subject, atts)
 		case ComposeKindForward:
 			ref, err = m.deps.Drafts.CreateDraftForward(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject)
+				snap.Body, toList, ccList, nil, snap.Subject, atts)
 		case ComposeKindNew:
 			ref, err = m.deps.Drafts.CreateNewDraft(ctx, accountID,
-				snap.Body, toList, ccList, nil, snap.Subject)
+				snap.Body, toList, ccList, nil, snap.Subject, atts)
 		default:
 			ref, err = m.deps.Drafts.CreateDraftReply(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject)
+				snap.Body, toList, ccList, nil, snap.Subject, atts)
 		}
 		confirm()
 		if err != nil {
@@ -299,12 +333,26 @@ func (m Model) saveComposeCmd(snap ComposeSnapshot, sessionID string) tea.Cmd {
 				// Stage 2 (PATCH) failed but stage 1 produced a draft.
 				// Existing spec-15 contract: surface the error AND the
 				// webLink so the user can finish in Outlook.
-				return draftSavedMsg{webLink: ref.WebLink, err: err}
+				return draftSavedMsg{draftID: ref.ID, webLink: ref.WebLink, err: err}
 			}
 			return draftSavedMsg{err: err}
 		}
-		return draftSavedMsg{webLink: ref.WebLink}
+		return draftSavedMsg{draftID: ref.ID, webLink: ref.WebLink}
 	}
+}
+
+// snapshotRefsToAction converts ComposeSnapshot attachment refs to the
+// DraftAttachmentRef slice consumed by the DraftCreator methods.
+// Returns nil when the slice is empty so callers can skip the loop.
+func snapshotRefsToAction(refs []AttachmentSnapshotRef) []DraftAttachmentRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]DraftAttachmentRef, len(refs))
+	for i, r := range refs {
+		out[i] = DraftAttachmentRef{LocalPath: r.LocalPath, Name: r.Name, SizeBytes: r.SizeBytes}
+	}
+	return out
 }
 
 // splitAddressList turns "a@x, b@y" into ["a@x", "b@y"]. Empty

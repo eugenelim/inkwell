@@ -246,6 +246,10 @@ type Deps struct {
 	// MailboxRefreshInterval is how long to wait between automatic
 	// mailbox-settings re-fetches. From [mailbox_settings].refresh_interval.
 	MailboxRefreshInterval time.Duration
+	// DraftWebLinkTTL controls how long the "press s to open in Outlook"
+	// status-bar hint lives after a successful draft save. 0 disables
+	// auto-clear. From [compose].web_link_ttl (default 30s).
+	DraftWebLinkTTL time.Duration
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -345,20 +349,33 @@ type MailboxClient interface {
 	SetAutoReply(ctx context.Context, s MailboxSettings) error
 }
 
+// DraftAttachmentRef is the UI-layer view of an attachment staged for
+// upload. Mirrors action.AttachmentRef; defined here so the UI
+// doesn't import internal/action (CLAUDE.md §2 layering).
+type DraftAttachmentRef struct {
+	LocalPath string
+	Name      string
+	SizeBytes int64
+}
+
 // DraftCreator is the surface the UI consumes for spec 15
 // (compose / reply). Defined here so the UI doesn't import
 // internal/action's full type set.
 //
 // Reply / ReplyAll / Forward share the (ctx, accountID,
-// sourceMessageID, body, to, cc, bcc, subject) signature so the
-// in-modal compose pane can route by Kind without per-method
+// sourceMessageID, body, to, cc, bcc, subject, attachments) signature
+// so the in-modal compose pane can route by Kind without per-method
 // argument plumbing. NewDraft drops sourceMessageID — POST
 // /me/messages doesn't reference a source.
 type DraftCreator interface {
-	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
-	CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
-	CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
-	CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error)
+	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	// DiscardDraft deletes a server-side draft (spec 15 §6.3 / F-1).
+	// Called when the user presses 'D' after the draft was saved.
+	// Idempotent: 404 is treated as success.
+	DiscardDraft(ctx context.Context, accountID int64, draftID string) error
 }
 
 // UnsubscribeKind enumerates the action the UI should drive after
@@ -542,9 +559,14 @@ type Model struct {
 	pendingRuleDelete string
 
 	// Compose / reply (spec 15). Tracks the most-recently-saved draft
-	// so the viewer-pane `s` shortcut can open it in Outlook. Cleared
-	// when the user starts another compose flow or moves on.
+	// so the viewer-pane `s` shortcut can open it in Outlook and `D`
+	// can discard it. Both fields are cleared together by the TTL timer
+	// (draftWebLinkExpiredMsg) and by draftDiscardDoneMsg.
 	lastDraftWebLink string
+	lastDraftID      string
+	// pendingDiscardDraftID holds the draft ID while the confirm modal
+	// is open for the "discard draft" flow. Cleared after confirm/cancel.
+	pendingDiscardDraftID string
 
 	// Unsubscribe (spec 16). pendingUnsub holds the resolved action
 	// while the confirm modal is open; the y/n result fires the
@@ -964,11 +986,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// retry without losing their work.
 			m.lastError = fmt.Errorf("draft: %w", msg.err)
 			m.lastDraftWebLink = msg.webLink // may be set on partial-failure (createReply ok, body PATCH failed)
+			m.lastDraftID = msg.draftID
 			return m, nil
 		}
 		m.lastError = nil
 		m.lastDraftWebLink = msg.webLink
-		m.engineActivity = "✓ draft saved · press s to open in Outlook"
+		m.lastDraftID = msg.draftID
+		m.engineActivity = "✓ draft saved · s open · D discard"
+		return m, clearDraftWebLinkCmd(m.deps.DraftWebLinkTTL)
+
+	case draftWebLinkExpiredMsg:
+		m.lastDraftWebLink = ""
+		m.lastDraftID = ""
+		if m.engineActivity == "✓ draft saved · s open · D discard" {
+			m.engineActivity = ""
+		}
+		return m, nil
+
+	case draftDiscardDoneMsg:
+		m.lastDraftWebLink = ""
+		m.lastDraftID = ""
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("discard draft: %w", msg.err)
+		} else {
+			m.engineActivity = "draft discarded"
+		}
 		return m, nil
 
 	case ConfirmResultMsg:
@@ -1000,6 +1042,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			m.engineActivity = "delete cancelled"
+			return m, nil
+		}
+		// Draft discard confirmation (spec 15 F-1): pendingDiscardDraftID
+		// carries the server-side draft ID. y fires DiscardDraft (DELETE);
+		// n just clears the pending state.
+		if m.pendingDiscardDraftID != "" && msg.Topic == "discard_draft" {
+			draftID := m.pendingDiscardDraftID
+			m.pendingDiscardDraftID = ""
+			if msg.Confirm {
+				m.engineActivity = "discarding draft…"
+				return m, m.discardSavedDraftCmd(draftID)
+			}
+			m.engineActivity = "discard cancelled"
 			return m, nil
 		}
 		// Permanent delete confirmation (spec 07 §6.7): pendingPermanentDelete
@@ -3627,6 +3682,16 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			})
 		}
 	case key.Matches(msg, m.keymap.PermanentDelete):
+		// Spec 15 F-1: when a draft was just saved, 'D' discards it
+		// (DELETE /me/messages/{id}) rather than permanently deleting
+		// the focused message. This avoids destroying the source message
+		// when the user means "I changed my mind about this draft".
+		if m.lastDraftID != "" {
+			m.pendingDiscardDraftID = m.lastDraftID
+			m.confirm = m.confirm.Ask("Discard saved draft?", "discard_draft")
+			m.mode = ConfirmMode
+			return m, nil
+		}
 		if cur := m.viewer.current; cur != nil {
 			return m.startPermanentDelete(*cur)
 		}

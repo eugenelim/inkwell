@@ -7,8 +7,9 @@ two-stage idempotent dispatch (PR 7-i). **v0.13.x spec rewrite:**
 in-modal compose pane replaces the editor-driven flow (real-tenant
 "select Exit command first" friction) — see iter 3. Reply-all /
 forward / new message skeletons (PR 7-iii), `compose_sessions`
-crash recovery (PR 7-ii), and `Ctrl+E` `$EDITOR` drop-out remain
-deferred.
+crash recovery (PR 7-ii) shipped. **v0.30.0 (F-1 audit-drain):**
+discard DELETE + webLink TTL + `Mail.Send` CI guard + attachments
+infrastructure shipped — see iter 6.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/compose/`: template (reply skeleton), parse (RFC2822-style headers), editor (tempfile + `$INKWELL_EDITOR` / `$EDITOR` / nano fallback).
@@ -25,11 +26,30 @@ deferred.
 - [x] New message (m) — **closed by PR 7-iii (v0.13.x).** Folders-pane and viewer-pane m (when Drafts wired) fire startComposeNew; ApplyNewSkeleton blanks the form and focuses the To field; saveComposeCmd routes via DraftCreator.CreateNewDraft → graph.CreateNewDraft (single-stage POST /me/messages with the full payload — no createX/PATCH dance). List-pane m keeps move-with-folder-picker.
 - [x] `compose_sessions` table for crash recovery — **closed by PR 7-ii (v0.13.x).** Migration 005 adds the table per spec §7; SchemaVersion bumped to 5. `internal/ui/ComposeModel` gains a SessionID; entry / focus changes persist a JSON-encoded snapshot via `store.PutComposeSession`; save (Ctrl+S/Esc) and discard (Ctrl+D) stamp `confirmed_at` so the resume scan ignores the row. Init runs `scanComposeSessionsCmd` which GCs confirmed sessions older than 24h then offers the most-recent unconfirmed row via a confirm modal. Y restores into ComposeMode preserving SessionID; n inline-confirms. Corrupt snapshots are confirmed-and-skipped to avoid resume loops.
 - [ ] Confirm pane after editor exit (`s` save / `e` re-edit / `d` discard) — deferred. v0.11.0 saves immediately on non-empty body.
-- [ ] Attachment staging — deferred. Outlook handles attachments in the post-save webLink session.
+- [x] Attachment infrastructure — `AttachmentRef` / `safeReadFile` path-traversal guard / `graph.AddDraftAttachment` / `uploadAttachments` pipeline wired through all four create methods. UI `AttachmentSnapshotRef` + snapshot round-trip + `snapshotRefsToAction` conversion. **Closed F-1 (v0.30.0).**
+- [ ] Attachment UI picker — deferred. Infrastructure is wired; the file-picker overlay lands in a follow-up spec.
 - [ ] HTML drafts — deferred (PRD §6 — plain text in v1).
-- [ ] Lint guard for `Mail.Send` strings — deferred. Spec invariant remains: no code path asks for or uses `Mail.Send`. Belt-and-suspenders CI script lands when convenient.
+- [x] Lint guard for `Mail.Send` strings — `scripts/check-no-mail-send.sh` (greps for `"Mail.Send"` literal in Go files outside scopes.go) + CI `permissions-check` job already covers this. **Closed F-1 (v0.30.0).**
+- [x] Server-side discard (DELETE /me/messages/{id}) — viewer-pane `D` key, when `lastDraftID` is set, opens a confirm modal and fires `graph.DeleteDraft` (404 = success). Status bar hint updated to `✓ draft saved · s open · D discard`. **Closed F-1 (v0.30.0).**
+- [x] WebLink TTL auto-clear — `[compose].web_link_ttl` (default 30s) fires `draftWebLinkExpiredMsg` which clears `lastDraftWebLink` + `lastDraftID`. **Closed F-1 (v0.30.0).**
 
 ## Iteration log
+
+### Iter 6 — 2026-05-04 (discard DELETE + webLink TTL + Mail.Send guard + attachments, PR F-1 of audit-drain)
+- Trigger: `docs/audits/spec-1-15-impl-gaps.md` F-1 row. Four
+  open gaps from the audit: (a) discard after save doesn't call
+  Graph DELETE, (b) webLink hint never expires, (c) no CI guard
+  for `Mail.Send` scope, (d) attachment infrastructure missing.
+- Slice (`internal/store`): Added `ActionDiscardDraft` action type.
+- Slice (`internal/config`): Added `ComposeConfig{AttachmentMaxSizeMB, MaxAttachments, WebLinkTTL}` under `[compose]`; defaults 25 MB / 20 / 30s. `docs/CONFIG.md` updated.
+- Slice (`internal/graph`): Added `DeleteDraft` (DELETE /me/messages/{id}, 404=success) and `AddDraftAttachment` (POST /me/messages/{id}/attachments, base64 contentBytes). Tests in `drafts_test.go`.
+- Slice (`internal/action`): Added `AttachmentRef` struct, `safeReadFile` path-traversal guard (spec 17 §4.4 — absolute path, clean, Lstat, size limit), `uploadAttachments`, `DiscardDraft`. All four create methods accept `attachments []AttachmentRef`. `Executor.composeCfg` + `SetComposeConfig`. Tests in `draft_test.go`.
+- Slice (`internal/ui`): `ComposeSnapshot.Attachments` + `AttachmentSnapshotRef` + `snapshotRefsToAction`. `DraftCreator` interface gains `attachments []DraftAttachmentRef` param on all four create methods and new `DiscardDraft` method. `Deps.DraftWebLinkTTL`. Model gains `lastDraftID`, `pendingDiscardDraftID`. `draftSavedMsg` stores both ID and webLink, fires TTL timer. New handlers for `draftWebLinkExpiredMsg`, `draftDiscardDoneMsg`. `discard_draft` topic wired in `ConfirmResultMsg`. Viewer `D` intercepts when `lastDraftID != ""`. Status: `✓ draft saved · s open · D discard`.
+- Slice (`cmd/inkwell`): `draftAdapter` updated (4 create + 1 discard). `convertAttachmentRefs`. `DraftWebLinkTTL` + `SetComposeConfig` wired.
+- Slice (CI): `scripts/check-no-mail-send.sh` + `scripts/regress.sh` step 0.
+- Commands: `bash scripts/regress.sh` — all 6 gates green.
+- Critique: no layering violations; no new PII log sites; all error paths covered; no context.Background in request paths (only in tea.Cmd goroutines); idempotent (404 = success on DELETE).
+- Next: `Ctrl+E` $EDITOR drop-out (deferred), attachment picker (deferred).
 
 ### Iter 5 — 2026-05-01 (ReplyAll / Forward / NewMessage, PR 7-iii of audit-drain)
 - Trigger: spec 15 §5 / §6.2 / §9 audit row + iter 3's deferral

@@ -127,6 +127,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	// cycle (handles transient throttle / network failure).
 	exec := action.New(st, gc, logger)
 	exec.SetBatchConfig(cfg.Batch)
+	exec.SetComposeConfig(cfg.Compose)
 
 	// Crash recovery: reset any InFlight (non-draft) actions to
 	// Pending so the engine's first Drain cycle picks them up. Must
@@ -255,6 +256,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		MinTerminalRows:        cfg.UI.MinTerminalRows,
 		OOOIndicator:           cfg.MailboxSettings.OOOIndicator,
 		MailboxRefreshInterval: cfg.MailboxSettings.RefreshInterval,
+		DraftWebLinkTTL:        cfg.Compose.WebLinkTTL,
 	})
 	_ = sm // manager available for future use (e.g., timezone resolution)
 	if err != nil {
@@ -434,20 +436,36 @@ func (b bulkAdapter) BulkRemoveCategory(ctx context.Context, accountID int64, id
 // import internal/action.
 type draftAdapter struct{ exec *action.Executor }
 
-func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	return convertDraftResult(d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	return convertDraftResult(d.exec.CreateDraftReplyAll(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+func (d draftAdapter) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateDraftReplyAll(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateDraftForward(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	return convertDraftResult(d.exec.CreateDraftForward(ctx, accountID, sourceID, body, to, cc, bcc, subject))
+func (d draftAdapter) CreateDraftForward(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateDraftForward(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*ui.DraftRef, error) {
-	return convertDraftResult(d.exec.CreateNewDraft(ctx, accountID, body, to, cc, bcc, subject))
+func (d draftAdapter) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+	return convertDraftResult(d.exec.CreateNewDraft(ctx, accountID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
+}
+
+func (d draftAdapter) DiscardDraft(ctx context.Context, accountID int64, draftID string) error {
+	return d.exec.DiscardDraft(ctx, accountID, draftID)
+}
+
+// convertAttachmentRefs converts ui.DraftAttachmentRef slice to action.AttachmentRef slice.
+func convertAttachmentRefs(refs []ui.DraftAttachmentRef) []action.AttachmentRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]action.AttachmentRef, len(refs))
+	for i, r := range refs {
+		out[i] = action.AttachmentRef{LocalPath: r.LocalPath, Name: r.Name, SizeBytes: r.SizeBytes}
+	}
+	return out
 }
 
 // convertDraftResult collapses (*action.DraftResult, error) →

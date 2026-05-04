@@ -35,16 +35,22 @@ const (
 // calls. It implements [sync.ActionDrainer] so the sync engine drains
 // the queue at every cycle (handles retry-after-failure transparently).
 type Executor struct {
-	st       store.Store
-	gc       *graph.Client
-	logger   *slog.Logger
-	batchCfg config.BatchConfig
+	st         store.Store
+	gc         *graph.Client
+	logger     *slog.Logger
+	batchCfg   config.BatchConfig
+	composeCfg config.ComposeConfig
 }
 
 // SetBatchConfig configures the batch execution parameters. Call once
 // after New before any batch operations are started.
 func (e *Executor) SetBatchConfig(cfg config.BatchConfig) {
 	e.batchCfg = cfg
+}
+
+// SetComposeConfig configures attachment limits and webLink TTL.
+func (e *Executor) SetComposeConfig(cfg config.ComposeConfig) {
+	e.composeCfg = cfg
 }
 
 // New constructs an executor.

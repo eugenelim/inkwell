@@ -79,6 +79,12 @@ func applyLocalMessage(ctx context.Context, st store.Store, a store.Action, pre 
 		// Spec 15 §5: the local apply for drafts is a no-op; the
 		// action's record in the actions table IS the local state.
 		return nil
+	case store.ActionDiscardDraft:
+		// Discard is a server-only operation; the draft local row (if
+		// it exists) is already gone via the session close path. The
+		// next Drafts-folder delta sync reconciles anything that
+		// remains. No local mutation needed.
+		return nil
 	default:
 		return fmt.Errorf("apply local: unsupported action type %q", a.Type)
 	}

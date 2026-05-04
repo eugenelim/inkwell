@@ -39,6 +39,7 @@ type Config struct {
 	SavedSearch     SavedSearchSettings   `toml:"saved_search"`
 	SavedSearches   []SavedSearchConfig   `toml:"saved_searches"`
 	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
+	Compose         ComposeConfig         `toml:"compose"`
 }
 
 // MailboxSettingsConfig owns the [mailbox_settings] section (spec 13).
@@ -55,6 +56,22 @@ type MailboxSettingsConfig struct {
 	DefaultInternalMessage string `toml:"default_internal_message"`
 	// DefaultExternalMessage is the pre-populated external reply body.
 	DefaultExternalMessage string `toml:"default_external_message"`
+}
+
+// ComposeConfig owns the [compose] section (spec 15 F-1). Controls
+// attachment limits and the discard webLink TTL.
+type ComposeConfig struct {
+	// AttachmentMaxSizeMB is the per-file size limit for staged
+	// attachments. Files larger than this are rejected with an error
+	// before reaching the Graph API. Default 25 MB.
+	AttachmentMaxSizeMB int `toml:"attachment_max_size_mb"`
+	// MaxAttachments caps the number of staged attachments per draft.
+	// Default 20.
+	MaxAttachments int `toml:"max_attachments"`
+	// WebLinkTTL controls how long the status-bar "press s to open
+	// in Outlook" hint persists after a draft is saved. 0 disables
+	// auto-clear. Default 30s.
+	WebLinkTTL time.Duration `toml:"web_link_ttl"`
 }
 
 // PatternConfig owns the [pattern] section (spec 08 §13). Knobs

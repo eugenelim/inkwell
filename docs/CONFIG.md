@@ -374,6 +374,20 @@ I changed `refresh` from `"R"` (which conflicted with mark_unread) to `"ctrl+r"`
 
 ---
 
+## `[compose]`
+
+Controls the in-modal compose pane (spec 15 F-1). Drafts are created server-side via Graph; inkwell never calls `Mail.Send`.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `attachment_max_size_mb` | int | `25` | 1–100 | Maximum attachment file size in MB. Files larger than this limit are rejected before the Graph upload attempt (spec 15 §5 / spec 17 §4.4). |
+| `max_attachments` | int | `20` | 1–100 | Maximum number of attachments per draft. Graph enforces its own limit server-side; this client-side gate provides an early error. |
+| `web_link_ttl` | duration | `"30s"` | 0s–300s | How long the "press s to open in Outlook / D to discard" status-bar hint persists after a successful draft save. `0` disables auto-clear (hint stays until the next compose action). |
+
+**Owner spec:** 15.
+
+---
+
 ## Example complete config
 
 A user's `~/.config/inkwell/config.toml` overriding defaults:

@@ -24,6 +24,10 @@ step() { printf "\n${bold}== %s ==${reset}\n" "$*"; }
 ok()   { printf "${green}✓${reset} %s\n" "$*"; }
 fail() { printf "${red}✗ %s${reset}\n" "$*"; exit 1; }
 
+step "0/6 Mail.Send scope guard"
+bash "$(dirname "$0")/check-no-mail-send.sh" || fail "Mail.Send scope guard"
+ok "Mail.Send guard clean"
+
 step "1/6 gofmt -s (formatting)"
 diff_files=$(gofmt -s -l .)
 if [ -n "$diff_files" ]; then

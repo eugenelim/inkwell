@@ -165,5 +165,10 @@ func Defaults() *Config {
 			DefaultInternalMessage: "I'm currently out of the office.",
 			DefaultExternalMessage: "",
 		},
+		Compose: ComposeConfig{
+			AttachmentMaxSizeMB: 25,
+			MaxAttachments:      20,
+			WebLinkTTL:          30 * time.Second,
+		},
 	}
 }

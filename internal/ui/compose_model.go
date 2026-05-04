@@ -42,13 +42,27 @@ const (
 // (PR 7-ii) to persist into the `compose_sessions` table and
 // restore on launch. The shape is deliberately flat for easy TOML/
 // JSON round-tripping.
+//
+// Attachments holds staged local files (spec 15 §5 / F-1). The UI
+// attachment picker is a follow-up; this field is wired through the
+// save → executor → graph pipeline so it works when the picker lands.
 type ComposeSnapshot struct {
-	Kind     ComposeKind `json:"kind"`
-	SourceID string      `json:"source_id,omitempty"`
-	To       string      `json:"to,omitempty"`
-	Cc       string      `json:"cc,omitempty"`
-	Subject  string      `json:"subject,omitempty"`
-	Body     string      `json:"body,omitempty"`
+	Kind        ComposeKind             `json:"kind"`
+	SourceID    string                  `json:"source_id,omitempty"`
+	To          string                  `json:"to,omitempty"`
+	Cc          string                  `json:"cc,omitempty"`
+	Subject     string                  `json:"subject,omitempty"`
+	Body        string                  `json:"body,omitempty"`
+	Attachments []AttachmentSnapshotRef `json:"attachments,omitempty"`
+}
+
+// AttachmentSnapshotRef is the UI-layer mirror of action.AttachmentRef.
+// Defined here so compose_model.go doesn't import internal/action
+// (CLAUDE.md §2 layering).
+type AttachmentSnapshotRef struct {
+	LocalPath string `json:"local_path"`
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // ComposeModel is the in-modal compose pane (spec 15 v2 §6). The

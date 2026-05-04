@@ -150,6 +150,11 @@ const (
 	// this type because the POST is non-idempotent (a retry
 	// produces a duplicate draft). Spec 15 §5 / PR 7-iii.
 	ActionCreateDraft ActionType = "create_draft"
+	// ActionDiscardDraft deletes the server-side draft created by a
+	// previous CreateDraft* action. Idempotent: 404 from Graph is
+	// treated as success (spec 15 §6.3 / F-1). SkipUndo is always
+	// true — draft discard is not reversible via the undo stack.
+	ActionDiscardDraft ActionType = "discard_draft"
 )
 
 // ActionStatus enumerates the lifecycle states.

@@ -3,6 +3,7 @@ package graph
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -150,6 +151,53 @@ func (c *Client) PatchMessageBody(ctx context.Context, id, body string, to, cc, 
 	resp, err := c.Do(ctx, http.MethodPatch, url, bytes.NewReader(buf), http.Header{
 		"Content-Type": []string{"application/json"},
 	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return parseError(resp)
+	}
+	return nil
+}
+
+// DeleteDraft issues DELETE /me/messages/{id}, moving the draft to
+// Deleted Items. Idempotent: 404 is treated as success (spec 15
+// §6.3 / F-1). Use this from the discard flow AFTER the draft has
+// been saved to the server; do NOT use for messages the user didn't
+// draft in inkwell.
+func (c *Client) DeleteDraft(ctx context.Context, id string) error {
+	resp, err := c.Do(ctx, http.MethodDelete, "/me/messages/"+id, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil // idempotent: already gone
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return parseError(resp)
+	}
+	return nil
+}
+
+// AddDraftAttachment posts a file attachment to an existing draft via
+// POST /me/messages/{messageID}/attachments. The Graph API expects
+// a base64-encoded contentBytes field. Spec 15 §5 / F-1.
+func (c *Client) AddDraftAttachment(ctx context.Context, messageID, name string, data []byte) error {
+	payload := map[string]any{
+		"@odata.type":  "#microsoft.graph.fileAttachment",
+		"name":         name,
+		"contentBytes": base64.StdEncoding.EncodeToString(data),
+	}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("graph: marshal attachment: %w", err)
+	}
+	resp, err := c.Do(ctx, http.MethodPost,
+		"/me/messages/"+messageID+"/attachments",
+		bytes.NewReader(buf),
+		http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return err
 	}

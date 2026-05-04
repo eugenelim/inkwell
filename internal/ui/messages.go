@@ -166,3 +166,12 @@ type savedSearchSavedMsg struct {
 // clearTransientMsg is emitted by clearTransientCmd after the TTL elapses
 // to auto-clear m.engineActivity.
 type clearTransientMsg struct{}
+
+// draftWebLinkExpiredMsg fires when the spec 15 F-1 webLink TTL
+// elapses so the status-bar hint auto-clears. TTL is controlled by
+// [compose].web_link_ttl (default 30s).
+type draftWebLinkExpiredMsg struct{}
+
+// draftDiscardDoneMsg fires after the DiscardDraft Graph call
+// completes (success or failure). Spec 15 §6.3 / F-1.
+type draftDiscardDoneMsg struct{ err error }

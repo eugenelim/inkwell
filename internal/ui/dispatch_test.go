@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -2092,39 +2093,128 @@ func TestDraftSavedMsgPopulatesWebLinkAndStatus(t *testing.T) {
 	m = m2.(Model)
 	require.Equal(t, "https://outlook.office.com/draft/abc", m.lastDraftWebLink)
 	require.Contains(t, m.engineActivity, "draft saved")
-	require.Contains(t, m.engineActivity, "press s")
+	require.Contains(t, m.engineActivity, "s open")
+}
+
+// TestDraftSavedMsgStoresDraftID verifies that a successful
+// draftSavedMsg populates both lastDraftWebLink and lastDraftID.
+func TestDraftSavedMsgStoresDraftID(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(draftSavedMsg{draftID: "d-42", webLink: "https://outlook/draft/42"})
+	m = m2.(Model)
+	require.Equal(t, "d-42", m.lastDraftID)
+	require.Equal(t, "https://outlook/draft/42", m.lastDraftWebLink)
+}
+
+// TestDraftWebLinkExpiredClearsBothFields verifies draftWebLinkExpiredMsg
+// clears lastDraftWebLink, lastDraftID, and engineActivity together.
+func TestDraftWebLinkExpiredClearsBothFields(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Seed with a saved draft first.
+	m2, _ := m.Update(draftSavedMsg{draftID: "d-ttl", webLink: "https://outlook/draft/ttl"})
+	m = m2.(Model)
+	require.Equal(t, "d-ttl", m.lastDraftID)
+	// Now fire the TTL expiry.
+	m2, _ = m.Update(draftWebLinkExpiredMsg{})
+	m = m2.(Model)
+	require.Empty(t, m.lastDraftWebLink, "webLink must clear on TTL")
+	require.Empty(t, m.lastDraftID, "draftID must clear on TTL")
+}
+
+// TestDraftDiscardDoneMsgClearsState verifies draftDiscardDoneMsg
+// clears both fields and shows "draft discarded" status on success.
+func TestDraftDiscardDoneMsgClearsState(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(draftSavedMsg{draftID: "d-disc", webLink: "https://outlook/draft/disc"})
+	m = m2.(Model)
+	m2, _ = m.Update(draftDiscardDoneMsg{})
+	m = m2.(Model)
+	require.Empty(t, m.lastDraftWebLink)
+	require.Empty(t, m.lastDraftID)
+	require.Contains(t, m.engineActivity, "discarded")
+}
+
+// TestDraftDiscardDoneMsgSurfacesError verifies draftDiscardDoneMsg
+// sets lastError when the Graph call failed.
+func TestDraftDiscardDoneMsgSurfacesError(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(draftDiscardDoneMsg{err: fmt.Errorf("graph: 500")})
+	m = m2.(Model)
+	require.Error(t, m.lastError)
+	require.Contains(t, m.lastError.Error(), "graph: 500")
+}
+
+// TestDiscardDraftKeyOpensConfirmModal verifies that pressing
+// PermanentDelete ('D') when lastDraftID is set switches to
+// ConfirmMode with the "discard_draft" topic — not PermanentDelete.
+func TestDiscardDraftKeyOpensConfirmModal(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	// Simulate viewer pane with a message selected.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	// Transition to viewer pane.
+	m.focused = ViewerPane
+	// Seed a saved draft so 'D' means discard.
+	m.lastDraftID = "d-viewer"
+	// Press D (PermanentDelete binding).
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode, "'D' must open ConfirmMode when lastDraftID is set")
+	require.Equal(t, "d-viewer", m.pendingDiscardDraftID)
+}
+
+// TestDiscardDraftConfirmCallsDiscard verifies that confirming the
+// discard modal fires discardSavedDraftCmd (m.deps.Drafts.DiscardDraft).
+func TestDiscardDraftConfirmCallsDiscard(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m.focused = ViewerPane
+	m.lastDraftID = "d-confirm"
+	// Open the confirm modal.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	m = m2.(Model)
+	require.Equal(t, ConfirmMode, m.mode)
+	// Confirm.
+	m2, cmd := m.Update(ConfirmResultMsg{Topic: "discard_draft", Confirm: true})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.Empty(t, m.pendingDiscardDraftID)
+	require.NotNil(t, cmd, "confirm must fire discardSavedDraftCmd")
 }
 
 // stubDraftCreator satisfies ui.DraftCreator.
 type stubDraftCreator struct{ onCall func() }
 
-func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s stubDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-new", WebLink: "https://outlook.office.com/draft/new"}, nil
 }
+
+func (s stubDraftCreator) DiscardDraft(_ context.Context, _ int64, _ string) error { return nil }
 
 // TestComposeTabCyclesFields verifies the in-modal Tab navigation
 // reaches the spec 15 v2 §9 cycle order (Body → To → Cc → Subject).
@@ -2268,7 +2358,7 @@ type recordingDraftCreator struct {
 	lastSourceID string
 }
 
-func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
@@ -2278,7 +2368,7 @@ func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, src
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
@@ -2288,7 +2378,7 @@ func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, 
 	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
@@ -2298,7 +2388,7 @@ func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, s
 	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
@@ -2306,6 +2396,10 @@ func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body 
 	s.lastKind = "new"
 	s.lastSourceID = ""
 	return &DraftRef{ID: "draft-new", WebLink: "https://outlook/draft/new"}, nil
+}
+
+func (s *recordingDraftCreator) DiscardDraft(_ context.Context, _ int64, _ string) error {
+	return nil
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug

@@ -3,11 +3,51 @@ package action
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
 )
+
+// AttachmentRef identifies a local file to attach to the draft.
+// LocalPath must be an absolute, clean path to a regular file.
+// The path-traversal guard in safeReadFile enforces this contract.
+// Spec 15 §5 / spec 17 §4.4.
+type AttachmentRef struct {
+	LocalPath string `json:"local_path"`
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+// safeReadFile reads a local file for attachment upload. It enforces
+// spec 17 §4.4 path-traversal invariants: the path must be absolute,
+// clean (no ".." components), and point to a regular file (not a
+// symlink or directory). Files exceeding maxBytes are rejected to
+// prevent accidentally uploading large binaries.
+func safeReadFile(path string, maxBytes int64) ([]byte, error) {
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("attachment: path must be absolute: %q", path)
+	}
+	if clean := filepath.Clean(path); clean != path {
+		return nil, fmt.Errorf("attachment: path contains traversal components: %q", path)
+	}
+	// Lstat does not follow symlinks — reject symlinks so a
+	// crafted path can't point outside the intended tree.
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("attachment: stat %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("attachment: %q is not a regular file (mode %s)", path, info.Mode())
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("attachment: %q is %.1f MB, exceeds %.1f MB limit",
+			path, float64(info.Size())/(1<<20), float64(maxBytes)/(1<<20))
+	}
+	return os.ReadFile(path)
+}
 
 // DraftResult is what the UI gets back after a draft round-trips to
 // Graph. WebLink opens the draft in Outlook (the spec 15 hand-off);
@@ -42,8 +82,8 @@ type DraftResult struct {
 // produce duplicate drafts. PR 7-ii adds proper resume logic on
 // startup that inspects the Params for a draft_id and stage-aware
 // behaviour.
-func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
-	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftReply, e.gc.CreateReply)
 }
 
@@ -53,8 +93,8 @@ func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, source
 // to PATCH because the user may have curated the recipients
 // (removed someone, added a Bcc) before pressing save. Spec 15 §5 /
 // PR 7-iii.
-func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
-	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftReplyAll, e.gc.CreateReplyAll)
 }
 
@@ -63,8 +103,8 @@ func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sou
 // "Forwarded message" header block + quote chain; the UI's
 // to/cc/bcc / body / subject overlay onto that via the stage 2
 // PATCH. Spec 15 §5 / PR 7-iii.
-func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
-	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject,
+func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftForward, e.gc.CreateForward)
 }
 
@@ -77,7 +117,7 @@ func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sour
 // resume path knows from the absence of `draft_id` in Params that
 // stage 1 never landed and is the right place to either re-fire
 // or surface to the user.
-func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string) (*DraftResult, error) {
+func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
 	a := store.Action{
 		ID:        newActionID(),
 		AccountID: accountID,
@@ -106,17 +146,51 @@ func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body str
 	if err := e.st.UpdateActionParams(ctx, a.ID, a.Params); err != nil {
 		e.logger.Warn("draft: persist params failed", "action_id", a.ID, "err", err.Error())
 	}
+	out := &DraftResult{ID: ref.ID, WebLink: ref.WebLink}
+	if err := e.uploadAttachments(ctx, ref.ID, attachments); err != nil {
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+		return out, fmt.Errorf("draft created, attachment upload failed: %w", err)
+	}
 	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
 		e.logger.Warn("draft: status update failed", "action_id", a.ID, "err", err.Error())
 	}
-	return &DraftResult{ID: ref.ID, WebLink: ref.WebLink}, nil
+	return out, nil
+}
+
+// DiscardDraft deletes a server-side draft created by this session.
+// Issues DELETE /me/messages/{draftID}; 404 is treated as success
+// so the UI can call this idempotently. Spec 15 §6.3 / F-1.
+func (e *Executor) DiscardDraft(ctx context.Context, accountID int64, draftID string) error {
+	if draftID == "" {
+		return fmt.Errorf("discard_draft: empty draft id")
+	}
+	a := store.Action{
+		ID:        newActionID(),
+		AccountID: accountID,
+		Type:      store.ActionDiscardDraft,
+		Status:    store.StatusPending,
+		CreatedAt: time.Now(),
+		Params:    map[string]any{"draft_id": draftID},
+		SkipUndo:  true,
+	}
+	if err := e.st.EnqueueAction(ctx, a); err != nil {
+		return fmt.Errorf("discard_draft: enqueue: %w", err)
+	}
+	if err := e.gc.DeleteDraft(ctx, draftID); err != nil {
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+		return fmt.Errorf("discard_draft: %w", err)
+	}
+	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
+		e.logger.Warn("discard_draft: status update failed", "action_id", a.ID, "err", err.Error())
+	}
+	return nil
 }
 
 // createDraftFromSource is the two-stage Reply/ReplyAll/Forward
 // shared executor body. The kind + stage1 fn parameterise the
 // three flavours; everything else (action enqueue, params persist,
-// stage 2 PATCH, status transitions) is identical.
-func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, kind store.ActionType, stage1 func(context.Context, string) (*graph.DraftRef, error)) (*DraftResult, error) {
+// stage 2 PATCH, attachment upload, status transitions) is identical.
+func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef, kind store.ActionType, stage1 func(context.Context, string) (*graph.DraftRef, error)) (*DraftResult, error) {
 	if sourceMessageID == "" {
 		return nil, fmt.Errorf("draft: empty source message id")
 	}
@@ -156,10 +230,40 @@ func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, s
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
 		return out, fmt.Errorf("draft created, body update failed: %w", err)
 	}
+	if err := e.uploadAttachments(ctx, ref.ID, attachments); err != nil {
+		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
+		return out, fmt.Errorf("draft created, attachment upload failed: %w", err)
+	}
 	if err := e.st.UpdateActionStatus(ctx, a.ID, store.StatusDone, ""); err != nil {
 		e.logger.Warn("draft: status update failed", "action_id", a.ID, "err", err.Error())
 	}
 	return out, nil
+}
+
+// uploadAttachments reads each attachment from disk (path-traversal
+// guard applied) and POSTs it to Graph. Fails fast on the first
+// error; the caller marks the action Failed and returns the draft
+// result (with WebLink) so the user can finish in Outlook.
+func (e *Executor) uploadAttachments(ctx context.Context, draftID string, attachments []AttachmentRef) error {
+	const defaultMaxBytes = 25 * 1024 * 1024 // 25 MB matches compose default
+	maxBytes := int64(e.composeCfg.AttachmentMaxSizeMB) * 1024 * 1024
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxBytes
+	}
+	for _, att := range attachments {
+		name := att.Name
+		if name == "" {
+			name = filepath.Base(att.LocalPath)
+		}
+		data, err := safeReadFile(att.LocalPath, maxBytes)
+		if err != nil {
+			return fmt.Errorf("attachment %q: %w", name, err)
+		}
+		if err := e.gc.AddDraftAttachment(ctx, draftID, name, data); err != nil {
+			return fmt.Errorf("attachment %q: graph: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // stringSliceParam normalises a []string for JSON storage in the

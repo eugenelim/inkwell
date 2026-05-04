@@ -740,7 +740,7 @@ func TestCreateDraftReplyEnqueuesActionAndPersistsDraftID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	res, err := exec.CreateDraftReply(context.Background(), accID, "src-1", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x")
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-1", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x", nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.Equal(t, "draft-42", res.ID)
@@ -776,7 +776,7 @@ func TestCreateDraftReplyKeepsDraftIDOnPATCHFailure(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":{"code":"forbidden"}}`))
 	})
 
-	res, err := exec.CreateDraftReply(context.Background(), accID, "src-2", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x")
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-2", "Hi", []string{"a@example.invalid"}, nil, nil, "Re: x", nil)
 	require.Error(t, err, "PATCH failure must surface to caller")
 	require.NotNil(t, res, "even on PATCH failure the DraftResult must come back so the user finishes in Outlook")
 	require.Equal(t, "draft-99", res.ID)
@@ -802,7 +802,7 @@ func TestCreateDraftReplyMarksFailedOnCreateReplyFailure(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	res, err := exec.CreateDraftReply(context.Background(), accID, "src-3", "Hi", nil, nil, nil, "")
+	res, err := exec.CreateDraftReply(context.Background(), accID, "src-3", "Hi", nil, nil, nil, "", nil)
 	require.Error(t, err)
 	require.Nil(t, res, "no DraftResult when stage 1 failed")
 
@@ -843,7 +843,7 @@ func TestCreateDraftReplyRecipientsRoundTripThroughJSON(t *testing.T) {
 		[]string{"alice@example.invalid", "bob@example.invalid"},
 		[]string{"cc@example.invalid"},
 		nil,
-		"Re: x")
+		"Re: x", nil)
 
 	row := readRawAction(t, st, "src-rt", store.ActionCreateDraftReply)
 	require.Equal(t, store.StatusFailed, row.Status)
@@ -918,7 +918,7 @@ func TestCreateDraftReplyAllRoutesToReplyAllEndpoint(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	res, err := exec.CreateDraftReplyAll(context.Background(), accID, "src-ra", "Hi all", []string{"a@example.invalid", "b@example.invalid"}, []string{"c@example.invalid"}, nil, "Re: x")
+	res, err := exec.CreateDraftReplyAll(context.Background(), accID, "src-ra", "Hi all", []string{"a@example.invalid", "b@example.invalid"}, []string{"c@example.invalid"}, nil, "Re: x", nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.True(t, hitReplyAll, "stage 1 routes to /createReplyAll")
@@ -948,7 +948,7 @@ func TestCreateDraftForwardRoutesToForwardEndpoint(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	res, err := exec.CreateDraftForward(context.Background(), accID, "src-fwd", "Forwarding for review", []string{"alice@example.invalid"}, nil, nil, "Fwd: x")
+	res, err := exec.CreateDraftForward(context.Background(), accID, "src-fwd", "Forwarding for review", []string{"alice@example.invalid"}, nil, nil, "Fwd: x", nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.True(t, hitForward)
@@ -972,7 +972,7 @@ func TestCreateNewDraftSinglePost(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"draft-new","webLink":"https://outlook/drafts/new"}`)
 	})
 
-	res, err := exec.CreateNewDraft(context.Background(), accID, "Hello world", []string{"alice@example.invalid"}, nil, nil, "New thread")
+	res, err := exec.CreateNewDraft(context.Background(), accID, "Hello world", []string{"alice@example.invalid"}, nil, nil, "New thread", nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.Equal(t, "draft-new", res.ID)
