@@ -259,4 +259,40 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
   - `e`/`Q` quote collapse.
   - `internetMessageHeaders` full-header toggle (`H` key).
 
-- Status: implementation + tests written. Pending `make regress` green.
+- Status: shipped (C-1, 2026-05-03). Full `make regress` green after wiring `render.NewWithOptions` + `WrapColumns` in `cmd_run.go`.
+
+### Iter 7 — 2026-05-03 (PR C-1: quote-collapse + format-flowed + strip-patterns + single-flight + external-converter + viewer-width)
+
+- Slice: wire
+- Changes:
+  - `internal/config/config.go` + `defaults.go` — 6 new `[rendering]` keys:
+    `wrap_columns` (0), `quote_collapse_threshold` (3), `strip_patterns` ([]),
+    `html_converter` ("internal"), `html_converter_cmd` (""),
+    `external_converter_timeout` (5s).
+  - `internal/render/render.go` — `Options` struct; `NewWithOptions()` constructor;
+    `FetchedHeader{Name,Value}` type; `BodyView.TextExpanded`; `FetchedBody.Headers`;
+    single-flight via `sync.Map`; `applyStripPatterns`; collapsed+expanded renders.
+  - `internal/render/plain.go` — `normalisePlain` + `quoteThreshold`; `isFormatFlowed`;
+    `unwrapFormatFlowed`; `collapseQuotes`; attribution-line dim `\x1b[2m...\x1b[0m`.
+  - `internal/render/html.go` — `htmlToTextWithConfig`; `runExternalConverter`
+    (`#nosec G204` with WHY); html→text calls `normalisePlain(..., 0)`.
+  - `internal/render/graphfetcher.go` — maps `InternetMessageHeaders` →
+    `[]FetchedHeader`.
+  - `internal/graph/messages.go` — `GetMessageBody $select` gains
+    `internetMessageHeaders`.
+  - `internal/graph/types.go` — `Message.InternetMessageHeaders []MessageHeader`.
+  - `internal/ui/messages.go` — `BodyRenderedMsg.TextExpanded`, `.RawHeaders`;
+    new `RawHeader{Name,Value}`.
+  - `internal/ui/panes.go` — `ViewerModel.bodyExpanded`, `.quotesExpanded`,
+    `.rawHeaders`; `SetBody(3-arg)`; `ToggleQuotes()`; `QuotesExpanded()`;
+    `SetRawHeaders()`; `RawHeaders()`.
+  - `internal/ui/app.go` — `Deps.WrapColumns`; viewer-width computed from pane
+    geometry (floor 20) with override; `Q`/`e` keys call `ToggleQuotes()`;
+    `convertHeaders` helper.
+  - `cmd/inkwell/cmd_run.go` — `render.NewWithOptions` with all 6 config fields;
+    `WrapColumns` threaded into `ui.Deps`.
+- Commands run: `make regress` — all 6 gates green.
+- Critique: no layering violations; no PII-adjacent logs; no context.Background()
+  in request paths; error paths in external converter covered; single-flight
+  race-free by sync.Map semantics.
+- Next: C-1 done. Next PR is D-1 (spec-13).

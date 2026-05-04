@@ -205,6 +205,9 @@ type Deps struct {
 	// at N cells; the OSC 8 url portion stays full. 0 disables
 	// truncation. Falls back to 60 when unset.
 	URLDisplayMaxWidth int
+	// WrapColumns overrides the computed viewer-pane width for body
+	// soft-wrapping. 0 means use the actual pane width.
+	WrapColumns int
 	// Search runs spec 06 hybrid search (local FTS5 + Graph
 	// $search). Optional — when nil, `/` and `:search` fall back
 	// to the legacy single-shot store.Search flow.
@@ -802,10 +805,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BodyRenderedMsg:
 		if m.viewer.CurrentMessageID() == msg.MessageID {
-			m.viewer.SetBody(msg.Text, msg.State)
+			m.viewer.SetBody(msg.Text, msg.TextExpanded, msg.State)
 			m.viewer.SetLinks(msg.Links)
 			m.viewer.SetAttachments(msg.Attachments)
 			m.viewer.SetConversationThread(msg.Conversation, msg.MessageID)
+			m.viewer.SetRawHeaders(msg.RawHeaders)
 		}
 		// Stale local id: Graph reassigns message IDs on Move
 		// (soft-delete, archive, user-folder move). The local row
@@ -3264,8 +3268,15 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 		// Threaded from `[rendering].url_display_max_width` via Deps;
 		// 0 disables truncation explicitly. The production wire-up
 		// in cmd_run.go forwards the config value (default 60).
+		viewerW := m.width - m.paneWidths.Folders - m.paneWidths.List
+		if viewerW < 20 {
+			viewerW = 20
+		}
+		if m.deps.WrapColumns > 0 {
+			viewerW = m.deps.WrapColumns
+		}
 		opts := render.BodyOpts{
-			Width:              80,
+			Width:              viewerW,
 			Theme:              render.DefaultTheme(),
 			URLDisplayMaxWidth: m.deps.URLDisplayMaxWidth,
 		}
@@ -3302,7 +3313,7 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
 		}
 		if view.State == render.BodyReady {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv()}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, TextExpanded: view.TextExpanded, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(view.Headers)}
 		}
 		// BodyFetching: dispatch the fetch synchronously inside this
 		// goroutine and return the final rendered view.
@@ -3311,9 +3322,9 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			if err != nil {
 				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
 			}
-			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts(), Conversation: loadConv()}
+			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, TextExpanded: final.TextExpanded, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(final.Headers)}
 		}
-		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv()}
+		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, TextExpanded: view.TextExpanded, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(view.Headers)}
 	}
 }
 
@@ -3364,6 +3375,17 @@ func convertLinks(in []render.ExtractedLink) []BodyLink {
 	out := make([]BodyLink, len(in))
 	for i, l := range in {
 		out[i] = BodyLink{Index: l.Index, URL: l.URL, Text: l.Text}
+	}
+	return out
+}
+
+func convertHeaders(in []render.FetchedHeader) []RawHeader {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]RawHeader, len(in))
+	for i, h := range in {
+		out[i] = RawHeader{Name: h.Name, Value: h.Value}
 	}
 	return out
 }
@@ -3549,6 +3571,14 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, m.keymap.Undo):
 		return m.runUndo()
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "Q":
+		// Q toggles quote expansion (show/hide collapsed quoted blocks).
+		m.viewer.ToggleQuotes()
+		return m, nil
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
+		// e also toggles quote expansion (alternative binding).
+		m.viewer.ToggleQuotes()
+		return m, nil
 	}
 	return m, nil
 }

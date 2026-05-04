@@ -103,13 +103,29 @@ type BodyLink struct {
 // Conversation carries the sibling messages in the same conversation,
 // sorted by ReceivedAt ASC, for the thread-map section (spec 05 §11).
 // Nil when ConversationID is empty or the store query fails.
+//
+// TextExpanded is the fully un-collapsed body (quotes not folded).
+// Text carries the collapsed version when quote collapsing is active.
+//
+// RawHeaders carries the RFC 822 headers returned alongside the body
+// (spec 05 C-1). Empty when the fetch did not include headers.
 type BodyRenderedMsg struct {
 	MessageID    string
 	Text         string
+	TextExpanded string
 	Links        []BodyLink
 	State        int // mirrors render.BodyState
 	Attachments  []store.Attachment
 	Conversation []store.Message
+	RawHeaders   []RawHeader
+}
+
+// RawHeader is a single RFC 822 header name/value pair. Defined here
+// so messages.go doesn't import internal/render (consumer-site interface
+// per CLAUDE.md §2).
+type RawHeader struct {
+	Name  string
+	Value string
 }
 
 // SaveAttachmentDoneMsg is emitted when an attachment download + save to

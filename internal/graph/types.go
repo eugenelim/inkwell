@@ -74,6 +74,10 @@ type Message struct {
 	// modelled — the raw bytes are fetched on-demand by the save /
 	// open path (PR 10).
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// InternetMessageHeaders carries the RFC 822 headers returned when
+	// GetMessageBody includes internetMessageHeaders in $select (spec 05
+	// C-1). Empty when the fetch did not request them.
+	InternetMessageHeaders []MessageHeader `json:"internetMessageHeaders,omitempty"`
 	// Removed is set by the delta endpoint when a message has been
 	// deleted from the folder. Receivers treat as a tombstone.
 	Removed *RemovedMarker `json:"@removed,omitempty"`

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -149,7 +150,23 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	}
 
 	// Renderer with the production graph-backed body fetcher.
-	renderer := render.New(st, render.NewGraphBodyFetcher(gc))
+	var stripPatterns []*regexp.Regexp
+	for _, pat := range cfg.Rendering.StripPatterns {
+		if re, err := regexp.Compile(pat); err == nil {
+			stripPatterns = append(stripPatterns, re)
+		} else {
+			logger.Warn("rendering: invalid strip_pattern, skipping", slog.String("pattern", pat), slog.String("err", err.Error()))
+		}
+	}
+	renderer := render.NewWithOptions(st, render.NewGraphBodyFetcher(gc), render.Options{
+		WrapColumns:              cfg.Rendering.WrapColumns,
+		QuoteCollapseThreshold:   cfg.Rendering.QuoteCollapseThreshold,
+		StripPatterns:            stripPatterns,
+		HTMLConverter:            cfg.Rendering.HTMLConverter,
+		HTMLConverterCmd:         cfg.Rendering.HTMLConverterCmd,
+		ExternalConverterTimeout: cfg.Rendering.ExternalConverterTimeout,
+		Logger:                   logger,
+	})
 
 	// Kick off the engine. Its loop runs an immediate first cycle
 	// (spec 03 §5: "On Start():") which enumerates folders and pulls
@@ -212,6 +229,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		SavedSearches:         saved,
 		Bindings:              bindingsToOverrides(cfg.Bindings),
 		RecentFoldersCount:    cfg.Triage.RecentFoldersCount,
+		WrapColumns:           cfg.Rendering.WrapColumns,
 		URLDisplayMaxWidth:    cfg.Rendering.URLDisplayMaxWidth,
 		Attachments:           gc,
 		AttachmentSaveDir:     expandHome(cfg.Rendering.AttachmentSaveDir),

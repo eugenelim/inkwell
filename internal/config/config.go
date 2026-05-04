@@ -308,6 +308,26 @@ type RenderingConfig struct {
 	// downloading attachments larger than this many megabytes.
 	// 0 disables the warning. Default 25.
 	LargeAttachmentWarnMB int `toml:"large_attachment_warn_mb"`
+	// WrapColumns is the target column for soft-wrapping in the
+	// viewer body. 0 means use the computed pane width. Default 0.
+	WrapColumns int `toml:"wrap_columns"`
+	// QuoteCollapseThreshold: runs of quoted lines at depth ≥ this
+	// value are collapsed to a single "[… N quoted lines]" summary.
+	// 0 disables collapsing. Default 3.
+	QuoteCollapseThreshold int `toml:"quote_collapse_threshold"`
+	// StripPatterns is a list of regular expressions; any line
+	// matching one is removed from the plain-text body before
+	// rendering. When empty, built-in Outlook-noise patterns apply.
+	StripPatterns []string `toml:"strip_patterns"`
+	// HTMLConverter selects the HTML→text backend. "internal" (default)
+	// uses jaytaylor/html2text; "external" spawns HTMLConverterCmd.
+	HTMLConverter string `toml:"html_converter"`
+	// HTMLConverterCmd is the command used when HTMLConverter == "external".
+	// HTML is piped to stdin; plain text is read from stdout.
+	HTMLConverterCmd string `toml:"html_converter_cmd"`
+	// ExternalConverterTimeout caps the external-converter subprocess.
+	// Default 5s. On timeout the renderer falls back to the internal path.
+	ExternalConverterTimeout time.Duration `toml:"external_converter_timeout"`
 }
 
 // LoggingConfig owns the [logging] section.

@@ -36,12 +36,17 @@ func (f *graphBodyFetcher) FetchBody(ctx context.Context, messageID string) (Fet
 			ContentID:   a.ContentID,
 		})
 	}
+	hdrs := make([]FetchedHeader, 0, len(m.InternetMessageHeaders))
+	for _, h := range m.InternetMessageHeaders {
+		hdrs = append(hdrs, FetchedHeader{Name: h.Name, Value: h.Value})
+	}
 	if m.Body == nil {
-		return FetchedBody{ContentType: "text", Content: "", Attachments: atts}, nil
+		return FetchedBody{ContentType: "text", Content: "", Attachments: atts, Headers: hdrs}, nil
 	}
 	return FetchedBody{
 		ContentType: m.Body.ContentType,
 		Content:     m.Body.Content,
 		Attachments: atts,
+		Headers:     hdrs,
 	}, nil
 }

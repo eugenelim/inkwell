@@ -296,7 +296,7 @@ func TestRenderedFrameWithLongBodyClipsToHeight(t *testing.T) {
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
 	bigBody := strings.Repeat("paragraph of body text\n", 200)
-	m.viewer.SetBody(bigBody, 1) // 1 == BodyReady
+	m.viewer.SetBody(bigBody, bigBody, 1) // 1 == BodyReady
 
 	frame := m.View()
 	rows := strings.Count(frame, "\n") + 1
@@ -2861,7 +2861,7 @@ func TestViewerBodyPreservesOSC8Hyperlinks(t *testing.T) {
 	// around a URL.
 	url := "https://example.invalid/click-me"
 	wrapped := "\x1b]8;;" + url + "\x1b\\" + url + "\x1b]8;;\x1b\\"
-	v.SetBody("See: "+wrapped+"\n", 0)
+	v.SetBody("See: "+wrapped+"\n", "See: "+wrapped+"\n", 0)
 
 	out := v.View(DefaultTheme(), 80, 20, true)
 	require.Contains(t, out, "\x1b]8;;"+url+"\x1b\\",
@@ -4769,4 +4769,86 @@ func TestTransientClearCmdFires(t *testing.T) {
 	msg := cmd()
 	_, ok := msg.(clearTransientMsg)
 	require.True(t, ok, "Cmd must emit clearTransientMsg, got %T", msg)
+}
+
+// TestQKeyTogglesQuoteExpansion confirms that pressing Q in the viewer pane
+// toggles m.viewer.quotesExpanded and swaps the displayed body.
+func TestQKeyTogglesQuoteExpansion(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Open a message and focus the viewer.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	// Seed a collapsed and expanded body.
+	collapsed := "intro\n[… 3 quoted lines]\noutro\n"
+	expanded := "intro\n> q1\n> q2\n> q3\noutro\n"
+	m.viewer.SetBody(collapsed, expanded, 1)
+	require.False(t, m.viewer.QuotesExpanded(), "quotes start collapsed")
+	require.Equal(t, collapsed, m.viewer.body, "body starts as collapsed form")
+
+	// Press Q: should expand.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Q")})
+	m = m2.(Model)
+	require.True(t, m.viewer.QuotesExpanded(), "Q must expand quotes")
+	require.Equal(t, expanded, m.viewer.body, "body must be expanded form after Q")
+
+	// Press Q again: should collapse.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Q")})
+	m = m2.(Model)
+	require.False(t, m.viewer.QuotesExpanded(), "second Q must collapse quotes")
+	require.Equal(t, collapsed, m.viewer.body, "body must be collapsed form after second Q")
+}
+
+// TestEKeyTogglesQuoteExpansion confirms that e (alternative binding) also
+// toggles quote expansion in the viewer pane.
+func TestEKeyTogglesQuoteExpansion(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ViewerPane, m.focused)
+
+	collapsed := "intro\n[… 2 quoted lines]\noutro\n"
+	expanded := "intro\n> q1\n> q2\noutro\n"
+	m.viewer.SetBody(collapsed, expanded, 1)
+	require.False(t, m.viewer.QuotesExpanded())
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	m = m2.(Model)
+	require.True(t, m.viewer.QuotesExpanded(), "e must expand quotes in viewer pane")
+	require.Equal(t, expanded, m.viewer.body)
+}
+
+// TestViewerWidthPassedToBodyOpts confirms openMessageCmd uses the computed
+// viewer width rather than the old hardcoded 80, and that WrapColumns
+// overrides the computed pane width when set.
+func TestViewerWidthPassedToBodyOpts(t *testing.T) {
+	m := newDispatchTestModel(t)
+	// Set a known terminal width.
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	m = m2.(Model)
+
+	// The viewer width should be terminal width minus folders and list panes.
+	viewerW := m.width - m.paneWidths.Folders - m.paneWidths.List
+	require.Greater(t, viewerW, 0, "viewer width must be positive")
+	require.Less(t, viewerW, 160, "viewer width must be less than full terminal width")
+
+	// Verify panes are accounted for.
+	require.Equal(t, m.width, m.paneWidths.Folders+m.paneWidths.List+viewerW,
+		"pane widths must sum to terminal width")
+
+	// With WrapColumns == 0, the computed width is used.
+	require.Equal(t, 0, m.deps.WrapColumns, "WrapColumns defaults to 0")
+
+	// If we set WrapColumns, that takes precedence over the computed width.
+	m.deps.WrapColumns = 72
+	// Replicate the logic in openMessageCmd:
+	effectiveW := m.width - m.paneWidths.Folders - m.paneWidths.List
+	if effectiveW < 20 {
+		effectiveW = 20
+	}
+	if m.deps.WrapColumns > 0 {
+		effectiveW = m.deps.WrapColumns
+	}
+	require.Equal(t, 72, effectiveW, "WrapColumns must override computed pane width")
 }

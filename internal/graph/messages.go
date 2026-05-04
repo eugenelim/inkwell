@@ -95,7 +95,7 @@ func (c *Client) FollowNext(ctx context.Context, nextLink string) (*ListMessages
 // the save / open path (PR 10).
 func (c *Client) GetMessageBody(ctx context.Context, id string) (*Message, error) {
 	url := "/me/messages/" + id +
-		"?$select=body,hasAttachments" +
+		"?$select=body,hasAttachments,internetMessageHeaders" +
 		"&$expand=attachments($select=id,name,contentType,size,isInline)"
 	resp, err := c.Do(ctx, http.MethodGet, url, nil, nil)
 	if err != nil {

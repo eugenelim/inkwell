@@ -727,6 +727,12 @@ type ViewerModel struct {
 	// SetMessage so [/] navigation works without a new store query.
 	conversationThread []store.Message
 	convIdx            int
+	// bodyExpanded is the fully un-collapsed body (quotes not folded).
+	// body holds the collapsed version when quotesExpanded is false.
+	bodyExpanded   string
+	quotesExpanded bool
+	// rawHeaders carries the RFC 822 headers from the last body fetch.
+	rawHeaders []RawHeader
 }
 
 // NewViewer returns an empty viewer.
@@ -756,15 +762,46 @@ func (m ViewerModel) Attachments() []store.Attachment {
 }
 
 // SetBody is invoked after a fetch completes (or the cache hits).
-func (m *ViewerModel) SetBody(text string, state int) {
-	m.body = text
+// collapsed is the displayed version (with quotes folded when threshold > 0);
+// expanded is the fully un-collapsed body. When collapsed == expanded the
+// toggle is a no-op. state mirrors render.BodyState.
+func (m *ViewerModel) SetBody(collapsed, expanded string, state int) {
+	m.body = collapsed
+	m.bodyExpanded = expanded
 	m.bodyState = state
+	m.quotesExpanded = false
+}
+
+// ToggleQuotes swaps between the collapsed and expanded body views.
+func (m *ViewerModel) ToggleQuotes() {
+	if m.quotesExpanded {
+		m.body, m.bodyExpanded = m.bodyExpanded, m.body
+		m.quotesExpanded = false
+	} else {
+		m.body, m.bodyExpanded = m.bodyExpanded, m.body
+		m.quotesExpanded = true
+	}
+}
+
+// QuotesExpanded reports whether the body is currently in expanded (uncollapsed) state.
+func (m ViewerModel) QuotesExpanded() bool {
+	return m.quotesExpanded
 }
 
 // SetLinks records the renderer's extracted URL table. The URL
 // picker overlay reads from here.
 func (m *ViewerModel) SetLinks(links []BodyLink) {
 	m.links = links
+}
+
+// SetRawHeaders stores the RFC 822 headers for the current message.
+func (m *ViewerModel) SetRawHeaders(hdrs []RawHeader) {
+	m.rawHeaders = hdrs
+}
+
+// RawHeaders returns the stored RFC 822 headers.
+func (m ViewerModel) RawHeaders() []RawHeader {
+	return m.rawHeaders
 }
 
 // Links returns the most recent extracted URL table (may be nil).
