@@ -1,9 +1,7 @@
 # Spec 03 — Sync Engine + Graph Client
 
 ## Status
-done (CI scope). ThrottledEvent + AuthRequiredEvent emission
-shipped v0.13.x (PR 3 of audit-drain). Full-tenant integration
-test still deferred per CLAUDE.md §5.5.
+done (E-1 shipped 2026-05-04) — all audit-drain bullets now resolved.
 
 ## DoD checklist (mirrored from spec)
 - [x] Graph HTTP client with auth → throttle → logging transport stack.
@@ -126,6 +124,25 @@ test still deferred per CLAUDE.md §5.5.
     expose the field publicly for no other reason.
 - Result: gosec 0 issues, govulncheck 0 vulns, all packages
   green under -race + -tags=e2e.
+
+### Iter 10 — 2026-05-04 (E-1 audit-drain: goroutine fix + tombstones + config keys)
+- Slice: four audit-drain bullets for spec 03.
+- Files modified:
+  - `internal/sync/engine.go` — `Engine` interface + impl gains `Done() <-chan struct{}` (returns `e.stopped`); `filterSubscribed` gains `excludedDisplayNames []string` param for display-name-based exclusion; `Options` gains `ExcludedFolders`, `DeltaPageSize`, `RetryMaxBackoff`; `defaults()` sets those; `strings` import added.
+  - `internal/sync/delta.go` — `followDeltaPage` uses `e.opts.DeltaPageSize` instead of hard-coded 100.
+  - `internal/sync/backfill.go` — `QuickStartBackfill` passes `e.opts.ExcludedFolders` to `filterSubscribed`.
+  - `internal/sync/folders.go` — `syncFolders` handles `@removed` tombstones from `ListFoldersDelta` as explicit `DeleteFolder` calls; tombstone items skip the upsert path; the diff-from-stored-set delete pass remains for full-scan safety.
+  - `internal/graph/folders.go` — `ListFoldersDelta` no longer skips `@removed` items; all items (including tombstones) are returned so the caller can propagate deletes.
+  - `internal/graph/client.go` — `Options` gains `MaxBackoff time.Duration`; `throttleTransport` gains `maxBackoff` field; exponential-backoff cap uses `t.maxBackoff` instead of hard-coded 30s.
+  - `internal/config/config.go` — `SyncConfig` gains `SubscribedWellKnown`, `ExcludedFolders`, `DeltaPageSize`, `RetryMaxBackoff`, `PrioritizeBodyFetches`.
+  - `internal/config/defaults.go` — defaults for all 5 new fields.
+  - `cmd/inkwell/cmd_run.go` — wires `MaxBackoff`, `SubscribedFolders`, `ExcludedFolders`, `DeltaPageSize`, `RetryMaxBackoff` into graph + engine constructors.
+  - `internal/ui/app.go` — UI `Engine` interface gains `Done() <-chan struct{}`; `consumeSyncEventsCmd` selects on both `Notifications()` and `Done()` to avoid goroutine leak on shutdown.
+  - `internal/ui/app_e2e_test.go`, `dispatch_test.go` — stubs gain `Done()`.
+  - `internal/sync/engine_test.go` — 3 new tests: `TestFilterSubscribedExcludesByDisplayName`, `TestEngineDoneUnblocksConsumer`, `TestSyncFolderEnumerationTombstoneDeletesExistingFolder`. Renamed `TestSyncFolderEnumerationSkipsRemovedDeltaEntries` → `TestSyncFolderEnumerationTombstoneDeletesExistingFolder` to reflect new behaviour.
+- Commands run: `make regress` — all 6 gates green (17 packages).
+- Critique: `PrioritizeBodyFetches` config key added with default true; body fetches via `render.FetchBodyAsync` are already outside the engine's cycle lock so have implicit priority. A full priority semaphore is deferred to when concurrent folder sync is implemented (not in scope for E-1). No layering violations. No new log sites that could see PII.
+- Next: E-2 (spec-01 finish) is the next audit-drain PR.
 
 ### Iter 1 — 2026-04-27
 - Slice: graph/{errors,client,types,folders,delta,messages}.go + tests.

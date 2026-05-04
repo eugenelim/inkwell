@@ -330,30 +330,28 @@ func TestSyncFolderEnumerationDedupesGraphReturnedWellKnownClash(t *testing.T) {
 	require.Empty(t, byID["f-inbox-2"].WellKnownName, "second has wellKnownName cleared")
 }
 
-// TestSyncFolderEnumerationSkipsRemovedDeltaEntries guards the
-// future-incremental path: when a persisted delta token leads to
-// a delta page that includes @removed markers (server-side
-// deletions), the sync layer must not try to upsert them. Today
-// we don't persist the token so this never fires in production,
-// but the helper code still has to handle it correctly.
-func TestSyncFolderEnumerationSkipsRemovedDeltaEntries(t *testing.T) {
+// TestSyncFolderEnumerationTombstoneDeletesExistingFolder verifies
+// that @removed markers from the delta endpoint delete the matching
+// folder from the local store. Spec 03 §6.2 tombstone propagation.
+func TestSyncFolderEnumerationTombstoneDeletesExistingFolder(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
+	// Pre-seed a folder that the server will mark as deleted.
+	require.NoError(t, st.UpsertFolder(context.Background(), store.Folder{
+		ID: "f-gone", AccountID: acc, DisplayName: "To Be Deleted", LastSyncedAt: time.Now(),
+	}))
 	srv.Handle("/me/mailFolders/delta", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// Hand-rolled JSON because graph.MailFolder.Removed is a
-		// pointer; the empty struct literal in writeJSON-friendly
-		// form is awkward. The shape mirrors what Graph emits.
 		_, _ = w.Write([]byte(`{
 			"value": [
 				{"id": "f-inbox", "displayName": "Inbox", "wellKnownName": "inbox"},
-				{"id": "f-deleted", "@removed": {"reason": "deleted"}}
+				{"id": "f-gone", "@removed": {"reason": "deleted"}}
 			]
 		}`))
 	})
 	require.NoError(t, eng.(*engine).syncFolders(context.Background()))
 	got, err := st.ListFolders(context.Background(), acc)
 	require.NoError(t, err)
-	require.Len(t, got, 1, "@removed entry must not be upserted")
+	require.Len(t, got, 1, "@removed entry must be deleted, not left in store")
 	require.Equal(t, "f-inbox", got[0].ID)
 }
 
@@ -585,12 +583,42 @@ func TestFilterSubscribedExcludesJunkAndDeleted(t *testing.T) {
 		{ID: "4", WellKnownName: "junkemail"},
 		{ID: "5", DisplayName: "User Folder"},
 	}
-	got := filterSubscribed(all, DefaultSubscribedFolders())
+	got := filterSubscribed(all, DefaultSubscribedFolders(), nil)
 	gotIDs := make([]string, len(got))
 	for i, f := range got {
 		gotIDs[i] = f.ID
 	}
 	require.ElementsMatch(t, []string{"1", "2", "5"}, gotIDs)
+}
+
+func TestFilterSubscribedExcludesByDisplayName(t *testing.T) {
+	all := []store.Folder{
+		{ID: "1", WellKnownName: "inbox"},
+		{ID: "2", DisplayName: "User Folder"},
+		{ID: "3", DisplayName: "Junk Email"}, // excluded by display name
+		{ID: "4", DisplayName: "JUNK EMAIL"}, // case-insensitive
+	}
+	got := filterSubscribed(all, DefaultSubscribedFolders(), []string{"Junk Email"})
+	gotIDs := make([]string, len(got))
+	for i, f := range got {
+		gotIDs[i] = f.ID
+	}
+	require.ElementsMatch(t, []string{"1", "2"}, gotIDs)
+}
+
+func TestEngineDoneUnblocksConsumer(t *testing.T) {
+	eng, _, _, _ := newSyncTest(t)
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stopCancel()
+	_ = eng.Stop(stopCtx)
+
+	// Done() channel must be closed after Stop().
+	select {
+	case <-eng.Done():
+		// pass
+	case <-time.After(time.Second):
+		t.Fatal("Done() was not closed after Stop()")
+	}
 }
 
 func TestEngineActionDrainCalledBeforeFolderSync(t *testing.T) {

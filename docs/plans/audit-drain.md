@@ -303,7 +303,7 @@ These are the remaining deferred items after all primary specs ship.
 | B-2 | 04 | done \| 2026-05-03 | spec 04 §14 lifecycle teardown; §5 transient_status_ttl; §13 min_terminal; :save/:rule; indicator config | 2026-05-03 |
 | C-1 | 05 | done \| 2026-05-03 | spec 05 §6.3 quote collapse; §7 format=flowed; §6.5 strip_patterns; html_converter; §5.2 internetMessageHeaders; single-flight; [rendering] keys | 2026-05-03 |
 | D-1 | 13 | done \| 2026-05-04 | spec 13 §5 OOF editing; §11 :ooo variants; §6 :settings; §8 OOO indicator; timezone Manager; §4 refresh timer; PATCH schedule fields; [mailbox_settings] config | 2026-05-04 |
-| E-1 | 03 | not-started | spec 03 §3 goroutine leak; §6.2 tombstone delta backfill; §11 priority queue; [sync] config keys | — |
+| E-1 | 03 | done \| 2026-05-04 | spec 03 §3 goroutine leak; §6.2 tombstone delta backfill; §11 priority queue; [sync] config keys | — |
 | E-2 | 01 | not-started | spec 01 §11 AADSTS classification; clock-skew hint; §5.4 CLI PromptFn | — |
 | F-1 | 15 | not-started | spec 15 §6.3 discard DELETE; §9 webLink TTL; §11 Mail.Send lint guard; §5 compose attachments | — |
 | G-1 | 14 | not-started | spec 14 §6 message/rule/calendar/ooo/settings/export/daemon/backfill subcommands; §5.3 exit codes; §5.2 line-delimited JSON; progress bars; global flags; [cli] config | — |

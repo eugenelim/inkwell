@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -98,6 +99,11 @@ type Engine interface {
 	Backfill(ctx context.Context, folderID string, until time.Time) error
 	ResetDelta(ctx context.Context, folderID string) error
 	Notifications() <-chan Event
+	// Done returns a channel that is closed when the engine has been
+	// told to stop via Stop(). Consumers (e.g. consumeSyncEventsCmd)
+	// select on Done() alongside Notifications() to avoid blocking
+	// forever after engine shutdown. Spec 03 §3 goroutine-leak fix.
+	Done() <-chan struct{}
 	// Wake nudges the engine to run a cycle now (the next select
 	// iteration of the loop). Single-shot — duplicate calls within a
 	// running cycle are coalesced by the buffer-1 wakeup channel,
@@ -132,9 +138,20 @@ type Options struct {
 	ForegroundInterval time.Duration
 	BackgroundInterval time.Duration
 	Logger             *slog.Logger
-	// SubscribedFolders restrects which well-known names participate
+	// SubscribedFolders restricts which well-known names participate
 	// in delta sync. Empty = the spec §5.1 default set.
 	SubscribedFolders []string
+	// ExcludedFolders lists folder display names (case-insensitive) to
+	// skip during sync regardless of well-known name. Maps to
+	// [SyncConfig.ExcludedFolders].
+	ExcludedFolders []string
+	// DeltaPageSize is the Prefer: odata.maxpagesize value for delta
+	// queries. Zero uses the default (100). Maps to
+	// [SyncConfig.DeltaPageSize].
+	DeltaPageSize int
+	// RetryMaxBackoff caps the exponential-backoff delay when Graph
+	// returns no Retry-After header. Zero uses the default (30s).
+	RetryMaxBackoff time.Duration
 
 	// Maintenance configures the spec 02 §8 nightly housekeeping
 	// pass: body LRU eviction, done-actions sweep, optional
@@ -166,6 +183,12 @@ func (o *Options) defaults() {
 	}
 	if len(o.SubscribedFolders) == 0 {
 		o.SubscribedFolders = DefaultSubscribedFolders()
+	}
+	if o.DeltaPageSize <= 0 {
+		o.DeltaPageSize = 100
+	}
+	if o.RetryMaxBackoff <= 0 {
+		o.RetryMaxBackoff = 30 * time.Second
 	}
 	// Maintenance defaults. Zero means "use these"; <0 disables
 	// (the negative sentinel is for tests that want a quiet engine).
@@ -265,6 +288,11 @@ func New(gc *graph.Client, st store.Store, drain ActionDrainer, opts Options) (E
 
 // Notifications returns the read-side of the event channel.
 func (e *engine) Notifications() <-chan Event { return e.events }
+
+// Done returns a channel that is closed when Stop has been called.
+// consumeSyncEventsCmd selects on this alongside Notifications() to
+// avoid blocking forever after engine shutdown. Spec 03 §3.
+func (e *engine) Done() <-chan struct{} { return e.stopped }
 
 // OnThrottle is the hook the graph client calls when a request had
 // to wait on a 429. The engine forwards the retry-after duration to
@@ -506,7 +534,7 @@ func (e *engine) runCycle(ctx context.Context) error {
 		e.setState(StateIdle)
 		return fmt.Errorf("list folders: %w", err)
 	}
-	subscribed := orderForQuickStart(filterSubscribed(folders, e.opts.SubscribedFolders))
+	subscribed := orderForQuickStart(filterSubscribed(folders, e.opts.SubscribedFolders, e.opts.ExcludedFolders))
 	e.logger.Info("sync: enumerated folders",
 		slog.Int("total", len(folders)),
 		slog.Int("subscribed", len(subscribed)),
@@ -581,14 +609,22 @@ func (e *engine) emit(ev Event) {
 
 // filterSubscribed returns the folders in `all` that match the
 // subscription set per spec §5.1: well-known names in `subscribed`,
-// PLUS any user folder (no well-known name), MINUS the excluded set.
-func filterSubscribed(all []store.Folder, subscribed []string) []store.Folder {
+// PLUS any user folder (no well-known name), MINUS the excluded set
+// (well-known exclusions + display-name exclusions).
+func filterSubscribed(all []store.Folder, subscribed []string, excludedDisplayNames []string) []store.Folder {
 	want := make(map[string]bool, len(subscribed))
 	for _, s := range subscribed {
 		want[s] = true
 	}
+	excludedByName := make(map[string]bool, len(excludedDisplayNames))
+	for _, n := range excludedDisplayNames {
+		excludedByName[strings.ToLower(n)] = true
+	}
 	var out []store.Folder
 	for _, f := range all {
+		if excludedByName[strings.ToLower(f.DisplayName)] {
+			continue
+		}
 		if f.WellKnownName == "" {
 			out = append(out, f)
 			continue

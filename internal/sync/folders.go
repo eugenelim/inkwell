@@ -79,9 +79,13 @@ func (e *engine) syncFolders(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Build a set of non-tombstone IDs for parent-FK resolution and
+	// the diff-from-stored-set delete pass.
 	known := make(map[string]bool, len(remote))
 	for _, f := range remote {
-		known[f.ID] = true
+		if f.Removed == nil {
+			known[f.ID] = true
+		}
 	}
 	// Track wellKnownName values we've already used in this sync so a
 	// second clashing row drops its wellKnownName instead of failing
@@ -89,6 +93,16 @@ func (e *engine) syncFolders(ctx context.Context) error {
 	usedWellKnown := make(map[string]bool, len(remote))
 	seen := make(map[string]bool, len(remote))
 	for _, f := range remote {
+		// Tombstone: propagate as an explicit delete. This path fires
+		// when the caller uses an incremental deltaLink; on a fresh
+		// full-scan Graph emits no tombstones and the diff-from-stored
+		// pass below handles any deletions instead.
+		if f.Removed != nil {
+			if err := e.st.DeleteFolder(ctx, f.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		seen[f.ID] = true
 		parent := f.ParentFolderID
 		if !known[parent] {

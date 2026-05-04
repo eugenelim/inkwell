@@ -242,11 +242,16 @@ type CacheConfig struct {
 
 // SyncConfig owns the [sync] section (spec 03).
 type SyncConfig struct {
-	MaxConcurrent      int           `toml:"max_concurrent"`
-	ForegroundInterval time.Duration `toml:"foreground_interval"`
-	BackgroundInterval time.Duration `toml:"background_interval"`
-	BackfillDays       int           `toml:"backfill_days"`
-	MaxRetries         int           `toml:"max_retries"`
+	MaxConcurrent         int           `toml:"max_concurrent"`
+	ForegroundInterval    time.Duration `toml:"foreground_interval"`
+	BackgroundInterval    time.Duration `toml:"background_interval"`
+	BackfillDays          int           `toml:"backfill_days"`
+	MaxRetries            int           `toml:"max_retries"`
+	SubscribedWellKnown   []string      `toml:"subscribed_well_known"`
+	ExcludedFolders       []string      `toml:"excluded_folders"`
+	DeltaPageSize         int           `toml:"delta_page_size"`
+	RetryMaxBackoff       time.Duration `toml:"retry_max_backoff"`
+	PrioritizeBodyFetches bool          `toml:"prioritize_body_fetches"`
 }
 
 // UIConfig owns the [ui] section (spec 04).

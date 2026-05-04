@@ -33,10 +33,13 @@ type dispatchTestAuth struct{}
 
 func (dispatchTestAuth) Account() (string, string, bool) { return "tester@example.invalid", "T", true }
 
-type dispatchTestEngine struct{ events chan isync.Event }
+type dispatchTestEngine struct {
+	events chan isync.Event
+	done   chan struct{}
+}
 
 func newDispatchTestEngine() *dispatchTestEngine {
-	return &dispatchTestEngine{events: make(chan isync.Event, 8)}
+	return &dispatchTestEngine{events: make(chan isync.Event, 8), done: make(chan struct{})}
 }
 func (e *dispatchTestEngine) Start(_ context.Context) error   { return nil }
 func (e *dispatchTestEngine) SetActive(_ bool)                {}
@@ -46,6 +49,7 @@ func (e *dispatchTestEngine) Backfill(_ context.Context, _ string, _ time.Time) 
 	return nil
 }
 func (e *dispatchTestEngine) Notifications() <-chan isync.Event { return e.events }
+func (e *dispatchTestEngine) Done() <-chan struct{}             { return e.done }
 
 func newDispatchTestModel(t *testing.T) Model {
 	t.Helper()
@@ -1976,6 +1980,10 @@ func (s stubCountingEngine) Backfill(_ context.Context, _ string, _ time.Time) e
 }
 func (s stubCountingEngine) Notifications() <-chan isync.Event {
 	return make(chan isync.Event)
+}
+func (s stubCountingEngine) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	return ch
 }
 
 // TestViewerCapitalHTogglesFullHeaders confirms `H` while in the

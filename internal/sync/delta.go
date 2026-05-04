@@ -138,7 +138,7 @@ func (e *engine) followDeltaPage(ctx context.Context, folderID, url string, drai
 		}
 		resp, err := e.gc.GetDelta(ctx, url, graph.DeltaOpts{
 			Select:      graph.EnvelopeSelectFields,
-			MaxPageSize: 100,
+			MaxPageSize: e.opts.DeltaPageSize,
 		})
 		if err != nil {
 			if graph.IsSyncStateNotFound(err) {

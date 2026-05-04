@@ -34,6 +34,9 @@ type Options struct {
 	// MaxRetries bounds the throttle-retry loop before surfacing the
 	// last 429. Default 5.
 	MaxRetries int
+	// MaxBackoff caps the exponential-backoff delay when no Retry-After
+	// header is present. Zero uses the default (30s).
+	MaxBackoff time.Duration
 	// Logger is the redacting slog logger. Required.
 	Logger *slog.Logger
 	// Transport is the underlying RoundTripper (defaults to
@@ -69,6 +72,9 @@ func NewClient(auth Authenticator, opts Options) (*Client, error) {
 	if opts.MaxRetries <= 0 {
 		opts.MaxRetries = 5
 	}
+	if opts.MaxBackoff <= 0 {
+		opts.MaxBackoff = 30 * time.Second
+	}
 	base := opts.Transport
 	if base == nil {
 		base = http.DefaultTransport
@@ -81,6 +87,7 @@ func NewClient(auth Authenticator, opts Options) (*Client, error) {
 		base:       logging,
 		sem:        make(chan struct{}, opts.MaxConcurrent),
 		maxRetries: opts.MaxRetries,
+		maxBackoff: opts.MaxBackoff,
 		onThrottle: opts.OnThrottle,
 		logger:     opts.Logger,
 	}
@@ -168,6 +175,7 @@ type throttleTransport struct {
 	base       http.RoundTripper
 	sem        chan struct{}
 	maxRetries int
+	maxBackoff time.Duration
 	onThrottle func(time.Duration)
 	logger     *slog.Logger
 
@@ -198,8 +206,8 @@ func (t *throttleTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 		if retryAfter == 0 {
 			retryAfter = time.Duration(1<<uint(attempt)) * time.Second
-			if retryAfter > 30*time.Second {
-				retryAfter = 30 * time.Second
+			if retryAfter > t.maxBackoff {
+				retryAfter = t.maxBackoff
 			}
 		}
 		if t.onThrottle != nil {

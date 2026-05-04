@@ -39,9 +39,12 @@ func (f fakeAuth) Account() (string, string, bool) {
 type fakeEngine struct {
 	syncCalls int32
 	events    chan isync.Event
+	done      chan struct{}
 }
 
-func newFakeEngine() *fakeEngine                      { return &fakeEngine{events: make(chan isync.Event, 8)} }
+func newFakeEngine() *fakeEngine {
+	return &fakeEngine{events: make(chan isync.Event, 8), done: make(chan struct{})}
+}
 func (f *fakeEngine) Start(_ context.Context) error   { return nil }
 func (f *fakeEngine) SetActive(_ bool)                {}
 func (f *fakeEngine) SyncAll(_ context.Context) error { f.syncCalls++; return nil }
@@ -50,6 +53,7 @@ func (f *fakeEngine) Backfill(_ context.Context, _ string, _ time.Time) error {
 	return nil
 }
 func (f *fakeEngine) Notifications() <-chan isync.Event { return f.events }
+func (f *fakeEngine) Done() <-chan struct{}             { return f.done }
 
 func openE2EStore(t *testing.T) (store.Store, *store.Account) {
 	t.Helper()

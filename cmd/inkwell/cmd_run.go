@@ -111,6 +111,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Logger:        logger,
 		MaxConcurrent: cfg.Sync.MaxConcurrent,
 		MaxRetries:    cfg.Sync.MaxRetries,
+		MaxBackoff:    cfg.Sync.RetryMaxBackoff,
 		OnThrottle: func(d time.Duration) {
 			if engine != nil {
 				engine.OnThrottle(d)
@@ -140,6 +141,10 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Logger:                logger,
 		ForegroundInterval:    cfg.Sync.ForegroundInterval,
 		BackgroundInterval:    cfg.Sync.BackgroundInterval,
+		SubscribedFolders:     cfg.Sync.SubscribedWellKnown,
+		ExcludedFolders:       cfg.Sync.ExcludedFolders,
+		DeltaPageSize:         cfg.Sync.DeltaPageSize,
+		RetryMaxBackoff:       cfg.Sync.RetryMaxBackoff,
 		BodyCacheMaxCount:     cfg.Cache.BodyCacheMaxCount,
 		BodyCacheMaxBytes:     cfg.Cache.BodyCacheMaxBytes,
 		DoneActionsRetention:  cfg.Cache.DoneActionsRetention,

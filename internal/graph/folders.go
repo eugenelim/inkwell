@@ -24,10 +24,11 @@ import (
 // adds a meta column for the deltaLink and switches to the
 // incremental path.
 //
-// @removed entries (from a future incremental path) are skipped
-// here; the caller's UpsertFolder + delete-missing-folders pass
-// already handles deletions correctly when a fresh full list
-// arrives.
+// @removed tombstones from the delta endpoint are included in the
+// returned slice with Removed != nil so callers can propagate deletes
+// directly instead of relying solely on the diff-from-stored-set pass.
+// On a fresh delta scan (no persisted deltaLink) Graph returns no
+// tombstones, so the change is transparent to the current code path.
 func (c *Client) ListFoldersDelta(ctx context.Context) ([]MailFolder, error) {
 	url := "/me/mailFolders/delta"
 	var out []MailFolder
@@ -50,12 +51,7 @@ func (c *Client) ListFoldersDelta(ctx context.Context) ([]MailFolder, error) {
 			return nil, fmt.Errorf("graph: decode folders delta: %w", err)
 		}
 		_ = resp.Body.Close()
-		for _, f := range page.Value {
-			if f.Removed != nil {
-				continue
-			}
-			out = append(out, f)
-		}
+		out = append(out, page.Value...)
 		url = page.NextLink
 	}
 	return out, nil

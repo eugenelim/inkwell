@@ -43,6 +43,9 @@ type Engine interface {
 	// the user has scrolled past everything cached locally.
 	Backfill(ctx context.Context, folderID string, until time.Time) error
 	Notifications() <-chan isync.Event
+	// Done returns a channel closed when the engine stops. Used by
+	// consumeSyncEventsCmd to avoid a goroutine leak on app shutdown.
+	Done() <-chan struct{}
 }
 
 // TriageExecutor is the action surface the UI consumes for single-
@@ -3965,13 +3968,23 @@ func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
 // notification channel and re-arms itself in Update. This pattern keeps
 // the channel-read off the Update goroutine (Bubble Tea contract:
 // Update never blocks on I/O).
+//
+// Selects on both Notifications() and Engine.Done() to avoid a
+// goroutine leak when the engine stops before the channel is drained.
+// Spec 03 §3.
 func (m Model) consumeSyncEventsCmd() tea.Cmd {
+	ch := m.deps.Engine.Notifications()
+	done := m.deps.Engine.Done()
 	return func() tea.Msg {
-		ev, ok := <-m.deps.Engine.Notifications()
-		if !ok {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			return SyncEventMsg{Event: ev}
+		case <-done:
 			return nil
 		}
-		return SyncEventMsg{Event: ev}
 	}
 }
 

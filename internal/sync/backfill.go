@@ -82,7 +82,7 @@ func (e *engine) QuickStartBackfill(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, f := range orderForQuickStart(filterSubscribed(folders, e.opts.SubscribedFolders)) {
+	for _, f := range orderForQuickStart(filterSubscribed(folders, e.opts.SubscribedFolders, e.opts.ExcludedFolders)) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
