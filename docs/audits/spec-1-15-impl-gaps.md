@@ -9,13 +9,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 ## Spec 01 — Authentication (interactive browser + device code)
 
 - Implementation: `internal/auth/`
-- Status overall: partial — sign-in flows ship; AADSTS classification + clock-skew detection + CLI PromptFn missing.
-- Implementation gaps:
-  - DoD bullet "`inkwell whoami` works end-to-end" — `cmd/inkwell/cmd_root.go:38` registers `newWhoamiCmd(rc)` but no `cmd_whoami.go` file exists in `cmd/inkwell/`. The root command also references `newSignoutCmd(rc)` (`cmd_root.go:38`) with no corresponding file. The runners are presumably in `cmd_auth_runners.go` but the spec's three-command surface (`signin`/`signout`/`whoami`) has not been verified to compile / run end-to-end.
-  - Spec §11 lists "Conditional Access requires a compliant / managed device" with a guarded user-facing message. `internal/auth/auth.go:296,300` only wraps MSAL errors with `fmt.Errorf("interactive auth: %w", ...)`; there is no AADSTS code classification (`AADSTS530003`, `AADSTS65001`, etc.) and no friendly message rewriting. The spec table promises specific error text per scenario; the code passes the raw MSAL string through.
-  - Spec §11 row "Clock skew > 5 minutes" — no detection or special surface. Clock-skew failures bubble up as MSAL token-validation errors with no actionable hint.
-- Design drifts:
-  - Spec §4 declares the public type `DeviceCodePrompt` carries `Message string`. `internal/auth/auth.go:138` includes the field but `noopPrompt` (`auth.go:465`) is the only registered prompt for non-TUI flows. There is no CLI implementation of `PromptFn` that prints to stderr per spec §5.4 ("The CLI's `PromptFn` should print to stderr…"). For CLI sign-in, no device-code text would surface.
+- Status overall: **closed** — all gaps addressed by PR E-2 (2026-05-04).
 - Schema/config gaps: none.
 - TODO-shaped spec language: spec §6 line 269 — "The `Chat.Read` and `User.ReadBasic.All` scopes are deferred (not in v1 surface area)." (Acceptable — explicit deferral.)
 
@@ -340,7 +334,7 @@ inline. Refresh after every audit-drain PR.
 
 | Spec | Status | Open | Closed since v0.12.0 | Highest-risk remaining |
 |------|--------|------|----------------------|------------------------|
-| 01   | partial | 4 | — | AADSTS code classification + clock-skew detection + CLI PromptFn missing |
+| 01   | closed  | 0 | E-2 2026-05-04 | all gaps addressed |
 | 02   | partial | 2 | maintenance loop (PR 11), EvictBodies wiring (PR 11) | flag_due_at not in MessageFields; saved-search delete-by-name (depends on spec 11) |
 | 03   | partial | 5 | ThrottledEvent + AuthRequiredEvent emission (PR 3) | tombstone-aware delta; engine-Stop UI goroutine leak; priority queue absent |
 | 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |

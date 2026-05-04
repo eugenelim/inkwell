@@ -27,6 +27,10 @@ func promptDeviceCode(w io.Writer) auth.PromptFn {
 		fmt.Fprintf(w, "  user_code:        %s\n", p.UserCode)
 		fmt.Fprintf(w, "  verification_url: %s\n", p.VerificationURL)
 		fmt.Fprintf(w, "  expires_at:       %s\n", p.ExpiresAt.Format(time.RFC3339))
+		if p.Message != "" {
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, p.Message)
+		}
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "Open the URL in a browser, paste the user_code, then return here.")
 		return nil

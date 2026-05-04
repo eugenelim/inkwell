@@ -73,6 +73,13 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 ### Iter 8 — 2026-04-28 (--verbose actually wired)
 - `--verbose` was a parsed flag with no effect — log level was hardcoded to Info. Now wires through to the redacting slog handler. Useful for the diagnostic phase that landed alongside this iter (see spec-03 iter 4 below).
 
+### Iter E-2 — 2026-05-04 (AADSTS classification + clock-skew + CLI PromptFn)
+- Slice: `internal/auth/errors.go` — `ClassifyAuthError`, `IsClockSkewError`, `classifyAAD`, `isClockSkewMsg`, `containsAny`. Wire into `acquireWithScopes` error paths (device code, interactive, auto-fallback). Update `promptDeviceCode` in `cmd/inkwell/cmd_auth_runners.go` to print `p.Message` when non-empty.
+- Tests: `internal/auth/errors_test.go` — 13 test cases covering nil, no-match, pass-through-unchanged, errors.Is chain, per-code device-compliance/consent/scope/clock-skew, hint-line format.
+- Commands: `gofmt -s -l` clean; `go vet ./...` clean; `go test -race ./...` green (17/17); `go test -tags=e2e ./...` green; `go test -tags=integration ./...` green; `go test -bench=. -benchmem ./...` green.
+- Critique: no layering violations; no comments restating code; no public symbols beyond spec; no PII in new code paths; no perf budget impact; `ClassifyAuthError` preserves `%w` chain so `errors.Is/As` callers unaffected.
+- Closed: spec 01 §11 AADSTS classification absent; clock-skew hint absent; §5.4 CLI PromptFn absent.
+
 ## Notes for spec 03
 - Auth transport (spec 03 §10.2) needs `Authenticator.Invalidate()` — already shipped.
 - `TokenSource` seam is package-private; spec 03's auth transport will consume the public `Authenticator` interface only.

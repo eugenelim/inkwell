@@ -276,13 +276,13 @@ func (a *authenticator) acquireWithScopes(ctx context.Context, scopes []string) 
 	case ModeDeviceCode:
 		res, err := a.src.AcquireTokenByDeviceCode(ctx, scopes, a.prompt)
 		if err != nil {
-			return AuthResult{}, fmt.Errorf("device code auth: %w", err)
+			return AuthResult{}, ClassifyAuthError(fmt.Errorf("device code auth: %w", err))
 		}
 		return res, nil
 	case ModeInteractive:
 		res, err := a.src.AcquireTokenInteractive(ctx, scopes)
 		if err != nil {
-			return AuthResult{}, fmt.Errorf("interactive auth: %w", err)
+			return AuthResult{}, ClassifyAuthError(fmt.Errorf("interactive auth: %w", err))
 		}
 		return res, nil
 	default:
@@ -293,11 +293,11 @@ func (a *authenticator) acquireWithScopes(ctx context.Context, scopes []string) 
 			return res, nil
 		}
 		if !isBrowserLaunchError(ierr) {
-			return AuthResult{}, fmt.Errorf("interactive auth: %w", ierr)
+			return AuthResult{}, ClassifyAuthError(fmt.Errorf("interactive auth: %w", ierr))
 		}
 		dres, derr := a.src.AcquireTokenByDeviceCode(ctx, scopes, a.prompt)
 		if derr != nil {
-			return AuthResult{}, fmt.Errorf("device code fallback (after browser launch failed: %v): %w", ierr, derr)
+			return AuthResult{}, ClassifyAuthError(fmt.Errorf("device code fallback (after browser launch failed: %v): %w", ierr, derr))
 		}
 		return dres, nil
 	}
