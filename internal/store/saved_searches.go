@@ -55,3 +55,11 @@ func (s *store) DeleteSavedSearch(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM saved_searches WHERE id = ?", id)
 	return err
 }
+
+// DeleteSavedSearchByName removes the saved search matching (accountID, name)
+// in a single atomic DELETE. Returns nil if no matching row existed.
+func (s *store) DeleteSavedSearchByName(ctx context.Context, accountID int64, name string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM saved_searches WHERE account_id = ? AND name = ?", accountID, name)
+	return err
+}

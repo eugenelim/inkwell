@@ -165,6 +165,12 @@ func (e *engine) toStoreMessage(folderID string, m graph.Message) (store.Message
 	sm.BccAddresses = recipientsToStore(m.BccRecipients)
 	if m.Flag != nil {
 		sm.FlagStatus = m.Flag.FlagStatus
+		if t := m.Flag.DueDateTime.ToTime(); !t.IsZero() {
+			sm.FlagDueAt = t
+		}
+		if t := m.Flag.CompletedDateTime.ToTime(); !t.IsZero() {
+			sm.FlagCompletedAt = t
+		}
 	}
 	return sm, true
 }

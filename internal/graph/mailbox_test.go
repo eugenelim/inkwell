@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -148,5 +149,40 @@ func TestBuildWorkingHoursDisplay(t *testing.T) {
 			t.Errorf("buildWorkingHoursDisplay(%v, %q, %q) = %q, want %q",
 				tc.days, tc.start, tc.end, got, tc.want)
 		}
+	}
+}
+
+// TestDateTimeTimeZoneToTime verifies the ToTime helper used by the
+// flag due_date / completed_date round-trip (H-2).
+func TestDateTimeTimeZoneToTime(t *testing.T) {
+	nyc, _ := time.LoadLocation("America/New_York")
+
+	cases := []struct {
+		name     string
+		d        *DateTimeTimeZone
+		wantZero bool
+		wantHour int // local hour in the named tz
+	}{
+		{"nil", nil, true, 0},
+		{"empty strings", &DateTimeTimeZone{}, true, 0},
+		{"UTC noon", &DateTimeTimeZone{DateTime: "2026-05-10T12:00:00", TimeZone: "UTC"}, false, 12},
+		{"NYC noon", &DateTimeTimeZone{DateTime: "2026-05-10T12:00:00", TimeZone: "America/New_York"}, false, 12},
+		{"with fractional seconds", &DateTimeTimeZone{DateTime: "2026-05-10T12:00:00.000", TimeZone: "UTC"}, false, 12},
+		{"bad timezone falls back to UTC", &DateTimeTimeZone{DateTime: "2026-05-10T12:00:00", TimeZone: "Invalid/Zone"}, false, 12},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.d.ToTime()
+			if tc.wantZero {
+				require.True(t, got.IsZero(), "expected zero time")
+				return
+			}
+			require.False(t, got.IsZero())
+			if tc.d != nil && tc.d.TimeZone == "America/New_York" {
+				require.Equal(t, tc.wantHour, got.In(nyc).Hour())
+			} else {
+				require.Equal(t, tc.wantHour, got.UTC().Hour())
+			}
+		})
 	}
 }

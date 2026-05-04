@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -42,7 +43,13 @@ func applyLocalMessage(ctx context.Context, st store.Store, a store.Action, pre 
 		return st.UpdateMessageFields(ctx, id, store.MessageFields{IsRead: &f})
 	case store.ActionFlag:
 		flagged := "flagged"
-		return st.UpdateMessageFields(ctx, id, store.MessageFields{FlagStatus: &flagged})
+		mf := store.MessageFields{FlagStatus: &flagged}
+		if raw := paramString(a.Params, "due_date"); raw != "" {
+			if t := parseDueDate(raw); !t.IsZero() {
+				mf.FlagDueAt = &t
+			}
+		}
+		return st.UpdateMessageFields(ctx, id, mf)
 	case store.ActionUnflag:
 		notFlagged := "notFlagged"
 		return st.UpdateMessageFields(ctx, id, store.MessageFields{FlagStatus: &notFlagged})
@@ -255,11 +262,17 @@ func (e *Executor) dispatch(ctx context.Context, a store.Action) (string, error)
 	case store.ActionMarkUnread:
 		return "", e.gc.PatchMessage(ctx, id, map[string]any{"isRead": false})
 	case store.ActionFlag:
-		return "", e.gc.PatchMessage(ctx, id, map[string]any{
-			"flag": map[string]any{
-				"flagStatus": "flagged",
-			},
-		})
+		flagPatch := map[string]any{"flagStatus": "flagged"}
+		if raw := paramString(a.Params, "due_date"); raw != "" {
+			if t := parseDueDate(raw); !t.IsZero() {
+				// Graph expects DateTimeTimeZone format.
+				flagPatch["dueDateTime"] = map[string]any{
+					"dateTime": t.UTC().Format("2006-01-02T15:04:05"),
+					"timeZone": "UTC",
+				}
+			}
+		}
+		return "", e.gc.PatchMessage(ctx, id, map[string]any{"flag": flagPatch})
 	case store.ActionUnflag:
 		return "", e.gc.PatchMessage(ctx, id, map[string]any{
 			"flag": map[string]any{
@@ -325,6 +338,18 @@ func paramString(m map[string]any, key string) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+// parseDueDate parses a due_date param string in RFC 3339 or date-only
+// ("2006-01-02") format. Returns zero time on failure; callers must check.
+func parseDueDate(raw string) time.Time {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t
+	}
+	if t, err := time.Parse("2006-01-02", raw); err == nil {
+		return t
+	}
+	return time.Time{}
 }
 
 // Compile-time check: Executor satisfies sync.ActionDrainer.

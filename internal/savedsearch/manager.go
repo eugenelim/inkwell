@@ -91,8 +91,9 @@ func (m *Manager) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// DeleteByName removes the first saved search matching name. Returns an error
-// if none is found.
+// DeleteByName removes the saved search matching name for this account.
+// Returns an error if none is found. Uses an atomic single-SQL delete
+// (store.DeleteSavedSearchByName) to avoid a fetch-then-delete race.
 func (m *Manager) DeleteByName(ctx context.Context, name string) error {
 	ss, err := m.Get(ctx, name)
 	if err != nil {
@@ -101,7 +102,12 @@ func (m *Manager) DeleteByName(ctx context.Context, name string) error {
 	if ss == nil {
 		return fmt.Errorf("saved search %q not found", name)
 	}
-	return m.Delete(ctx, ss.ID)
+	if err := m.st.DeleteSavedSearchByName(ctx, m.accountID, name); err != nil {
+		return err
+	}
+	m.invalidateAll()
+	_ = m.writeTOMLMirror(ctx)
+	return nil
 }
 
 // Evaluate runs the named saved search against the local store and caches the

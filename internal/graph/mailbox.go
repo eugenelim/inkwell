@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // AutoReplyStatus mirrors Graph's automaticRepliesSetting.status enum.
@@ -23,6 +24,27 @@ const (
 type DateTimeTimeZone struct {
 	DateTime string `json:"dateTime"`
 	TimeZone string `json:"timeZone"`
+}
+
+// ToTime parses the DateTime string in the named timezone. Returns the zero
+// time on any parse failure (malformed string or unknown timezone).
+func (d *DateTimeTimeZone) ToTime() time.Time {
+	if d == nil {
+		return time.Time{}
+	}
+	loc, err := time.LoadLocation(d.TimeZone)
+	if err != nil {
+		loc = time.UTC
+	}
+	t, err := time.ParseInLocation("2006-01-02T15:04:05.999999999", d.DateTime, loc)
+	if err != nil {
+		// Graph sometimes omits the fractional seconds; try without.
+		t, err = time.ParseInLocation("2006-01-02T15:04:05", d.DateTime, loc)
+		if err != nil {
+			return time.Time{}
+		}
+	}
+	return t
 }
 
 // MailboxSettings is the subset of /me/mailboxSettings we use for the

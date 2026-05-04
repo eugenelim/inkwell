@@ -69,6 +69,16 @@ InFlight state + move-id rename + [triage] config additions landed
   correctly leaves the action retryable on the next cycle.
 - Next: PR A-2 (spec 09/10 finish).
 
+### Iter 6 — 2026-05-04 (flag due_date persistence, PR H-2)
+- Slice: wire `due_date` param through `ActionFlag` → `MessageFields.FlagDueAt`
+  → `UpdateMessageFields` → SQLite `flag_due_at` column; same for Graph PATCH.
+- Files modified:
+  - `internal/action/types.go`: `applyLocal` reads `due_date` param and sets
+    `FlagDueAt` in `MessageFields`; `dispatch` includes `dueDateTime` in PATCH;
+    `parseDueDate` helper (RFC 3339 + date-only).
+- Tests: `TestFlagWithDueDatePersists` in `executor_test.go`.
+- Commands: `go test -race ./internal/action/...` ✓.
+
 ### Iter 5 — 2026-04-30 (move-with-folder-picker, PR 4c of audit-drain)
 - Slice: spec 07 §6.5 / §12.1 — `m` keybind opens a typed-input
   filterable folder picker; Enter dispatches `Triage.Move`;

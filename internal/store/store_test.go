@@ -447,6 +447,49 @@ func TestSavedSearchCRUD(t *testing.T) {
 	require.Empty(t, list2)
 }
 
+// TestDeleteSavedSearchByName confirms the atomic name-based delete (H-2).
+func TestDeleteSavedSearchByName(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+	ctx := context.Background()
+	require.NoError(t, s.PutSavedSearch(ctx, SavedSearch{AccountID: acc, Name: "Unread", Pattern: "~r false"}))
+
+	// Delete by name succeeds.
+	require.NoError(t, s.DeleteSavedSearchByName(ctx, acc, "Unread"))
+
+	list, err := s.ListSavedSearches(ctx, acc)
+	require.NoError(t, err)
+	require.Empty(t, list)
+
+	// Deleting a non-existent name is a no-op (nil error per spec).
+	require.NoError(t, s.DeleteSavedSearchByName(ctx, acc, "Unread"))
+}
+
+// TestUpdateMessageFieldsFlagDueAt verifies that FlagDueAt and FlagCompletedAt
+// are persisted by UpdateMessageFields (H-2 flag_due_at round-trip).
+func TestUpdateMessageFieldsFlagDueAt(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+	f := SeedFolder(t, s, acc)
+	m := SyntheticMessage(acc, f.ID, 0, time.Now())
+	require.NoError(t, s.UpsertMessage(context.Background(), m))
+
+	due := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	done := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)
+	flagged := "flagged"
+	require.NoError(t, s.UpdateMessageFields(context.Background(), m.ID, MessageFields{
+		FlagStatus:      &flagged,
+		FlagDueAt:       &due,
+		FlagCompletedAt: &done,
+	}))
+
+	got, err := s.GetMessage(context.Background(), m.ID)
+	require.NoError(t, err)
+	require.Equal(t, "flagged", got.FlagStatus)
+	require.Equal(t, due.Unix(), got.FlagDueAt.Unix())
+	require.Equal(t, done.Unix(), got.FlagCompletedAt.Unix())
+}
+
 func TestDeltaTokenRoundTrip(t *testing.T) {
 	s := OpenTestStore(t)
 	acc := SeedAccount(t, s)

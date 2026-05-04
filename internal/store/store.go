@@ -126,6 +126,7 @@ type Store interface {
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)
 	PutSavedSearch(ctx context.Context, s SavedSearch) error
 	DeleteSavedSearch(ctx context.Context, id int64) error
+	DeleteSavedSearchByName(ctx context.Context, accountID int64, name string) error
 
 	// Compose sessions (spec 15 §7 / PR 7-ii crash recovery).
 	// PutComposeSession upserts a session row keyed by SessionID;

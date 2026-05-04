@@ -192,6 +192,14 @@ func (s *store) UpdateMessageFields(ctx context.Context, id string, f MessageFie
 		sets = append(sets, "flag_status = ?")
 		args = append(args, nullStr(*f.FlagStatus))
 	}
+	if f.FlagDueAt != nil {
+		sets = append(sets, "flag_due_at = ?")
+		args = append(args, nullTime(*f.FlagDueAt))
+	}
+	if f.FlagCompletedAt != nil {
+		sets = append(sets, "flag_completed_at = ?")
+		args = append(args, nullTime(*f.FlagCompletedAt))
+	}
 	if f.FolderID != nil {
 		sets = append(sets, "folder_id = ?")
 		args = append(args, *f.FolderID)
@@ -209,7 +217,7 @@ func (s *store) UpdateMessageFields(ctx context.Context, id string, f MessageFie
 		return nil
 	}
 	args = append(args, id)
-	// #nosec G202 — `sets` is built from a fixed set of column-name string literals above (is_read, flag_status, folder_id, categories, last_modified_at). User-supplied values bind via `?`.
+	// #nosec G202 — `sets` is built from a fixed set of column-name string literals above (is_read, flag_status, flag_due_at, flag_completed_at, folder_id, categories, last_modified_at). User-supplied values bind via `?`.
 	_, err := s.db.ExecContext(ctx, "UPDATE messages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
 	return err
 }

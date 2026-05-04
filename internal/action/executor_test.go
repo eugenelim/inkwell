@@ -1172,3 +1172,33 @@ func TestDrainRenamesRowToNewIDOnMove(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "f-projects", got.FolderID)
 }
+
+// TestFlagWithDueDatePersists verifies that the flag action's due_date param
+// round-trips to the store's flag_due_at column via applyLocal (H-2).
+func TestFlagWithDueDatePersists(t *testing.T) {
+	_, st, accID, srv := newTestExec(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	require.NoError(t, st.UpsertFolder(ctx, store.Folder{ID: "f-inbox", AccountID: accID, WellKnownName: "inbox", DisplayName: "Inbox"}))
+	pre := &store.Message{
+		ID: "m-flag", AccountID: accID, FolderID: "f-inbox",
+		Subject: "flag me", FromAddress: "x@example.invalid",
+	}
+	require.NoError(t, st.UpsertMessage(ctx, *pre))
+
+	// applyLocal with a due_date param must write flag_due_at.
+	due := "2026-05-15T00:00:00Z"
+	a := store.Action{
+		Type:       store.ActionFlag,
+		MessageIDs: []string{"m-flag"},
+		Params:     map[string]any{"due_date": due},
+	}
+	require.NoError(t, applyLocal(ctx, st, a, pre))
+
+	got, err := st.GetMessage(ctx, "m-flag")
+	require.NoError(t, err)
+	require.Equal(t, "flagged", got.FlagStatus)
+	// 2026-05-15T00:00:00Z → Unix 1778803200.
+	require.Equal(t, int64(1778803200), got.FlagDueAt.Unix())
+}

@@ -21,7 +21,9 @@ type Body struct {
 
 // Flag mirrors Graph's followupFlag.
 type Flag struct {
-	FlagStatus string `json:"flagStatus,omitempty"`
+	FlagStatus        string            `json:"flagStatus,omitempty"`
+	DueDateTime       *DateTimeTimeZone `json:"dueDateTime,omitempty"`
+	CompletedDateTime *DateTimeTimeZone `json:"completedDateTime,omitempty"`
 }
 
 // MailFolder mirrors the subset of /me/mailFolders we read.

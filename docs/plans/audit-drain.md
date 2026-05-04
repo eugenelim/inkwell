@@ -308,7 +308,7 @@ These are the remaining deferred items after all primary specs ship.
 | F-1 | 15 | done \| 2026-05-04 | spec 15 §6.3 discard DELETE; §9 webLink TTL; §11 Mail.Send lint guard; §5 compose attachments | 2026-05-04 |
 | G-1 | 14 | done \| 2026-05-04 | spec 14 §6 message/rule/calendar/ooo/settings/export/daemon/backfill subcommands; §5.3 exit codes; §5.2 line-delimited JSON; progress bars; global flags; [cli] config | 2026-05-04 |
 | H-1 | 12 | done \| 2026-05-04 | spec 12 deferred sidebar pane; week/agenda view; timezone resolution; `c` key from folders pane | docs/plans/spec-12.md iter 5 |
-| H-2 | 02 | not-started | spec 02 flag_due_at persistence; saved-search delete-by-name | — |
+| H-2 | 02 | done \| 2026-05-04 | spec 02 flag_due_at / flag_completed_at via MessageFields + DateTimeTimeZone.ToTime; DeleteSavedSearchByName store helper | docs/plans/spec-02.md iter 4 |
 | H-3 | 06 | not-started | spec 06 §5.3 --all cross-folder flag | — |
 | H-4 | 08 | not-started | spec 08 CI 100k bench + 10k-AST fuzz gate | — |
 

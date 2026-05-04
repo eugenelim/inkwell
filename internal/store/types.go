@@ -313,9 +313,11 @@ type MessageMatch struct {
 
 // MessageFields names a partial update payload for [Store.UpdateMessageFields].
 type MessageFields struct {
-	IsRead         *bool
-	FlagStatus     *string
-	FolderID       *string
-	Categories     *[]string
-	LastModifiedAt *time.Time
+	IsRead          *bool
+	FlagStatus      *string
+	FlagDueAt       *time.Time
+	FlagCompletedAt *time.Time
+	FolderID        *string
+	Categories      *[]string
+	LastModifiedAt  *time.Time
 }

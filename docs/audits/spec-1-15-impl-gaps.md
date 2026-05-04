@@ -21,11 +21,11 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
 - Status overall: partial (most surfaces present; maintenance + a few methods missing)
 - Implementation gaps:
   - ~~Maintenance job not implemented~~ **Closed by PR 11 (v0.13.x).** New `internal/sync/maintenance.go` runs in its own goroutine off the engine's main timer. Each pass: EvictBodies (config caps), SweepDoneActions (config retention), optional Vacuum (off by default). Negative MaintenanceInterval is the test-only disable sentinel.
-  - `internal/store/saved_searches.go` has no `delete-by-name` helper despite `Manager.Delete` consuming an ID per spec 11. Existing `DeleteSavedSearch(id)` is correct; flagging because spec 11 §3 wants name-based lookup which requires another method spec 11 doesn't get either way.
+  - ~~`internal/store/saved_searches.go` has no `delete-by-name` helper~~ **Closed by PR H-2 (2026-05-04).** `DeleteSavedSearchByName(ctx, accountID, name)` added to store interface and implementation; `Manager.DeleteByName` now delegates atomically.
 - Design drifts:
   - ~~`EvictBodies` signature drift; eviction code dead at runtime~~ **Closed by PR 11 (v0.13.x).** The new `internal/sync/maintenance.go` periodically calls `EvictBodies` with the configured `BodyCacheMaxCount` / `BodyCacheMaxBytes` caps. The signature stays as-is (caller passes caps explicitly); production wiring now lives.
 - Schema/config gaps:
-  - `flag_due_at` and `flag_completed_at` columns exist in `001_initial.sql:54-55` but spec 07's `flag` action with `due_date` parameter (§3 / §6.3) writes the param and never persists it. `MessageFields` (`store/types.go:206`) has no `FlagDueAt` field, so flag-with-due is structurally impossible.
+  - ~~`flag_due_at` and `flag_completed_at` not in MessageFields~~ **Closed by PR H-2 (2026-05-04).** `MessageFields` now has `FlagDueAt *time.Time` and `FlagCompletedAt *time.Time`; `UpdateMessageFields` writes them; sync (backfill + delta) maps `Flag.DueDateTime`/`CompletedDateTime` via `DateTimeTimeZone.ToTime()`; `applyLocal` for `ActionFlag` reads `due_date` param and sets `FlagDueAt`.
 - TODO-shaped spec language: none.
 
 ---
@@ -335,7 +335,7 @@ inline. Refresh after every audit-drain PR.
 | Spec | Status | Open | Closed since v0.12.0 | Highest-risk remaining |
 |------|--------|------|----------------------|------------------------|
 | 01   | closed  | 0 | E-2 2026-05-04 | all gaps addressed |
-| 02   | partial | 2 | maintenance loop (PR 11), EvictBodies wiring (PR 11) | flag_due_at not in MessageFields; saved-search delete-by-name (depends on spec 11) |
+| 02   | closed  | 0 | maintenance loop (PR 11), EvictBodies wiring (PR 11), flag_due_at + DeleteSavedSearchByName (PR H-2) | all gaps addressed |
 | 03   | partial | 5 | ThrottledEvent + AuthRequiredEvent emission (PR 3) | tombstone-aware delta; engine-Stop UI goroutine leak; priority queue absent |
 | 04   | partial | 8 | `[bindings]` config wired + `?` help overlay (PR 2); 5 of 7 `:` commands (PR 5) | lifecycle teardown not via UI; transient_status_ttl; min_terminal refusal; viewer `f` Forward; default-No confirm config |
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
