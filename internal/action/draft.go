@@ -46,6 +46,10 @@ func safeReadFile(path string, maxBytes int64) ([]byte, error) {
 		return nil, fmt.Errorf("attachment: %q is %.1f MB, exceeds %.1f MB limit",
 			path, float64(info.Size())/(1<<20), float64(maxBytes)/(1<<20))
 	}
+	// #nosec G304 — path is validated above: absolute, clean (no ".."),
+	// Lstat-confirmed regular file. The caller provides the path from
+	// a UI attachment-ref that the user explicitly selected; not from
+	// untrusted user input directly.
 	return os.ReadFile(path)
 }
 
