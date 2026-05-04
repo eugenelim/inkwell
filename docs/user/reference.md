@@ -315,7 +315,10 @@ matches any message whose subject or body contains `[External]`.
 Search is local-only (FTS5 against the SQLite cache) in v0.8.
 Server-side `$search` merge is post-v0.8.
 
-## Calendar mode (`:cal`)
+## Calendar mode (`:cal` or `c` from Folders pane)
+
+The calendar modal can be opened from any pane via `:cal` (command bar) or
+by pressing `c` while the Folders pane is focused.
 
 | Key            | Action                                                         |
 | -------------- | -------------------------------------------------------------- |
@@ -327,9 +330,19 @@ Server-side `$search` merge is post-v0.8.
 | `}`            | Navigate forward one week                                      |
 | `{`            | Navigate back one week                                         |
 | `t`            | Jump to today                                                  |
+| `w`            | Toggle week-grid view (shows all events for Mon–Sun of the current week) |
+| `a`            | Return to agenda view (when week-grid view is active)          |
 | `Esc` / `q`    | Close the modal, return to Normal mode                         |
 
 Read-only. To act on an event, finish in Outlook.
+
+### Sidebar calendar section
+
+When `[calendar].sidebar_show_days` is set (default 2), inkwell adds a
+calendar section at the bottom of the Folders sidebar showing today's and
+upcoming events. Pressing `Enter` on a sidebar calendar event opens the
+full detail modal directly (same as pressing `Enter` in the `:cal` agenda
+view). The section refreshes automatically after each background sync.
 
 ## Calendar detail mode (Enter on `:cal`)
 
@@ -449,7 +462,7 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Search      | `/`                  | `Enter` (run) or `Esc`                           |
 | SignIn      | auth flow            | `Esc`                                            |
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
-| Calendar    | `:cal` / `:calendar` | `Esc` or `q` (`j`/`k` nav, `Enter` opens detail) |
+| Calendar    | `:cal` / `:calendar` / `c` (Folders pane) | `Esc` or `q` (`j`/`k` nav, `w` week-grid, `Enter` opens detail) |
 | CalendarDetail | `Enter` on a calendar event | `Esc` or `q` (`o` Outlook, `l` meeting URL) |
 | Settings    | `:settings`                      | `Esc` or `q` (`o` to edit OOF)        |
 | OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`Space` cycles status, `Enter` saves) |

@@ -105,3 +105,42 @@ func TestSameDayFalseForDifferentYears(t *testing.T) {
 	b := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	require.False(t, sameDay(a, b))
 }
+
+// TestCalendarModelWeekModeToggle verifies that ToggleWeekMode flips the
+// flag and that repeated calls toggle back.
+func TestCalendarModelWeekModeToggle(t *testing.T) {
+	m := NewCalendar()
+	require.False(t, m.IsWeekMode(), "new calendar must start in agenda mode")
+
+	got := m.ToggleWeekMode()
+	require.True(t, got, "first toggle must return true")
+	require.True(t, m.IsWeekMode())
+
+	got = m.ToggleWeekMode()
+	require.False(t, got, "second toggle must return false")
+	require.False(t, m.IsWeekMode())
+}
+
+// TestCalendarModelIsWeekModeDefault confirms the zero-value is agenda
+// mode (weekMode==false) — consistent with NewCalendar.
+func TestCalendarModelIsWeekModeDefault(t *testing.T) {
+	var m CalendarModel
+	require.False(t, m.IsWeekMode(), "zero-value CalendarModel must be in agenda mode")
+}
+
+// TestFormatEventUsesProvidedTimezone verifies that formatEvent formats
+// times using the supplied *time.Location, not the local zone.
+func TestFormatEventUsesProvidedTimezone(t *testing.T) {
+	nyc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	// Construct a UTC event at 15:00 UTC = 11:00 EDT (UTC-4 in summer).
+	start := time.Date(2026, 5, 4, 15, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 5, 4, 16, 0, 0, 0, time.UTC)
+	ev := CalendarEvent{Subject: "Standup", Start: start, End: end}
+
+	th := DefaultTheme()
+	line := formatEvent(th, ev, false, nyc)
+	require.Contains(t, line, "11:00", "time must display in the provided timezone (EDT)")
+	require.NotContains(t, line, "15:00", "UTC time must not appear when tz is provided")
+}

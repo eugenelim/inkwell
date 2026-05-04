@@ -257,8 +257,9 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		OOOIndicator:           cfg.MailboxSettings.OOOIndicator,
 		MailboxRefreshInterval: cfg.MailboxSettings.RefreshInterval,
 		DraftWebLinkTTL:        cfg.Compose.WebLinkTTL,
+		CalendarTZ:             sm.ResolvedTimeZone(),
+		CalendarSidebarDays:    cfg.Calendar.SidebarShowDays,
 	})
-	_ = sm // manager available for future use (e.g., timezone resolution)
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
 	}

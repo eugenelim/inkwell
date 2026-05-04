@@ -5152,3 +5152,107 @@ func TestOOFEscFromDirectOOOReturnsNormalMode(t *testing.T) {
 	m = m3.(Model)
 	require.Equal(t, NormalMode, m.mode, "Esc from direct :ooo must return to NormalMode")
 }
+
+// TestCalendarWKeyTogglesToWeekMode verifies that pressing `w` in
+// CalendarMode toggles weekMode on and returns a fetchCalendarForWeekCmd
+// (calls ListEventsBetween, not ListEventsToday).
+func TestCalendarWKeyTogglesToWeekMode(t *testing.T) {
+	stub := &stubCalendar{
+		events:        []CalendarEvent{{Subject: "Today event", Start: time.Now(), End: time.Now().Add(time.Hour)}},
+		betweenEvents: []CalendarEvent{{Subject: "Week event"}},
+	}
+	m := openCalendarWithEvents(t, stub)
+	require.False(t, m.calendar.IsWeekMode(), "must start in agenda mode")
+
+	// Press 'w' to toggle to week mode.
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = m2.(Model)
+	require.True(t, m.calendar.IsWeekMode(), "w must toggle to week mode")
+	require.True(t, m.calendar.loading, "w must set loading while fetch is in flight")
+	require.NotNil(t, fetchCmd, "w must return a fetch Cmd")
+
+	// Run the Cmd; it must call ListEventsBetween (not ListEventsToday).
+	res := fetchCmd()
+	require.Equal(t, 1, stub.betweenCalls, "week-mode fetch must call ListEventsBetween")
+	_, ok := res.(calendarFetchedMsg)
+	require.True(t, ok)
+
+	// Feed result back; verify events updated.
+	m2, _ = m.Update(res)
+	m = m2.(Model)
+	require.False(t, m.calendar.loading)
+	require.Len(t, m.calendar.events, 1)
+	require.Equal(t, "Week event", m.calendar.events[0].Subject)
+
+	// Press 'w' again — should toggle back to agenda mode.
+	m2, agendaCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = m2.(Model)
+	require.False(t, m.calendar.IsWeekMode(), "second w must toggle back to agenda mode")
+	require.NotNil(t, agendaCmd, "agenda mode transition must return a fetch Cmd")
+}
+
+// TestFoldersPaneCKeyOpensCalendar confirms that pressing `c` in the
+// folders pane (FoldersPane focused) resets the calendar model, sets it
+// loading, transitions to CalendarMode, and returns a fetchCalendarCmd.
+func TestFoldersPaneCKeyOpensCalendar(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubCalendar{events: []CalendarEvent{{Subject: "Standup"}}}
+	m.deps.Calendar = stub
+
+	// Move focus to folders pane.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = m2.(Model)
+	require.Equal(t, FoldersPane, m.focused)
+
+	// Press 'c' to open calendar.
+	m2, fetchCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = m2.(Model)
+
+	require.Equal(t, CalendarMode, m.mode, "c must transition to CalendarMode")
+	require.True(t, m.calendar.loading, "c must set calendar loading")
+	require.NotNil(t, fetchCmd, "c must return a fetchCalendarCmd")
+
+	// Run the Cmd; feed the result back.
+	res := fetchCmd()
+	mm, ok := res.(calendarFetchedMsg)
+	require.True(t, ok)
+	require.NoError(t, mm.Err)
+	require.Len(t, mm.Events, 1)
+
+	m2, _ = m.Update(mm)
+	m = m2.(Model)
+	require.False(t, m.calendar.loading)
+	require.Len(t, m.calendar.events, 1)
+}
+
+// TestSidebarCalendarEventsRender confirms that SetCalendarEvents
+// populates the FoldersModel with calendar-event rows visible in the
+// item list. It exercises the rebuild() path for the sidebar section.
+func TestSidebarCalendarEventsRender(t *testing.T) {
+	m := NewFolders()
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, time.UTC)
+	events := []CalendarEvent{
+		{Subject: "Standup", Start: today, End: today.Add(30 * time.Minute)},
+		{Subject: "Q4 Review", Start: today.Add(2 * time.Hour), End: today.Add(3 * time.Hour)},
+	}
+	m.SetCalendarEvents(events, 1, time.UTC)
+
+	// There must be at least a header + 2 event rows appended.
+	var headers, evRows int
+	for _, it := range m.items {
+		if it.isCalHeader {
+			headers++
+		}
+		if it.isCalEvent {
+			evRows++
+		}
+	}
+	require.GreaterOrEqual(t, headers, 1, "sidebar must have at least one calendar day header")
+	require.Equal(t, 2, evRows, "sidebar must have one row per event")
+
+	// SelectedCalendarEvent must return nil when cursor is on a folder row.
+	ev, ok := m.SelectedCalendarEvent()
+	require.Nil(t, ev, "no calendar event selected initially")
+	require.False(t, ok)
+}

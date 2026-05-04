@@ -1451,6 +1451,70 @@ func TestViewerConversationThreadRendered(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestSidebarShowsCalendarEventsAfterLoad confirms the visible-delta for
+// the sidebar calendar section: after calendarSidebarLoadedMsg fires,
+// the rendered frame must contain the event subject (spec 12 sidebar).
+func TestSidebarShowsCalendarEventsAfterLoad(t *testing.T) {
+	m, _ := newE2EModel(t)
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, time.UTC)
+	stub := &stubCalendar{
+		betweenEvents: []CalendarEvent{
+			{Subject: "Standup", Start: today, End: today.Add(30 * time.Minute)},
+		},
+	}
+	m.deps.Calendar = stub
+	m.deps.CalendarSidebarDays = 1
+	m.deps.CalendarTZ = time.UTC
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 40))
+
+	// Seed the sidebar by injecting a calendarSidebarLoadedMsg.
+	tm.Send(calendarSidebarLoadedMsg{events: stub.betweenEvents})
+
+	// The sidebar must render the event subject.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Standup")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestFoldersPaneCKeyOpensCal confirms the visible-delta for the `c`
+// key in the folders pane: the rendered frame transitions to the
+// CalendarMode modal header (spec 12 folders-pane `c` key).
+func TestFoldersPaneCKeyOpensCal(t *testing.T) {
+	m, _ := newE2EModel(t)
+	now := time.Now().UTC()
+	stub := &stubCalendar{
+		events: []CalendarEvent{
+			{Subject: "Weekly sync", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)},
+		},
+	}
+	m.deps.Calendar = stub
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// Wait for initial paint.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Focus folders pane, then press 'c'.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+
+	// The CalendarMode modal header must appear.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Today")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 func splitVisualLines(buf string) []string {
 	var out []string
 	var cur []byte

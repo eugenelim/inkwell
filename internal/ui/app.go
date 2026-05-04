@@ -250,6 +250,14 @@ type Deps struct {
 	// status-bar hint lives after a successful draft save. 0 disables
 	// auto-clear. From [compose].web_link_ttl (default 30s).
 	DraftWebLinkTTL time.Duration
+	// CalendarTZ is the effective timezone for calendar time display.
+	// Resolved from [calendar].time_zone + mailbox settings. Nil falls
+	// back to time.Local.
+	CalendarTZ *time.Location
+	// CalendarSidebarDays controls how many days the sidebar calendar
+	// section shows (spec 12). From [calendar].sidebar_show_days.
+	// 0 or negative falls back to 1.
+	CalendarSidebarDays int
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -722,6 +730,9 @@ func (m Model) Init() tea.Cmd {
 	if m.deps.Mailbox != nil {
 		cmds = append(cmds, m.doMailboxRefreshCmd())
 	}
+	if sidebarCmd := m.calendarSidebarCmd(); sidebarCmd != nil {
+		cmds = append(cmds, sidebarCmd)
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -916,6 +927,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.list.ClearWallSyncRequested()
 			}
 		}
+		return m, nil
+
+	case calendarSidebarLoadedMsg:
+		tz := m.deps.CalendarTZ
+		if tz == nil {
+			tz = time.Local
+		}
+		days := m.deps.CalendarSidebarDays
+		if days < 1 {
+			days = 1
+		}
+		m.folders.SetCalendarEvents(msg.events, days, tz)
 		return m, nil
 
 	case calendarFetchedMsg:
@@ -1753,6 +1776,13 @@ func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.calendar.GotoToday()
 		m.calendar.SetLoading()
 		return m, m.fetchCalendarCmd()
+	case string(keyMsg.Runes) == "w":
+		m.calendar.ToggleWeekMode()
+		m.calendar.SetLoading()
+		if m.calendar.IsWeekMode() {
+			return m, m.fetchCalendarForWeekCmd()
+		}
+		return m, m.fetchCalendarForDateCmd(m.calendar.ViewDate())
 	}
 	return m, nil
 }
@@ -2608,6 +2638,10 @@ type calendarFetchedMsg struct {
 	Err    error
 }
 
+// calendarSidebarLoadedMsg is the result of the sidebar background
+// calendar fetch. Events populates the sidebar section in FoldersModel.
+type calendarSidebarLoadedMsg struct{ events []CalendarEvent }
+
 // fetchCalendarCmd fetches today's events via the CalendarFetcher.
 func (m Model) fetchCalendarCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -2631,6 +2665,58 @@ func (m Model) fetchCalendarForDateCmd(day time.Time) tea.Cmd {
 		end := start.Add(24 * time.Hour)
 		es, err := m.deps.Calendar.ListEventsBetween(ctx, start, end)
 		return calendarFetchedMsg{Events: es, Err: err}
+	}
+}
+
+// calendarSidebarCmd fetches the multi-day window for the sidebar
+// calendar section (spec 12). Returns nil when Calendar is not wired.
+func (m Model) calendarSidebarCmd() tea.Cmd {
+	if m.deps.Calendar == nil {
+		return nil
+	}
+	days := m.deps.CalendarSidebarDays
+	if days < 1 {
+		days = 1
+	}
+	tz := m.deps.CalendarTZ
+	if tz == nil {
+		tz = time.Local
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		now := time.Now().In(tz)
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+		end := today.AddDate(0, 0, days)
+		events, _ := m.deps.Calendar.ListEventsBetween(ctx, today.UTC(), end.UTC())
+		return calendarSidebarLoadedMsg{events: events}
+	}
+}
+
+// fetchCalendarForWeekCmd fetches events for the Mon–Sun window
+// containing the current viewDate. Used by the `w` week-mode toggle.
+func (m Model) fetchCalendarForWeekCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.Calendar == nil {
+			return calendarFetchedMsg{Err: fmt.Errorf("calendar not wired")}
+		}
+		tz := m.deps.CalendarTZ
+		if tz == nil {
+			tz = time.Local
+		}
+		vd := m.calendar.ViewDate()
+		t := vd.In(tz)
+		weekday := int(t.Weekday())
+		if weekday == 0 {
+			weekday = 7 // Sunday → 7 so Monday is day 1
+		}
+		monday := t.AddDate(0, 0, -(weekday - 1))
+		monday = time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, tz)
+		sunday := monday.AddDate(0, 0, 7)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		events, err := m.deps.Calendar.ListEventsBetween(ctx, monday.UTC(), sunday.UTC())
+		return calendarFetchedMsg{Events: events, Err: err}
 	}
 }
 
@@ -2793,7 +2879,25 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startFolderDelete(f)
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
+		if m.deps.Calendar == nil {
+			m.lastError = fmt.Errorf("calendar not wired")
+			return m, nil
+		}
+		m.calendar.Reset()
+		m.calendar.SetLoading()
+		m.mode = CalendarMode
+		return m, m.fetchCalendarCmd()
 	case key.Matches(msg, m.keymap.Open), key.Matches(msg, m.keymap.Right):
+		// Calendar event row: open detail modal.
+		if ev, ok := m.folders.SelectedCalendarEvent(); ok {
+			if ev.ID != "" && m.deps.Calendar != nil {
+				m.calendarDetail.SetLoading()
+				m.mode = CalendarDetailMode
+				return m, m.fetchEventCmd(ev.ID)
+			}
+			return m, nil
+		}
 		// Saved-search row: run its pattern via the existing filter
 		// machinery. Selection auto-focuses the list pane (parity
 		// with regular folder navigation).
@@ -4107,6 +4211,9 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 	case isync.SyncCompletedEvent:
 		m.engineActivity = ""
 		m.lastSyncAt = e.At
+		if sidebarCmd := m.calendarSidebarCmd(); sidebarCmd != nil {
+			return m, sidebarCmd
+		}
 	case isync.SyncFailedEvent:
 		m.engineActivity = ""
 		m.lastError = e.Err
@@ -4204,7 +4311,11 @@ func (m Model) View() string {
 		return m.confirm.View(m.theme, m.width, m.height)
 	}
 	if m.mode == CalendarMode {
-		return m.calendar.View(m.theme, m.width, m.height)
+		tz := m.deps.CalendarTZ
+		if tz == nil {
+			tz = time.Local
+		}
+		return m.calendar.View(m.theme, tz, m.width, m.height)
 	}
 	if m.mode == CalendarDetailMode {
 		return m.calendarDetail.View(m.theme, m.width, m.height)

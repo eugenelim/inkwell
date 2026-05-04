@@ -21,6 +21,8 @@ import (
 // Saved searches piggy-back on this type with isSaved=true; the
 // displayed name comes from savedName/savedPattern, and the row
 // renders with a leading ☆ glyph.
+//
+// Calendar events piggy-back with isCalEvent=true (spec 12 sidebar).
 type displayedFolder struct {
 	f        store.Folder
 	depth    int
@@ -38,6 +40,12 @@ type displayedFolder struct {
 	// isSavedHeader marks the synthetic "Saved Searches" section
 	// divider — non-selectable, not a saved search itself.
 	isSavedHeader bool
+	// Calendar event fields (spec 12 sidebar). isCalHeader marks
+	// a day-divider row (non-selectable); isCalEvent marks an event row.
+	isCalHeader bool
+	calDayLabel string // e.g. "Today · Mon 27" or "Tue 28"
+	isCalEvent  bool
+	calEvent    CalendarEvent
 }
 
 // FoldersModel is the sidebar pane. It stores the raw folders + per-id
@@ -49,6 +57,10 @@ type FoldersModel struct {
 	expanded map[string]bool // folder ID → is-expanded
 	items    []displayedFolder
 	cursor   int
+	// Calendar sidebar section (spec 12).
+	calendarEvents  []CalendarEvent
+	sidebarShowDays int
+	calendarTZ      *time.Location
 }
 
 // NewFolders returns an empty folders pane. The default expansion
@@ -92,13 +104,35 @@ func (m *FoldersModel) SetSavedSearches(s []SavedSearch) {
 	m.rebuild()
 }
 
-// rebuild recomputes m.items from m.raw + m.expanded + m.saved.
+// SetCalendarEvents replaces the sidebar calendar section (spec 12).
+func (m *FoldersModel) SetCalendarEvents(events []CalendarEvent, showDays int, tz *time.Location) {
+	m.calendarEvents = append([]CalendarEvent(nil), events...)
+	m.sidebarShowDays = showDays
+	m.calendarTZ = tz
+	m.rebuild()
+}
+
+// SelectedCalendarEvent returns the currently-highlighted calendar event,
+// or nil when the cursor is not on a calendar event row.
+func (m FoldersModel) SelectedCalendarEvent() (*CalendarEvent, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return nil, false
+	}
+	it := m.items[m.cursor]
+	if !it.isCalEvent {
+		return nil, false
+	}
+	e := it.calEvent
+	return &e, true
+}
+
+// rebuild recomputes m.items from m.raw + m.expanded + m.saved + calendar events.
 func (m *FoldersModel) rebuild() {
-	m.items = flattenFolderTree(m.raw, m.expanded)
+	items := flattenFolderTree(m.raw, m.expanded)
 	if len(m.saved) > 0 {
-		m.items = append(m.items, displayedFolder{isSavedHeader: true})
+		items = append(items, displayedFolder{isSavedHeader: true})
 		for _, s := range m.saved {
-			m.items = append(m.items, displayedFolder{
+			items = append(items, displayedFolder{
 				isSaved:      true,
 				savedID:      s.ID,
 				savedName:    s.Name,
@@ -108,6 +142,48 @@ func (m *FoldersModel) rebuild() {
 			})
 		}
 	}
+	// Calendar section — spec 12 §6 sidebar pane.
+	if len(m.calendarEvents) > 0 {
+		tz := m.calendarTZ
+		if tz == nil {
+			tz = time.Local
+		}
+		days := m.sidebarShowDays
+		if days < 1 {
+			days = 1
+		}
+		now := time.Now().In(tz)
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+		for d := 0; d < days; d++ {
+			day := today.AddDate(0, 0, d)
+			dayEnd := day.AddDate(0, 0, 1)
+			var dayEvents []CalendarEvent
+			for _, e := range m.calendarEvents {
+				t := e.Start.In(tz)
+				if !t.Before(day) && t.Before(dayEnd) {
+					dayEvents = append(dayEvents, e)
+				}
+			}
+			var label string
+			switch d {
+			case 0:
+				label = "Today · " + day.Format("Mon 2")
+			case 1:
+				label = "Tomorrow · " + day.Format("Mon 2")
+			default:
+				label = day.Format("Mon Jan 2")
+			}
+			items = append(items, displayedFolder{isCalHeader: true, calDayLabel: label})
+			if len(dayEvents) == 0 {
+				items = append(items, displayedFolder{isCalHeader: true, calDayLabel: "  (no events)"})
+			} else {
+				for _, e := range dayEvents {
+					items = append(items, displayedFolder{isCalEvent: true, calEvent: e})
+				}
+			}
+		}
+	}
+	m.items = items
 }
 
 // ToggleExpand flips the expansion state of the folder under the
@@ -230,10 +306,10 @@ func folderRank(f store.Folder) int {
 }
 
 // Up moves the cursor toward the top, skipping non-selectable
-// section-header rows.
+// section-header rows (saved-search headers and calendar day headers).
 func (m *FoldersModel) Up() {
 	for i := m.cursor - 1; i >= 0; i-- {
-		if !m.items[i].isSavedHeader {
+		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
 			m.cursor = i
 			return
 		}
@@ -243,7 +319,7 @@ func (m *FoldersModel) Up() {
 // Down moves the cursor toward the bottom, skipping headers.
 func (m *FoldersModel) Down() {
 	for i := m.cursor + 1; i < len(m.items); i++ {
-		if !m.items[i].isSavedHeader {
+		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
 			m.cursor = i
 			return
 		}
@@ -277,7 +353,7 @@ func (m *FoldersModel) PageDown() {
 
 func (m *FoldersModel) JumpTop() {
 	for i := 0; i < len(m.items); i++ {
-		if !m.items[i].isSavedHeader {
+		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
 			m.cursor = i
 			return
 		}
@@ -286,7 +362,7 @@ func (m *FoldersModel) JumpTop() {
 
 func (m *FoldersModel) JumpBottom() {
 	for i := len(m.items) - 1; i >= 0; i-- {
-		if !m.items[i].isSavedHeader {
+		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
 			m.cursor = i
 			return
 		}
@@ -294,14 +370,14 @@ func (m *FoldersModel) JumpBottom() {
 }
 
 // Selected returns the highlighted folder, if any. Returns ok=false
-// when the cursor is on a saved-search row (callers should test
-// SelectedSavedSearch first) or a section header.
+// when the cursor is on a saved-search row, a section header, or a
+// calendar event row.
 func (m FoldersModel) Selected() (store.Folder, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return store.Folder{}, false
 	}
 	it := m.items[m.cursor]
-	if it.isSaved || it.isSavedHeader {
+	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent {
 		return store.Folder{}, false
 	}
 	return it.f, true
@@ -361,6 +437,35 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 		// Saved-searches section header — non-selectable divider.
 		if it.isSavedHeader {
 			rows = append(rows, t.Dim.Render("  Saved Searches"))
+			continue
+		}
+		// Calendar day header — non-selectable divider.
+		if it.isCalHeader {
+			rows = append(rows, t.Dim.Render("  "+it.calDayLabel))
+			continue
+		}
+		// Calendar event row.
+		if it.isCalEvent {
+			tz := m.calendarTZ
+			if tz == nil {
+				tz = time.Local
+			}
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			timeStr := it.calEvent.Start.In(tz).Format("15:04")
+			if it.calEvent.IsAllDay {
+				timeStr = "all day"
+			}
+			calLine := marker + timeStr + " " + it.calEvent.Subject
+			styled := truncate(calLine, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
 			continue
 		}
 		var line string

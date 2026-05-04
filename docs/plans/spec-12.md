@@ -1,13 +1,9 @@
 # Spec 12 — Calendar (Read-Only)
 
 ## Status
-in-progress (remaining: sidebar pane, week/agenda view). `:cal`
-modal + Graph fetch shipped v0.8.0. Events schema + persistence
-+ cache-first reads shipped v0.13.x (PR 6a). Event detail modal
-+ j/k/Enter + GetEvent shipped v0.13.x (PR 6b-i). Delta sync +
-engine 3rd state + midnight slide + day nav (]/[/{/}/t) +
-event_attendees + attendees persistence shipped v0.21.0 (PR
-6b-ii). Sidebar pane and week/agenda view remain deferred.
+done. All deferred bullets now shipped in PR H-1 (spec 12 finish):
+timezone threading, sidebar calendar pane, week/agenda view toggle,
+`c` key from folders pane, plus full test suite.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/calendar.go` — `ListEventsBetween(start, end)` + `ListEventsToday()` against `/me/calendarView` with the right $select fields.
@@ -45,10 +41,52 @@ event_attendees + attendees persistence shipped v0.21.0 (PR
 - [x] Attendees persisted on GetEvent — PR 6b-ii. `GetEvent` in
       calendarAdapter now calls `PutEventAttendees` after a successful
       fetch so repeated opens serve from the local cache.
-- [ ] Sidebar calendar pane (dismissable) — deferred. Modal-only today; the sidebar pane requires layout reflow that's out of scope.
-- [ ] Week / agenda full-screen view — deferred.
+- [x] Sidebar calendar pane — shipped PR H-1. FoldersModel gains
+      calendar section rebuilt in rebuild(); SetCalendarEvents wired;
+      SelectedCalendarEvent for Enter dispatch; calendarSidebarCmd
+      fires on Init and SyncCompletedEvent.
+- [x] Week / agenda full-screen view — shipped PR H-1. `w` toggles
+      weekMode; renderWeekView groups events by day; `a` hint returns
+      to agenda; fetchCalendarForWeekCmd fetches Mon–Sun window.
 
 ## Iteration log
+
+### Iter 5 — 2026-05-04 (timezone threading + sidebar + week view + `c` key, PR H-1)
+- Slice: spec 12 finish — all deferred DoD bullets.
+- Files modified:
+  - `internal/ui/calendar.go`: `weekMode` field; `ToggleWeekMode()`;
+    `IsWeekMode()`; `View` signature gains `tz *time.Location`;
+    `formatEvent` signature gains `tz *time.Location`; all `.Local()`
+    → `.In(tz)`; `renderWeekView` helper; footer hints updated
+    (`w` / `a` for week/agenda).
+  - `internal/ui/panes.go`: `displayedFolder` gains `isCalHeader`,
+    `calDayLabel`, `isCalEvent`, `calEvent`; `FoldersModel` gains
+    `calendarEvents`, `sidebarShowDays`, `calendarTZ`; `SetCalendarEvents`;
+    `SelectedCalendarEvent`; `rebuild()` appends calendar section;
+    `Up`/`Down`/`JumpTop`/`JumpBottom` skip `isCalHeader` rows;
+    `Selected()` returns false for calendar rows; View renders
+    header + event rows.
+  - `internal/ui/app.go`: `Deps` gains `CalendarTZ`, `CalendarSidebarDays`;
+    `View` passes `tz` to `calendar.View`; `calendarSidebarLoadedMsg`
+    type; `calendarSidebarCmd`; `fetchCalendarForWeekCmd`; Update
+    handles `calendarSidebarLoadedMsg`; Init fires `calendarSidebarCmd`;
+    `handleSyncEvent` fires `calendarSidebarCmd` on `SyncCompletedEvent`;
+    `updateCalendar` handles `w`; `dispatchFolders` handles `c` and
+    Enter-on-calEvent.
+  - `cmd/inkwell/cmd_run.go`: wires `CalendarTZ: sm.ResolvedTimeZone()`
+    and `CalendarSidebarDays: cfg.Calendar.SidebarShowDays`; removes
+    `_ = sm` placeholder.
+- Tests added:
+  - `calendar_test.go`: `TestCalendarModelWeekModeToggle`,
+    `TestCalendarModelIsWeekModeDefault`, `TestFormatEventUsesProvidedTimezone`.
+  - `dispatch_test.go`: `TestCalendarWKeyTogglesToWeekMode`,
+    `TestFoldersPaneCKeyOpensCalendar`, `TestSidebarCalendarEventsRender`.
+  - `app_e2e_test.go`: `TestSidebarShowsCalendarEventsAfterLoad`,
+    `TestFoldersPaneCKeyOpensCal`.
+- Commands run: `go build ./...` ✓, `go vet ./...` ✓,
+  `go test -race ./internal/ui/...` ✓ (pass),
+  `go test -tags=e2e ./internal/ui/...` ✓ (pass).
+- Result: all five mandatory commands green; DoD fully ticked.
 
 ### Iter 4 — 2026-05-02 (sync engine + day nav + attendees persistence, PR 6b-ii of audit-drain)
 - Slice: spec 12 §4.2 (ListCalendarDelta), §5 (engine 3rd state +

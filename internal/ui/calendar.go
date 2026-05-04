@@ -10,14 +10,16 @@ import (
 
 // CalendarModel is the state for the `:cal` modal: today's events,
 // a loading flag, the most recent error if the fetch failed, the
-// cursor index for spec-12 §6.2 j/k navigation, and the currently
-// viewed date for day navigation (]/[/{/}/t spec 12 §6.2).
+// cursor index for spec-12 §6.2 j/k navigation, the currently
+// viewed date for day navigation (]/[/{/}/t spec 12 §6.2), and a
+// week-mode flag toggled by `w`.
 type CalendarModel struct {
 	events   []CalendarEvent
 	loading  bool
 	err      error
 	cursor   int
 	viewDate time.Time // date whose events are displayed; zero = today
+	weekMode bool      // true = week grid view; false = agenda (default)
 }
 
 // NewCalendar returns an empty calendar modal with viewDate = today (UTC).
@@ -72,6 +74,16 @@ func (m *CalendarModel) SetError(err error) {
 // Reset clears the modal back to today.
 func (m *CalendarModel) Reset() { *m = NewCalendar() }
 
+// ToggleWeekMode flips between agenda (false) and week (true) view.
+// Returns the new mode value.
+func (m *CalendarModel) ToggleWeekMode() bool {
+	m.weekMode = !m.weekMode
+	return m.weekMode
+}
+
+// IsWeekMode reports whether week-grid view is active.
+func (m CalendarModel) IsWeekMode() bool { return m.weekMode }
+
 // Up / Down move the cursor inside the events list. No-op at the
 // edges (no wrap-around — matches list-pane semantics).
 func (m *CalendarModel) Up() {
@@ -97,15 +109,25 @@ func (m CalendarModel) Selected() *CalendarEvent {
 }
 
 // View renders the calendar modal centred on the screen.
-func (m CalendarModel) View(t Theme, width, height int) string {
+// tz controls time formatting; nil falls back to time.Local.
+func (m CalendarModel) View(t Theme, tz *time.Location, width, height int) string {
+	if tz == nil {
+		tz = time.Local
+	}
+	if m.weekMode {
+		body := renderWeekView(t, m.events, tz)
+		footer := t.Dim.Render("j/k  navigate  ·  Enter  open  ·  ]/[  day  ·  }/{ week  ·  t  today  ·  a  agenda view  ·  esc  close")
+		box := t.Modal.Render(strings.Join([]string{t.Bold.Render("📅 Week View"), "", body, "", footer}, "\n"))
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+	}
 	vd := m.viewDate
 	if vd.IsZero() {
-		vd = time.Now().UTC()
+		vd = time.Now().In(tz)
 	}
-	isToday := sameDay(vd, time.Now().UTC())
-	dayLabel := "Today — " + vd.Format("Mon 2006-01-02")
+	isToday := sameDay(vd, time.Now().In(tz))
+	dayLabel := "Today — " + vd.In(tz).Format("Mon 2006-01-02")
 	if !isToday {
-		dayLabel = vd.Format("Mon 2006-01-02")
+		dayLabel = vd.In(tz).Format("Mon 2006-01-02")
 	}
 	header := t.Bold.Render("📅 " + dayLabel)
 
@@ -120,14 +142,63 @@ func (m CalendarModel) View(t Theme, width, height int) string {
 	default:
 		var lines []string
 		for i, e := range m.events {
-			lines = append(lines, formatEvent(t, e, i == m.cursor))
+			lines = append(lines, formatEvent(t, e, i == m.cursor, tz))
 		}
 		body = strings.Join(lines, "\n\n")
 	}
 
-	footer := t.Dim.Render("j/k  navigate  ·  Enter  open  ·  ]/[  day  ·  }/{ week  ·  t  today  ·  esc  close")
+	footer := t.Dim.Render("j/k  navigate  ·  Enter  open  ·  ]/[  day  ·  }/{ week  ·  t  today  ·  w  week view  ·  esc  close")
 	box := t.Modal.Render(strings.Join([]string{header, "", body, "", footer}, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// renderWeekView renders all events grouped by day for the week grid.
+func renderWeekView(t Theme, events []CalendarEvent, tz *time.Location) string {
+	if tz == nil {
+		tz = time.Local
+	}
+	if len(events) == 0 {
+		return t.Dim.Render("no events this week.")
+	}
+	type dayBucket struct {
+		label  string
+		events []CalendarEvent
+	}
+	byDay := map[string]*dayBucket{}
+	var dayKeys []string
+	for _, e := range events {
+		d := e.Start.In(tz)
+		key := d.Format("2006-01-02")
+		if _, ok := byDay[key]; !ok {
+			byDay[key] = &dayBucket{label: d.Format("Mon Jan 2")}
+			dayKeys = append(dayKeys, key)
+		}
+		byDay[key].events = append(byDay[key].events, e)
+	}
+	// Sort days ascending.
+	for i := 0; i < len(dayKeys)-1; i++ {
+		for j := i + 1; j < len(dayKeys); j++ {
+			if dayKeys[i] > dayKeys[j] {
+				dayKeys[i], dayKeys[j] = dayKeys[j], dayKeys[i]
+			}
+		}
+	}
+	var sb strings.Builder
+	for di, key := range dayKeys {
+		if di > 0 {
+			sb.WriteString("\n")
+		}
+		bucket := byDay[key]
+		sb.WriteString(t.Bold.Render(bucket.label) + "\n")
+		for _, e := range bucket.events {
+			timeStr := e.Start.In(tz).Format("15:04") + " – " + e.End.In(tz).Format("15:04")
+			if e.IsAllDay {
+				timeStr = "all day"
+			}
+			sb.WriteString("  " + timeStr + "  " + e.Subject + "\n")
+		}
+	}
+	return sb.String()
 }
 
 // sameDay reports whether two times fall on the same calendar day in
@@ -142,8 +213,12 @@ func sameDay(a, b time.Time) bool {
 // then a faint location/online-meeting line if either is set. The
 // `selected` flag paints a leading ▶ marker plus highlights the
 // title row so the cursor position is visible at a glance.
-func formatEvent(t Theme, e CalendarEvent, selected bool) string {
-	timeRange := e.Start.Local().Format("15:04") + " – " + e.End.Local().Format("15:04")
+// tz controls the time display; nil falls back to time.Local.
+func formatEvent(t Theme, e CalendarEvent, selected bool, tz *time.Location) string {
+	if tz == nil {
+		tz = time.Local
+	}
+	timeRange := e.Start.In(tz).Format("15:04") + " – " + e.End.In(tz).Format("15:04")
 	if e.IsAllDay {
 		timeRange = "all day"
 	}
