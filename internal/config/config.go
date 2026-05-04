@@ -23,21 +23,38 @@ import (
 
 // Config is the fully-populated runtime configuration.
 type Config struct {
-	Account       AccountConfig       `toml:"account"`
-	Cache         CacheConfig         `toml:"cache"`
-	Sync          SyncConfig          `toml:"sync"`
-	UI            UIConfig            `toml:"ui"`
-	Bindings      BindingsConfig      `toml:"bindings"`
-	Rendering     RenderingConfig     `toml:"rendering"`
-	Logging       LoggingConfig       `toml:"logging"`
-	Triage        TriageConfig        `toml:"triage"`
-	Bulk          BulkConfig          `toml:"bulk"`
-	Batch         BatchConfig         `toml:"batch"`
-	Calendar      CalendarConfig      `toml:"calendar"`
-	Search        SearchConfig        `toml:"search"`
-	Pattern       PatternConfig       `toml:"pattern"`
-	SavedSearch   SavedSearchSettings `toml:"saved_search"`
-	SavedSearches []SavedSearchConfig `toml:"saved_searches"`
+	Account         AccountConfig         `toml:"account"`
+	Cache           CacheConfig           `toml:"cache"`
+	Sync            SyncConfig            `toml:"sync"`
+	UI              UIConfig              `toml:"ui"`
+	Bindings        BindingsConfig        `toml:"bindings"`
+	Rendering       RenderingConfig       `toml:"rendering"`
+	Logging         LoggingConfig         `toml:"logging"`
+	Triage          TriageConfig          `toml:"triage"`
+	Bulk            BulkConfig            `toml:"bulk"`
+	Batch           BatchConfig           `toml:"batch"`
+	Calendar        CalendarConfig        `toml:"calendar"`
+	Search          SearchConfig          `toml:"search"`
+	Pattern         PatternConfig         `toml:"pattern"`
+	SavedSearch     SavedSearchSettings   `toml:"saved_search"`
+	SavedSearches   []SavedSearchConfig   `toml:"saved_searches"`
+	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
+}
+
+// MailboxSettingsConfig owns the [mailbox_settings] section (spec 13).
+type MailboxSettingsConfig struct {
+	// ConfirmOOOChange prompts the user before toggling out-of-office.
+	ConfirmOOOChange bool `toml:"confirm_ooo_change"`
+	// DefaultOOOAudience is the default external audience when enabling OOO.
+	DefaultOOOAudience string `toml:"default_ooo_audience"`
+	// OOOIndicator is the glyph shown in the status bar when OOO is active.
+	OOOIndicator string `toml:"ooo_indicator"`
+	// RefreshInterval controls how often mailbox settings are re-fetched.
+	RefreshInterval time.Duration `toml:"refresh_interval"`
+	// DefaultInternalMessage is the pre-populated internal reply body.
+	DefaultInternalMessage string `toml:"default_internal_message"`
+	// DefaultExternalMessage is the pre-populated external reply body.
+	DefaultExternalMessage string `toml:"default_external_message"`
 }
 
 // PatternConfig owns the [pattern] section (spec 08 §13). Knobs

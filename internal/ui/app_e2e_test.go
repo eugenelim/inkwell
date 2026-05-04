@@ -1101,6 +1101,92 @@ func stripAnsi(s string) string {
 	return string(out)
 }
 
+// e2eMailboxStub is a MailboxClient stub for e2e tests.
+type e2eMailboxStub struct {
+	settings *MailboxSettings
+	err      error
+}
+
+func (s *e2eMailboxStub) Get(_ context.Context) (*MailboxSettings, error) {
+	return s.settings, s.err
+}
+
+func (s *e2eMailboxStub) SetAutoReply(_ context.Context, _ MailboxSettings) error {
+	return s.err
+}
+
+// TestSettingsModalRendersFields drives `:settings` and verifies that the
+// modal renders "Mailbox Settings" and "Time Zone:".
+func TestSettingsModalRendersFields(t *testing.T) {
+	m, _ := newE2EModel(t)
+	m.deps.Mailbox = &e2eMailboxStub{
+		settings: &MailboxSettings{
+			AutoReplyStatus: "disabled",
+			TimeZone:        "Europe/London",
+			Language:        "en-GB",
+		},
+	}
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	for _, r := range "settings" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		s := string(out)
+		return contains(s, "Mailbox Settings") && contains(s, "Time Zone:")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestOOFModalToggleStatus drives `:ooo` and confirms that Space cycles
+// the status radio from Off to On.
+func TestOOFModalToggleStatus(t *testing.T) {
+	m, _ := newE2EModel(t)
+	m.deps.Mailbox = &e2eMailboxStub{
+		settings: &MailboxSettings{
+			AutoReplyStatus: "disabled",
+			TimeZone:        "UTC",
+		},
+	}
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	for _, r := range "ooo" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for the modal to render.
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "Out of Office")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Space should cycle status from disabled to alwaysEnabled.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return contains(string(out), "(•) On")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // contains is the tiny helper used everywhere — avoids importing strings
 // into every test for a single call.
 func contains(s, sub string) bool {

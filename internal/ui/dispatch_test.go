@@ -4852,3 +4852,201 @@ func TestViewerWidthPassedToBodyOpts(t *testing.T) {
 	}
 	require.Equal(t, 72, effectiveW, "WrapColumns must override computed pane width")
 }
+
+// stubMailboxClient is a test double satisfying ui.MailboxClient.
+type stubMailboxClient struct {
+	settings *MailboxSettings
+	err      error
+	setCalls []MailboxSettings
+	mu       sync.Mutex
+}
+
+func (s *stubMailboxClient) Get(_ context.Context) (*MailboxSettings, error) {
+	return s.settings, s.err
+}
+
+func (s *stubMailboxClient) SetAutoReply(_ context.Context, ms MailboxSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setCalls = append(s.setCalls, ms)
+	return s.err
+}
+
+// newDispatchTestModelWithMailbox returns a Model wired with the given client.
+func newDispatchTestModelWithMailbox(t *testing.T, mc MailboxClient) Model {
+	t.Helper()
+	m := newDispatchTestModel(t)
+	m.deps.Mailbox = mc
+	return m
+}
+
+// TestSettingsCommandOpensSettingsMode asserts that `:settings` transitions
+// the model to SettingsMode.
+func TestSettingsCommandOpensSettingsMode(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "disabled", TimeZone: "UTC"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+
+	m2, _ := m.dispatchCommand("settings")
+	m = m2.(Model)
+
+	require.Equal(t, SettingsMode, m.mode, ":settings must open SettingsMode")
+}
+
+// TestOOOOnCommandPatches asserts that `:ooo on` fires a toggleOOFCmd that
+// calls SetAutoReply with alwaysEnabled.
+func TestOOOOnCommandPatches(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "disabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	// Pre-seed cached settings so the command can read them.
+	m.mailboxSettings = &MailboxSettings{AutoReplyStatus: "disabled"}
+
+	_, cmd := m.dispatchCommand("ooo on")
+	require.NotNil(t, cmd, ":ooo on must return a cmd")
+	msg := cmd()
+	toggled, ok := msg.(oofToggledMsg)
+	require.True(t, ok, "cmd must emit oofToggledMsg, got %T", msg)
+	// Since stubMailboxClient.SetAutoReply returns nil, Settings is populated.
+	require.NotNil(t, toggled.Settings)
+	require.Equal(t, "alwaysEnabled", toggled.Settings.AutoReplyStatus)
+}
+
+// TestOOOOffCommandPatches asserts that `:ooo off` fires a toggleOOFCmd that
+// calls SetAutoReply with disabled.
+func TestOOOOffCommandPatches(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "alwaysEnabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	m.mailboxSettings = &MailboxSettings{AutoReplyStatus: "alwaysEnabled"}
+
+	_, cmd := m.dispatchCommand("ooo off")
+	require.NotNil(t, cmd, ":ooo off must return a cmd")
+	msg := cmd()
+	toggled, ok := msg.(oofToggledMsg)
+	require.True(t, ok)
+	require.NotNil(t, toggled.Settings)
+	require.Equal(t, "disabled", toggled.Settings.AutoReplyStatus)
+}
+
+// TestOOOScheduleCommandOpensModalScheduled asserts that `:ooo schedule`
+// opens OOFMode with editStatus = "scheduled".
+func TestOOOScheduleCommandOpensModalScheduled(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "disabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	m.mailboxSettings = &MailboxSettings{AutoReplyStatus: "disabled"}
+
+	m2, _ := m.dispatchCommand("ooo schedule")
+	m = m2.(Model)
+
+	require.Equal(t, OOFMode, m.mode, ":ooo schedule must open OOFMode")
+	require.Equal(t, "scheduled", m.oof.editStatus, "editStatus must be scheduled")
+}
+
+// TestMailboxRefreshUpdatesOOOIndicator verifies that receiving
+// mailboxRefreshedMsg with an active OOO status makes the model's
+// mailboxSettings field reflect OOO active.
+func TestMailboxRefreshUpdatesOOOIndicator(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "disabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	m.deps.OOOIndicator = "🌴"
+
+	// Deliver a mailboxRefreshedMsg simulating OOO becoming active.
+	m2, _ := m.Update(mailboxRefreshedMsg{
+		Settings: &MailboxSettings{AutoReplyStatus: "alwaysEnabled"},
+	})
+	m = m2.(Model)
+
+	require.NotNil(t, m.mailboxSettings)
+	require.Equal(t, "alwaysEnabled", m.mailboxSettings.AutoReplyStatus)
+	// The status bar should show the OOO indicator.
+	view := m.status.View(m.theme, 80, StatusInputs{
+		OOOActive:    m.mailboxSettings.AutoReplyStatus != "disabled",
+		OOOIndicator: m.deps.OOOIndicator,
+	})
+	require.Contains(t, view, "🌴 OOO", "status bar must show OOO indicator when active")
+}
+
+// TestOOFToMailboxSettingsParsesSchedule verifies that ToMailboxSettings
+// parses the startDate+startTime / endDate+endTime editing strings into
+// *time.Time so the PATCH payload carries the schedule.
+func TestOOFToMailboxSettingsParsesSchedule(t *testing.T) {
+	var m OOFModel
+	m.editStatus = "scheduled"
+	m.startDate = "2026-05-10"
+	m.startTime = "09:00"
+	m.endDate = "2026-05-15"
+	m.endTime = "17:00"
+
+	s := m.ToMailboxSettings()
+
+	require.Equal(t, "scheduled", s.AutoReplyStatus)
+	require.NotNil(t, s.ScheduledStart, "ScheduledStart must be parsed")
+	require.NotNil(t, s.ScheduledEnd, "ScheduledEnd must be parsed")
+	require.Equal(t, "2026-05-10 09:00", s.ScheduledStart.Format("2006-01-02 15:04"))
+	require.Equal(t, "2026-05-15 17:00", s.ScheduledEnd.Format("2006-01-02 15:04"))
+}
+
+// TestOOFToMailboxSettingsNilScheduleWhenNotScheduled verifies that
+// ScheduledStart/End are nil when status != "scheduled".
+func TestOOFToMailboxSettingsNilScheduleWhenNotScheduled(t *testing.T) {
+	var m OOFModel
+	m.editStatus = "alwaysEnabled"
+	m.startDate = "2026-05-10"
+	m.startTime = "09:00"
+
+	s := m.ToMailboxSettings()
+	require.Nil(t, s.ScheduledStart, "ScheduledStart must be nil for alwaysEnabled")
+}
+
+// TestOOFSpaceTogglesAudienceWhenCursorOnAudience verifies that pressing Space
+// on cursor=5 (audience) cycles the audience, not the status.
+func TestOOFSpaceTogglesAudienceWhenCursorOnAudience(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "alwaysEnabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	m.mode = OOFMode
+	m.oof.editStatus = "alwaysEnabled"
+	m.oof.editAudience = "all"
+	m.oof.cursor = 5
+
+	m2, _ := m.updateOOF(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = m2.(Model)
+
+	require.Equal(t, "alwaysEnabled", m.oof.editStatus, "status must not change when Space on audience row")
+	require.Equal(t, "contactsOnly", m.oof.editAudience, "audience must cycle all→contactsOnly")
+}
+
+// TestOOFValidationBlocksSaveWhenEndBeforeStart verifies that Enter in OOFMode
+// with invalid schedule sets validErr and does not save.
+func TestOOFValidationBlocksSaveWhenEndBeforeStart(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "scheduled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+	m.mode = OOFMode
+	m.oof.editStatus = "scheduled"
+	m.oof.startDate = "2026-05-15"
+	m.oof.startTime = "09:00"
+	m.oof.endDate = "2026-05-10" // before start
+	m.oof.endTime = "17:00"
+
+	m2, _ := m.updateOOF(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, OOFMode, m.mode, "must stay in OOFMode on validation failure")
+	require.NotEmpty(t, m.oof.validErr, "validErr must be set")
+	require.Empty(t, mb.setCalls, "SetAutoReply must not be called on validation failure")
+}
+
+// TestOOFEscFromDirectOOOReturnsNormalMode verifies that Esc from a
+// :ooo-opened modal returns to NormalMode (not SettingsMode).
+func TestOOFEscFromDirectOOOReturnsNormalMode(t *testing.T) {
+	mb := &stubMailboxClient{settings: &MailboxSettings{AutoReplyStatus: "disabled"}}
+	m := newDispatchTestModelWithMailbox(t, mb)
+
+	// Enter OOF via :ooo (should set oofReturnMode = NormalMode).
+	m2, _ := m.dispatchCommand("ooo")
+	m = m2.(Model)
+	require.Equal(t, OOFMode, m.mode)
+	require.Equal(t, NormalMode, m.oofReturnMode)
+
+	// Esc should return to NormalMode.
+	m3, _ := m.updateOOF(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m3.(Model)
+	require.Equal(t, NormalMode, m.mode, "Esc from direct :ooo must return to NormalMode")
+}

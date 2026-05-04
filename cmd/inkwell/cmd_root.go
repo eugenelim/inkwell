@@ -44,6 +44,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMessagesCmd(rc))
 	cmd.AddCommand(newSyncCmd(rc))
 	cmd.AddCommand(newFilterCmd(rc))
+	cmd.AddCommand(newOOOCmd(rc))
+	cmd.AddCommand(newSettingsCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd

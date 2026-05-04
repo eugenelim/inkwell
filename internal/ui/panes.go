@@ -1186,10 +1186,12 @@ func NewStatus(upn, tenant string) StatusModel {
 // stable identity holder (UPN, tenant) — transient state lives in the
 // root Model.
 type StatusInputs struct {
-	LastSync  time.Time
-	Throttled time.Duration
-	Activity  string // "syncing folders…" / "syncing…" / "" (idle)
-	LastErr   error  // most recent SyncFailedEvent, if any
+	LastSync     time.Time
+	Throttled    time.Duration
+	Activity     string // "syncing folders…" / "syncing…" / "" (idle)
+	LastErr      error  // most recent SyncFailedEvent, if any
+	OOOActive    bool
+	OOOIndicator string // configurable glyph, default "🌴"
 }
 
 // View renders the status line.
@@ -1197,6 +1199,13 @@ func (m StatusModel) View(t Theme, width int, in StatusInputs) string {
 	left := "☰ inkwell"
 	if m.upn != "" {
 		left += " · " + m.upn
+	}
+	if in.OOOActive {
+		indicator := in.OOOIndicator
+		if indicator == "" {
+			indicator = "🌴"
+		}
+		left += " · " + indicator + " OOO"
 	}
 
 	// Right side: errors > throttled > activity > last sync > idle.

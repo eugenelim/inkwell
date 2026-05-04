@@ -152,5 +152,13 @@ func Defaults() *Config {
 			SeedDefaults:              true,
 			TOMLMirrorPath:            "~/.config/inkwell/saved_searches.toml",
 		},
+		MailboxSettings: MailboxSettingsConfig{
+			ConfirmOOOChange:       true,
+			DefaultOOOAudience:     "all",
+			OOOIndicator:           "🌴",
+			RefreshInterval:        5 * time.Minute,
+			DefaultInternalMessage: "I'm currently out of the office.",
+			DefaultExternalMessage: "",
+		},
 	}
 }

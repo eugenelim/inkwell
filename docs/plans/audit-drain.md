@@ -302,7 +302,7 @@ These are the remaining deferred items after all primary specs ship.
 | B-1 | 11 | done \| 2026-05-02 | spec 11 §2 Manager API; §5 live counts; §4 CRUD commands; §7.3 seed defaults; §8 TOML mirror; [saved_search] config | 2026-05-02 |
 | B-2 | 04 | done \| 2026-05-03 | spec 04 §14 lifecycle teardown; §5 transient_status_ttl; §13 min_terminal; :save/:rule; indicator config | 2026-05-03 |
 | C-1 | 05 | done \| 2026-05-03 | spec 05 §6.3 quote collapse; §7 format=flowed; §6.5 strip_patterns; html_converter; §5.2 internetMessageHeaders; single-flight; [rendering] keys | 2026-05-03 |
-| D-1 | 13 | not-started | spec 13 §5 OOF editing; §11 :ooo variants; §6 :settings; §8 OOO indicator; timezone Manager; §4 refresh timer; PATCH schedule fields; [mailbox_settings] config | — |
+| D-1 | 13 | done \| 2026-05-04 | spec 13 §5 OOF editing; §11 :ooo variants; §6 :settings; §8 OOO indicator; timezone Manager; §4 refresh timer; PATCH schedule fields; [mailbox_settings] config | 2026-05-04 |
 | E-1 | 03 | not-started | spec 03 §3 goroutine leak; §6.2 tombstone delta backfill; §11 priority queue; [sync] config keys | — |
 | E-2 | 01 | not-started | spec 01 §11 AADSTS classification; clock-skew hint; §5.4 CLI PromptFn | — |
 | F-1 | 15 | not-started | spec 15 §6.3 discard DELETE; §9 webLink TTL; §11 Mail.Send lint guard; §5 compose attachments | — |

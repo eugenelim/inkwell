@@ -184,14 +184,27 @@ meeting URL. From the detail modal, `o` opens the event in Outlook,
 
 ## Toggle out-of-office (auto-reply)
 
-`:ooo` opens a modal showing your current auto-reply state and the
-configured internal-reply message. Press `t` to flip enabled /
-disabled — the existing message is preserved server-side, so you're
-not editing the body, just turning it on or off. Esc closes.
+`:ooo on` enables automatic replies immediately. `:ooo off` disables.
+Both are single-step, no modal — useful for quick toggles.
 
-To edit the actual message body, set a schedule, or differentiate
-internal vs external audiences, use Outlook for now (those edits
-land in a later iteration).
+`:ooo` (plain) opens the full editing modal where you can set Status,
+Audience (All / Contacts only / None), and preview the internal and
+external reply messages. `Tab` / `Shift+Tab` move between fields;
+`Space` cycles the Status radio; `Enter` saves; `Esc` cancels.
+
+## Set out-of-office with a schedule
+
+1. Run `:ooo schedule` to open the editing modal with "On with schedule"
+   pre-selected.
+2. `Tab` to the Start date field; type the date in `YYYY-MM-DD` form.
+3. `Tab` to Start time and type `HH:MM`.
+4. Repeat for End date and End time.
+5. `Tab` to Audience and `Space` to pick who receives the auto-reply.
+6. Press `Enter` to save.
+
+Graph will activate auto-replies at the start time and deactivate at
+the end time. The status bar shows `🌴 OOO` whenever replies are active
+(configurable via `[mailbox_settings].ooo_indicator`).
 
 ## Reply to a message
 

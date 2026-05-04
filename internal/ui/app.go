@@ -237,6 +237,12 @@ type Deps struct {
 	// minimums. 0 disables each check.
 	MinTerminalCols int
 	MinTerminalRows int
+	// OOOIndicator is the glyph shown in the status bar when OOO is
+	// active. From [mailbox_settings].ooo_indicator config.
+	OOOIndicator string
+	// MailboxRefreshInterval is how long to wait between automatic
+	// mailbox-settings re-fetches. From [mailbox_settings].refresh_interval.
+	MailboxRefreshInterval time.Duration
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -316,17 +322,24 @@ type CalendarFetcher interface {
 // for the :ooo flow (spec 13). Defined at the consumer site so the
 // UI doesn't import internal/graph.
 type MailboxSettings struct {
-	AutoReplyEnabled     bool
+	AutoReplyStatus      string // "disabled" | "alwaysEnabled" | "scheduled"
 	InternalReplyMessage string
 	ExternalReplyMessage string
+	ExternalAudience     string
+	ScheduledStart       *time.Time
+	ScheduledEnd         *time.Time
+	TimeZone             string
+	Language             string
+	WorkingHoursDisplay  string
+	DateFormat           string
+	TimeFormat           string
 }
 
 // MailboxClient handles GET + PATCH against /me/mailboxSettings for
-// the out-of-office flow. v0.9.0 only toggles enable/disable; richer
-// editing (custom message, schedule, audience) lands later.
+// the out-of-office flow (spec 13).
 type MailboxClient interface {
 	Get(ctx context.Context) (*MailboxSettings, error)
-	SetAutoReply(ctx context.Context, enabled bool, internalMsg, externalMsg string) error
+	SetAutoReply(ctx context.Context, s MailboxSettings) error
 }
 
 // DraftCreator is the surface the UI consumes for spec 15
@@ -459,12 +472,17 @@ type Model struct {
 	confirm        ConfirmModel
 	calendar       CalendarModel
 	oof            OOFModel
+	oofReturnMode  Mode // mode to restore when OOF modal saves or cancels
+	settingsView   SettingsModel
 	help           HelpModel
 	urlPicker      URLPickerModel
 	folderPicker   FolderPickerModel
 	calendarDetail CalendarDetailModel
 	compose        ComposeModel
 	yanker         *yanker
+
+	// mailboxSettings is the cached copy used for OOO status bar indicator.
+	mailboxSettings *MailboxSettings
 
 	focused Pane
 	mode    Mode
@@ -675,6 +693,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
 		cmds = append(cmds, refreshCmd)
+	}
+	if m.deps.Mailbox != nil {
+		cmds = append(cmds, m.doMailboxRefreshCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -891,8 +912,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case oofLoadedMsg:
 		if msg.Err != nil {
 			m.oof.SetError(msg.Err)
+			m.settingsView.SetError(msg.Err)
 		} else {
 			m.oof.SetSettings(msg.Settings)
+			m.settingsView.SetSettings(msg.Settings)
+			m.mailboxSettings = msg.Settings
 		}
 		return m, nil
 
@@ -901,8 +925,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.oof.SetError(msg.Err)
 		} else {
 			m.oof.SetSettings(msg.Settings)
+			m.settingsView.SetSettings(msg.Settings)
+			m.mailboxSettings = msg.Settings
+			m.mode = m.oofReturnMode
+			m.oofReturnMode = NormalMode
+			m.oof.Reset()
+			m.engineActivity = "✓ Out-of-office updated"
+			return m, m.clearTransientCmd()
 		}
 		return m, nil
+
+	case mailboxRefreshedMsg:
+		if msg.Err == nil && msg.Settings != nil {
+			m.mailboxSettings = msg.Settings
+		}
+		var cmd tea.Cmd
+		if m.deps.Mailbox != nil {
+			cmd = m.mailboxAutoRefreshCmd(m.deps.MailboxRefreshInterval)
+		}
+		return m, cmd
+
+	case mailboxTickMsg:
+		if m.deps.Mailbox == nil {
+			return m, nil
+		}
+		return m, m.doMailboxRefreshCmd()
 
 	case draftSavedMsg:
 		m.engineActivity = ""
@@ -1242,6 +1289,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCalendar(msg)
 	case OOFMode:
 		return m.updateOOF(msg)
+	case SettingsMode:
+		return m.updateSettings(msg)
 	case ComposeMode:
 		return m.updateCompose(msg)
 	case HelpMode:
@@ -1485,25 +1534,70 @@ func (m Model) updateCompose(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateOOF handles input while the out-of-office modal is open.
-// Esc closes; `t` toggles the auto-reply enable flag and PATCHes
-// /me/mailboxSettings.
 func (m Model) updateOOF(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	if keyMsg.Type == tea.KeyEsc || string(keyMsg.Runes) == "q" {
-		m.mode = NormalMode
+	switch {
+	case keyMsg.Type == tea.KeyEsc, string(keyMsg.Runes) == "q":
+		m.mode = m.oofReturnMode
+		m.oofReturnMode = NormalMode
 		m.oof.Reset()
 		return m, nil
-	}
-	if string(keyMsg.Runes) == "t" {
-		if m.oof.settings == nil || m.oof.loading || m.oof.saving {
+	case keyMsg.Type == tea.KeyTab:
+		m.oof.NextField()
+		return m, nil
+	case keyMsg.Type == tea.KeyShiftTab:
+		m.oof.PrevField()
+		return m, nil
+	case string(keyMsg.Runes) == " ":
+		if m.oof.cursor == 5 {
+			m.oof.ToggleAudience()
+		} else {
+			m.oof.ToggleStatus()
+		}
+		return m, nil
+	case keyMsg.Type == tea.KeyEnter:
+		if m.oof.loading || m.oof.saving {
 			return m, nil
 		}
-		next := !m.oof.settings.AutoReplyEnabled
+		if ve := m.oof.Validate(); ve != "" {
+			m.oof.validErr = ve
+			return m, nil
+		}
+		m.oof.validErr = ""
+		s := m.oof.ToMailboxSettings()
 		m.oof.SetSaving()
-		return m, m.toggleOOFCmd(next, *m.oof.settings)
+		return m, m.toggleOOFCmd(s)
+	}
+	return m, nil
+}
+
+// updateSettings handles input while the mailbox-settings overview modal
+// is open. Spec 13 §5.2: `o` opens the OOF modal; Esc/q closes.
+func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch {
+	case keyMsg.Type == tea.KeyEsc, string(keyMsg.Runes) == "q":
+		m.settingsView.Reset()
+		m.mode = NormalMode
+		return m, nil
+	case string(keyMsg.Runes) == "o":
+		if m.deps.Mailbox == nil {
+			return m, nil
+		}
+		m.oofReturnMode = SettingsMode
+		m.mode = OOFMode
+		m.oof.SetLoading()
+		if m.settingsView.settings != nil {
+			// Pre-fill from already-loaded settings to avoid a second fetch.
+			m.oof.SetSettings(m.settingsView.settings)
+		}
+		return m, m.fetchOOFCmd()
 	}
 	return m, nil
 }
@@ -2091,8 +2185,49 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 			m.lastError = fmt.Errorf("ooo: not wired (CLI mode or unsigned)")
 			return m, nil
 		}
-		m.mode = OOFMode
-		m.oof.SetLoading()
+		// Sub-commands: on, off, schedule; plain :ooo opens modal.
+		sub := ""
+		if len(args) >= 2 {
+			sub = args[1]
+		}
+		switch sub {
+		case "on":
+			s := MailboxSettings{AutoReplyStatus: "alwaysEnabled"}
+			if m.mailboxSettings != nil {
+				s = *m.mailboxSettings
+				s.AutoReplyStatus = "alwaysEnabled"
+			}
+			return m, m.toggleOOFCmd(s)
+		case "off":
+			s := MailboxSettings{AutoReplyStatus: "disabled"}
+			if m.mailboxSettings != nil {
+				s = *m.mailboxSettings
+				s.AutoReplyStatus = "disabled"
+			}
+			return m, m.toggleOOFCmd(s)
+		case "schedule":
+			m.oofReturnMode = NormalMode
+			m.mode = OOFMode
+			m.oof.Reset()
+			m.oof.SetLoading()
+			if m.mailboxSettings != nil {
+				m.oof.SetSettings(m.mailboxSettings)
+			}
+			m.oof.editStatus = "scheduled"
+			return m, m.fetchOOFCmd()
+		default:
+			m.oofReturnMode = NormalMode
+			m.mode = OOFMode
+			m.oof.SetLoading()
+			return m, m.fetchOOFCmd()
+		}
+	case "settings":
+		if m.deps.Mailbox == nil {
+			m.lastError = fmt.Errorf("settings: not wired (CLI mode or unsigned)")
+			return m, nil
+		}
+		m.mode = SettingsMode
+		m.settingsView.SetLoading()
 		return m, m.fetchOOFCmd()
 	}
 	m.lastError = fmt.Errorf("unknown command: %s", line)
@@ -2304,12 +2439,22 @@ type oofLoadedMsg struct {
 	Err      error
 }
 
-// oofToggledMsg is the result of the t-key PATCH (spec 13). Settings
+// oofToggledMsg is the result of the save PATCH (spec 13). Settings
 // is the post-PATCH state on success; Err carries the failure.
 type oofToggledMsg struct {
 	Settings *MailboxSettings
 	Err      error
 }
+
+// mailboxRefreshedMsg carries background-refresh results. Unlike
+// oofLoadedMsg it does not open or modify the OOF modal.
+type mailboxRefreshedMsg struct {
+	Settings *MailboxSettings
+	Err      error
+}
+
+// mailboxTickMsg fires when the auto-refresh timer elapses.
+type mailboxTickMsg struct{}
 
 // fetchOOFCmd hits the MailboxClient and returns oofLoadedMsg.
 func (m Model) fetchOOFCmd() tea.Cmd {
@@ -2321,20 +2466,34 @@ func (m Model) fetchOOFCmd() tea.Cmd {
 	}
 }
 
-// toggleOOFCmd PATCHes /me/mailboxSettings to flip the auto-reply
-// status. Preserves the existing internal/external messages.
-func (m Model) toggleOOFCmd(enabled bool, prev MailboxSettings) tea.Cmd {
+// mailboxAutoRefreshCmd schedules a background mailbox fetch after interval.
+func (m Model) mailboxAutoRefreshCmd(interval time.Duration) tea.Cmd {
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	return tea.Tick(interval, func(_ time.Time) tea.Msg { return mailboxTickMsg{} })
+}
+
+// doMailboxRefreshCmd fetches mailbox settings and returns mailboxRefreshedMsg.
+func (m Model) doMailboxRefreshCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		err := m.deps.Mailbox.SetAutoReply(ctx, enabled, prev.InternalReplyMessage, prev.ExternalReplyMessage)
+		s, err := m.deps.Mailbox.Get(ctx)
+		return mailboxRefreshedMsg{Settings: s, Err: err}
+	}
+}
+
+// toggleOOFCmd PATCHes /me/mailboxSettings with the full MailboxSettings.
+func (m Model) toggleOOFCmd(s MailboxSettings) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := m.deps.Mailbox.SetAutoReply(ctx, s)
 		if err != nil {
 			return oofToggledMsg{Err: err}
 		}
-		// Update the locally-held settings; no need to re-fetch.
-		next := prev
-		next.AutoReplyEnabled = enabled
-		return oofToggledMsg{Settings: &next}
+		return oofToggledMsg{Settings: &s}
 	}
 }
 
@@ -3929,6 +4088,9 @@ func (m Model) View() string {
 	if m.mode == OOFMode {
 		return m.oof.View(m.theme, m.width, m.height)
 	}
+	if m.mode == SettingsMode {
+		return m.settingsView.View(m.theme, m.width, m.height)
+	}
 	if m.mode == ComposeMode {
 		return m.compose.View(m.theme, m.width, m.height)
 	}
@@ -3993,11 +4155,14 @@ func (m Model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 
+	oooActive := m.mailboxSettings != nil && m.mailboxSettings.AutoReplyStatus != "" && m.mailboxSettings.AutoReplyStatus != "disabled"
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{
-		LastSync:  m.lastSyncAt,
-		Throttled: m.throttledFor,
-		Activity:  m.engineActivity,
-		LastErr:   m.lastError,
+		LastSync:     m.lastSyncAt,
+		Throttled:    m.throttledFor,
+		Activity:     m.engineActivity,
+		LastErr:      m.lastError,
+		OOOActive:    oooActive,
+		OOOIndicator: m.deps.OOOIndicator,
 	})
 	cmdBar := m.cmd.View(m.theme, m.width, m.mode == CommandMode)
 	if m.mode == SearchMode {

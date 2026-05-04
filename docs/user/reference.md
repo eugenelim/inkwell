@@ -280,7 +280,11 @@ sessions older than 24h get garbage-collected on launch.
 | `:open`                       | Open the focused message's webLink in the system browser       |
 | `:backfill`                   | Pull older messages past the cache wall for the focused folder |
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
-| `:ooo` / `:outofoffice`       | Open the out-of-office modal (view + toggle on/off)             |
+| `:settings`                   | Open the read-only mailbox-settings overview modal              |
+| `:ooo` / `:outofoffice`       | Open the out-of-office editing modal                            |
+| `:ooo on`                     | Enable automatic replies immediately (alwaysEnabled)            |
+| `:ooo off`                    | Disable automatic replies immediately                           |
+| `:ooo schedule`               | Open the OOF modal with "scheduled" pre-selected                |
 | `:unsub` / `:unsubscribe`     | Unsubscribe from the focused message (same flow as `U` keybinding) |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                              |
 
@@ -326,16 +330,34 @@ Read-only. To act on an event, finish in Outlook.
 Attendee status glyphs: `✓` accepted, `~` tentatively accepted,
 `✗` declined, `?` not responded.
 
+## Settings mode (`:settings`)
+
+| Key            | Action                                                         |
+| -------------- | -------------------------------------------------------------- |
+| `o`            | Switch to the OOF editing modal                                |
+| `Esc` / `q`    | Close the modal, return to Normal mode                         |
+
+The settings modal is read-only and shows: Automatic Replies status,
+Time Zone, Locale, Date Format (if set), Time Format (if set), and
+Working Hours (if configured on the mailbox).
+
+The OOO status-bar indicator (`🌴 OOO` by default, configurable via
+`[mailbox_settings].ooo_indicator`) appears next to the account UPN
+whenever automatic replies are active.
+
 ## Out-of-office mode (`:ooo`)
 
 | Key            | Action                                                         |
 | -------------- | -------------------------------------------------------------- |
-| `t`            | Toggle automatic-replies enable / disable                      |
-| `Esc` / `q`    | Close the modal, return to Normal mode                         |
+| `Space`        | Cycle status: Off → On → On with schedule → Off                |
+| `Tab`          | Move focus to next field                                       |
+| `Shift+Tab`    | Move focus to previous field                                   |
+| `Enter`        | Save (PATCH /me/mailboxSettings)                               |
+| `Esc` / `q`    | Close the modal, return to Normal mode (no save)               |
 
-The modal shows current state and the existing internal-reply message
-(read-only in v0.9.0). Toggling preserves the message; to edit the
-message body, use Outlook for now.
+Fields: Status radio (Off / On / On with schedule), Start/End date+time
+(only when scheduled), Audience radio (All / Contacts only / None),
+Internal message preview, External message preview.
 
 ---
 
@@ -417,7 +439,8 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
 | Calendar    | `:cal` / `:calendar` | `Esc` or `q` (`j`/`k` nav, `Enter` opens detail) |
 | CalendarDetail | `Enter` on a calendar event | `Esc` or `q` (`o` Outlook, `l` meeting URL) |
-| OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`t` toggles)            |
+| Settings    | `:settings`                      | `Esc` or `q` (`o` to edit OOF)        |
+| OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`Space` cycles status, `Enter` saves) |
 | FolderPicker | `m` (list / viewer)              | `Esc` (cancel) or `Enter` (move)      |
 
 ## Indicators

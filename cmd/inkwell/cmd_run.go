@@ -23,6 +23,7 @@ import (
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/savedsearch"
 	"github.com/eugenelim/inkwell/internal/search"
+	"github.com/eugenelim/inkwell/internal/settings"
 	"github.com/eugenelim/inkwell/internal/store"
 	isync "github.com/eugenelim/inkwell/internal/sync"
 	"github.com/eugenelim/inkwell/internal/ui"
@@ -209,38 +210,48 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		}
 	}
 
+	// Mailbox settings manager (spec 13). Initial fetch is best-effort;
+	// failures are logged and the UI will retry on the background tick.
+	sm := settings.New(gc, cfg.Calendar.TimeZone)
+	if err := sm.Refresh(ctx); err != nil {
+		logger.Warn("mailbox settings: initial fetch failed", "err", err)
+	}
+
 	// UI
 	model, err := ui.New(ui.Deps{
-		Auth:                  a,
-		Store:                 st,
-		Engine:                engine,
-		Renderer:              renderer,
-		Logger:                logger,
-		Account:               acc,
-		Triage:                triageAdapter{exec: exec},
-		Bulk:                  bulkAdapter{exec: exec},
-		Calendar:              calendarAdapter{gc: gc, st: st, accountID: acc.ID},
-		Mailbox:               mailboxAdapter{gc: gc},
-		Drafts:                draftAdapter{exec: exec},
-		Search:                newSearchAdapter(st, gc, acc.ID, cfg.Search),
-		Unsubscribe:           newUnsubAdapter(st, gc, version),
-		SavedSearchSvc:        &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
-		ThemeName:             cfg.UI.Theme,
-		SavedSearches:         saved,
-		Bindings:              bindingsToOverrides(cfg.Bindings),
-		RecentFoldersCount:    cfg.Triage.RecentFoldersCount,
-		WrapColumns:           cfg.Rendering.WrapColumns,
-		URLDisplayMaxWidth:    cfg.Rendering.URLDisplayMaxWidth,
-		Attachments:           gc,
-		AttachmentSaveDir:     expandHome(cfg.Rendering.AttachmentSaveDir),
-		LargeAttachmentWarnMB: cfg.Rendering.LargeAttachmentWarnMB,
-		UnreadIndicator:       cfg.UI.UnreadIndicator,
-		FlagIndicator:         cfg.UI.FlagIndicator,
-		AttachmentIndicator:   cfg.UI.AttachmentIndicator,
-		TransientStatusTTL:    cfg.UI.TransientStatusTTL,
-		MinTerminalCols:       cfg.UI.MinTerminalCols,
-		MinTerminalRows:       cfg.UI.MinTerminalRows,
+		Auth:                   a,
+		Store:                  st,
+		Engine:                 engine,
+		Renderer:               renderer,
+		Logger:                 logger,
+		Account:                acc,
+		Triage:                 triageAdapter{exec: exec},
+		Bulk:                   bulkAdapter{exec: exec},
+		Calendar:               calendarAdapter{gc: gc, st: st, accountID: acc.ID},
+		Mailbox:                mailboxAdapter{gc: gc},
+		Drafts:                 draftAdapter{exec: exec},
+		Search:                 newSearchAdapter(st, gc, acc.ID, cfg.Search),
+		Unsubscribe:            newUnsubAdapter(st, gc, version),
+		SavedSearchSvc:         &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
+		ThemeName:              cfg.UI.Theme,
+		SavedSearches:          saved,
+		Bindings:               bindingsToOverrides(cfg.Bindings),
+		RecentFoldersCount:     cfg.Triage.RecentFoldersCount,
+		WrapColumns:            cfg.Rendering.WrapColumns,
+		URLDisplayMaxWidth:     cfg.Rendering.URLDisplayMaxWidth,
+		Attachments:            gc,
+		AttachmentSaveDir:      expandHome(cfg.Rendering.AttachmentSaveDir),
+		LargeAttachmentWarnMB:  cfg.Rendering.LargeAttachmentWarnMB,
+		UnreadIndicator:        cfg.UI.UnreadIndicator,
+		FlagIndicator:          cfg.UI.FlagIndicator,
+		AttachmentIndicator:    cfg.UI.AttachmentIndicator,
+		TransientStatusTTL:     cfg.UI.TransientStatusTTL,
+		MinTerminalCols:        cfg.UI.MinTerminalCols,
+		MinTerminalRows:        cfg.UI.MinTerminalRows,
+		OOOIndicator:           cfg.MailboxSettings.OOOIndicator,
+		MailboxRefreshInterval: cfg.MailboxSettings.RefreshInterval,
 	})
+	_ = sm // manager available for future use (e.g., timezone resolution)
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
 	}
@@ -454,24 +465,72 @@ func (m mailboxAdapter) Get(ctx context.Context) (*ui.MailboxSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ui.MailboxSettings{
-		AutoReplyEnabled:     s.AutoReplies.Status != graph.AutoReplyDisabled,
-		InternalReplyMessage: s.AutoReplies.InternalReplyMessage,
-		ExternalReplyMessage: s.AutoReplies.ExternalReplyMessage,
-	}, nil
+	return mapMailboxSettings(s), nil
 }
 
-func (m mailboxAdapter) SetAutoReply(ctx context.Context, enabled bool, internalMsg, externalMsg string) error {
-	status := graph.AutoReplyDisabled
-	if enabled {
-		status = graph.AutoReplyAlwaysEnabled
+func (m mailboxAdapter) SetAutoReply(ctx context.Context, s ui.MailboxSettings) error {
+	return m.gc.UpdateAutoReplies(ctx, mapToGraphAutoReplies(s))
+}
+
+// mapMailboxSettings converts graph.MailboxSettings → ui.MailboxSettings.
+func mapMailboxSettings(s *graph.MailboxSettings) *ui.MailboxSettings {
+	out := &ui.MailboxSettings{
+		AutoReplyStatus:      string(s.AutoReplies.Status),
+		InternalReplyMessage: s.AutoReplies.InternalReplyMessage,
+		ExternalReplyMessage: s.AutoReplies.ExternalReplyMessage,
+		ExternalAudience:     s.AutoReplies.ExternalAudience,
+		TimeZone:             s.TimeZone,
+		Language:             s.Language,
+		WorkingHoursDisplay:  s.WorkingHoursDisplay,
+		DateFormat:           s.DateFormat,
+		TimeFormat:           s.TimeFormat,
 	}
-	return m.gc.UpdateAutoReplies(ctx, graph.AutoRepliesSetting{
-		Status:               status,
-		InternalReplyMessage: internalMsg,
-		ExternalReplyMessage: externalMsg,
-		ExternalAudience:     "all",
-	})
+	if s.AutoReplies.ScheduledStart != nil {
+		if t, err := parseGraphDateTime(s.AutoReplies.ScheduledStart.DateTime); err == nil {
+			out.ScheduledStart = &t
+		}
+	}
+	if s.AutoReplies.ScheduledEnd != nil {
+		if t, err := parseGraphDateTime(s.AutoReplies.ScheduledEnd.DateTime); err == nil {
+			out.ScheduledEnd = &t
+		}
+	}
+	return out
+}
+
+// mapToGraphAutoReplies converts ui.MailboxSettings → graph.AutoRepliesSetting.
+func mapToGraphAutoReplies(s ui.MailboxSettings) graph.AutoRepliesSetting {
+	out := graph.AutoRepliesSetting{
+		Status:               graph.AutoReplyStatus(s.AutoReplyStatus),
+		InternalReplyMessage: s.InternalReplyMessage,
+		ExternalReplyMessage: s.ExternalReplyMessage,
+		ExternalAudience:     s.ExternalAudience,
+	}
+	if s.AutoReplyStatus == "scheduled" {
+		tz := s.TimeZone
+		if tz == "" {
+			tz = "UTC"
+		}
+		if s.ScheduledStart != nil {
+			out.ScheduledStart = &graph.DateTimeTimeZone{
+				DateTime: s.ScheduledStart.Format("2006-01-02T15:04:05"),
+				TimeZone: tz,
+			}
+		}
+		if s.ScheduledEnd != nil {
+			out.ScheduledEnd = &graph.DateTimeTimeZone{
+				DateTime: s.ScheduledEnd.Format("2006-01-02T15:04:05"),
+				TimeZone: tz,
+			}
+		}
+	}
+	return out
+}
+
+// parseGraphDateTime parses a Graph DateTimeTimeZone.DateTime string
+// (format "2006-01-02T15:04:05", no timezone suffix) into a time.Time.
+func parseGraphDateTime(s string) (time.Time, error) {
+	return time.Parse("2006-01-02T15:04:05", s)
 }
 
 // calendarAdapter bridges graph + store → ui.CalendarFetcher. Spec

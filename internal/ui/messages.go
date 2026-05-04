@@ -40,6 +40,9 @@ const (
 	// flow). Persistent footer with Ctrl+S / Ctrl+D / Tab; resolves
 	// the user-reported "select Exit command first" friction.
 	ComposeMode
+	// SettingsMode shows the read-only mailbox-settings overview modal
+	// (spec 13 §5.2). Press `o` to switch to OOFMode for editing.
+	SettingsMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update
