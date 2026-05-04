@@ -655,7 +655,7 @@ func openEditor() (string, error) {
 	if editor == "" {
 		editor = "vi"
 	}
-	cmd := exec.Command(editor, name) // #nosec G204 — editor is $EDITOR (user-controlled) or "vi" fallback
+	cmd := exec.Command(editor, name) // #nosec G204 G702 — editor is $EDITOR (user-controlled by the operator) or "vi"; this is intentional shell-out to the user's chosen editor, identical to how git/mutt/etc invoke $EDITOR
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
