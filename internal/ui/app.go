@@ -2397,8 +2397,25 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m, m.runFilterCmd(patternSrc)
 	case "save":
 		if len(args) < 2 {
-			m.lastError = fmt.Errorf("save: usage `:save <name>`")
+			m.lastError = fmt.Errorf("save: usage `:save <name>` or `:save <letter> [path]` in viewer")
 			return m, nil
+		}
+		// Viewer-context attachment save: `:save <letter> [custom-path]` (spec 05 §8).
+		// Routed here only when the first arg is a single a-z letter that maps to
+		// an existing attachment in the viewer. Otherwise falls through to rule save.
+		if m.focused == ViewerPane && len(args[1]) == 1 {
+			r := rune(args[1][0])
+			if r >= 'a' && r <= 'z' {
+				atts := m.viewer.Attachments()
+				if idx := int(r - 'a'); idx < len(atts) {
+					att := atts[idx]
+					if len(args) >= 3 {
+						customPath := expandHomePath(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(line, "save")), args[1])))
+						return m, m.saveAttachmentToPathCmd(att, customPath)
+					}
+					return m.startSaveAttachment(att)
+				}
+			}
 		}
 		if !m.filterActive || m.filterPattern == "" {
 			m.lastError = fmt.Errorf("save: no active filter — run :filter <pattern> first")
@@ -2486,10 +2503,20 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		m.focused = ListPane
 		return m, m.loadMessagesCmd(f.ID)
 	case "open":
-		// `:open` opens the focused message's webLink in the system
-		// browser. Spec 04 §6.4. Best-effort fire-and-forget; if
-		// the user's $BROWSER fails, the URL is on the status bar
-		// for them to copy.
+		// `:open <N>` opens numbered link N (spec 05 §9); `:open` alone
+		// opens the focused message's webLink (spec 04 §6.4).
+		if len(args) >= 2 && len(args[1]) == 1 && args[1][0] >= '1' && args[1][0] <= '9' {
+			n := int(args[1][0] - '0')
+			for _, l := range m.viewer.Links() {
+				if l.Index == n {
+					go openInBrowser(l.URL)
+					m.engineActivity = fmt.Sprintf("opening link %d…", n)
+					return m, nil
+				}
+			}
+			m.lastError = fmt.Errorf("open: no link [%d] in current message", n)
+			return m, nil
+		}
 		var link string
 		if cur := m.viewer.current; cur != nil {
 			link = cur.WebLink
@@ -2502,6 +2529,20 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		go openInBrowser(link)
 		m.engineActivity = "opened in browser"
+		return m, nil
+	case "copy":
+		// `:copy <N>` copies numbered link N to the clipboard (spec 05 §9).
+		if len(args) < 2 || len(args[1]) != 1 || args[1][0] < '1' || args[1][0] > '9' {
+			m.lastError = fmt.Errorf("copy: usage `:copy <N>` where N is 1–9")
+			return m, nil
+		}
+		n := int(args[1][0] - '0')
+		for _, l := range m.viewer.Links() {
+			if l.Index == n {
+				return m.yankURL(l.URL)
+			}
+		}
+		m.lastError = fmt.Errorf("copy: no link [%d] in current message", n)
 		return m, nil
 	case "backfill":
 		// `:backfill` triggers spec 03's Backfill(folderID, until)
@@ -4338,6 +4379,18 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // `../evil.sh` becomes `evil.sh`; then the cleaned join is verified to
 // stay within dir using the trailing-separator prefix check to prevent
 // false positives like dir="/foo" matching clean="/foobar/x".
+// expandHomePath replaces a leading "~" with os.UserHomeDir().
+func expandHomePath(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
+}
+
 func safeAttachmentPath(dir, name string) (string, error) {
 	base := filepath.Base(name)
 	if base == "." || base == ".." {
@@ -4433,6 +4486,34 @@ func (m Model) saveAttachmentCmd(att store.Attachment) tea.Cmd {
 			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("write: %w", err)}
 		}
 		return SaveAttachmentDoneMsg{Name: att.Name, Path: savePath}
+	}
+}
+
+// saveAttachmentToPathCmd is the `:save <letter> <path>` variant of
+// saveAttachmentCmd (spec 05 §8). The caller supplies an absolute path
+// (after expandHome); no safeAttachmentPath check is needed because the
+// user explicitly chose the destination via the command bar.
+func (m Model) saveAttachmentToPathCmd(att store.Attachment, destPath string) tea.Cmd {
+	af := m.deps.Attachments
+	if af == nil {
+		return nil
+	}
+	msgID := m.viewer.CurrentMessageID()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		data, err := af.GetAttachment(ctx, msgID, att.ID)
+		if err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: err}
+		}
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("mkdir: %w", err)}
+		}
+		// #nosec G306 — 0o600: attachment data is private mail content.
+		if err := os.WriteFile(destPath, data, 0o600); err != nil {
+			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("write: %w", err)}
+		}
+		return SaveAttachmentDoneMsg{Name: att.Name, Path: destPath}
 	}
 }
 

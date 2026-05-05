@@ -5949,6 +5949,180 @@ func TestAttachPickMode_TooLarge(t *testing.T) {
 	require.Empty(t, m.compose.Attachments(), "no attachment must be staged")
 }
 
+// stubAttachmentFetcher satisfies AttachmentFetcher for tests.
+type stubAttachmentFetcher struct {
+	data []byte
+	err  error
+}
+
+func (s *stubAttachmentFetcher) GetAttachment(_ context.Context, _, _ string) ([]byte, error) {
+	return s.data, s.err
+}
+
+// openViewerWithAttachments puts the model into ViewerPane focus with
+// a known message and attachment list staged on the viewer.
+func openViewerWithAttachments(t *testing.T, atts []store.Attachment) Model {
+	t.Helper()
+	m := newDispatchTestModel(t)
+	msg := store.Message{ID: "m-attach", Subject: "has attachments"}
+	m.viewer.SetMessage(msg)
+	m.viewer.SetAttachments(atts)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m.viewer.SetMessage(msg)
+	m.viewer.SetAttachments(atts)
+	m.focused = ViewerPane
+	return m
+}
+
+// TestDispatchSaveCommandRouteToAttachmentInViewer verifies that
+// `:save a` in the viewer pane, when attachment[0] exists, dispatches
+// saveAttachmentCmd (i.e. returns a non-nil Cmd that yields
+// SaveAttachmentDoneMsg) rather than the filter-rule save path.
+func TestDispatchSaveCommandRouteToAttachmentInViewer(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("pdf bytes")
+	stub := &stubAttachmentFetcher{data: data}
+
+	atts := []store.Attachment{{ID: "att-1", Name: "report.pdf", Size: int64(len(data))}}
+	m := openViewerWithAttachments(t, atts)
+	m.deps.Attachments = stub
+	m.deps.AttachmentSaveDir = dir
+
+	m2, cmd := m.dispatchCommand("save a")
+	m = m2.(Model)
+	require.NotNil(t, cmd, ":save a must return a Cmd")
+	require.NoError(t, m.lastError)
+
+	msg := cmd()
+	done, ok := msg.(SaveAttachmentDoneMsg)
+	require.True(t, ok, "got %T, want SaveAttachmentDoneMsg", msg)
+	require.Equal(t, "report.pdf", done.Name)
+	require.NoError(t, done.Err)
+	require.FileExists(t, done.Path)
+}
+
+// TestDispatchSaveCommandCustomPathInViewer verifies that
+// `:save a /tmp/out.pdf` calls saveAttachmentToPathCmd with the
+// caller-specified path.
+func TestDispatchSaveCommandCustomPathInViewer(t *testing.T) {
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "custom.pdf")
+	data := []byte("custom pdf bytes")
+	stub := &stubAttachmentFetcher{data: data}
+
+	atts := []store.Attachment{{ID: "att-1", Name: "report.pdf", Size: int64(len(data))}}
+	m := openViewerWithAttachments(t, atts)
+	m.deps.Attachments = stub
+	m.deps.AttachmentSaveDir = dir
+
+	m2, cmd := m.dispatchCommand("save a " + destPath)
+	m = m2.(Model)
+	require.NotNil(t, cmd, ":save a <path> must return a Cmd")
+	require.NoError(t, m.lastError)
+
+	msg := cmd()
+	done, ok := msg.(SaveAttachmentDoneMsg)
+	require.True(t, ok, "got %T, want SaveAttachmentDoneMsg", msg)
+	require.Equal(t, destPath, done.Path)
+	require.NoError(t, done.Err)
+
+	saved, err := os.ReadFile(destPath)
+	require.NoError(t, err)
+	require.Equal(t, data, saved)
+}
+
+// TestDispatchSaveCommandFallsThruToRuleWhenNoAttachment confirms that
+// `:save Unread` when no attachment maps to the letter falls through to
+// the filter-rule save path (requires an active filter).
+func TestDispatchSaveCommandFallsThruToRuleWhenNoAttachment(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.SavedSearchSvc = &stubSavedSearchService{}
+	// No attachment at letter 'U', and focused is not ViewerPane.
+	m.filterActive = true
+	m.filterPattern = "~N"
+
+	m2, cmd := m.dispatchCommand("save Unread")
+	m = m2.(Model)
+	// Rule save fires a Cmd.
+	require.NotNil(t, cmd, ":save Unread with active filter must fire a Cmd via rule-save path")
+}
+
+// TestDispatchOpenNOpensLinkN verifies that `:open 1` sets
+// m.engineActivity and returns no Cmd (openInBrowser is a goroutine;
+// it fires-and-forgets, so the Cmd returned is nil for the happy path).
+func TestDispatchOpenNOpensLinkN(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/one"},
+		{Index: 2, URL: "https://example.invalid/two"},
+	})
+
+	m2, cmd := m.dispatchCommand("open 1")
+	m = m2.(Model)
+	require.Nil(t, cmd, ":open N fires openInBrowser in a goroutine — no Cmd returned")
+	require.NoError(t, m.lastError, "no error for valid link index")
+	require.Contains(t, m.engineActivity, "1", "engineActivity must mention link number")
+}
+
+// TestDispatchOpenNErrorsWhenLinkMissing verifies that `:open 5` when
+// there is no link [5] sets m.lastError and returns no Cmd.
+func TestDispatchOpenNErrorsWhenLinkMissing(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/one"},
+	})
+
+	m2, cmd := m.dispatchCommand("open 5")
+	m = m2.(Model)
+	require.Nil(t, cmd)
+	require.Error(t, m.lastError, "must set lastError when link [5] not present")
+}
+
+// TestDispatchCopyNYanksLinkURL verifies that `:copy 1` calls yankURL
+// synchronously (no Cmd) and writes the URL via OSC 52 to the yanker buffer.
+func TestDispatchCopyNYanksLinkURL(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/copy-me"},
+	})
+	buf := captureYanker(&m)
+
+	m2, cmd := m.dispatchCommand("copy 1")
+	m = m2.(Model)
+	// yankURL is synchronous — no Cmd returned, yank happens inline.
+	require.Nil(t, cmd, ":copy N is synchronous — no Cmd returned")
+	require.NoError(t, m.lastError, "no error for valid link index")
+	// The yank buffer receives an OSC 52 sequence (base64-encoded); verify
+	// the yank actually fired rather than decoding the wire format.
+	require.NotEmpty(t, buf.String(), "yanker must have written the OSC 52 sequence")
+	require.Contains(t, m.engineActivity, "copied URL", "engineActivity must confirm the yank")
+}
+
+// TestDispatchCopyNErrorsWhenLinkMissing verifies that `:copy 3` with
+// only one link sets m.lastError and returns no Cmd.
+func TestDispatchCopyNErrorsWhenLinkMissing(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m = openViewerWithLinks(t, m, []BodyLink{
+		{Index: 1, URL: "https://example.invalid/only"},
+	})
+
+	m2, cmd := m.dispatchCommand("copy 3")
+	m = m2.(Model)
+	require.Nil(t, cmd)
+	require.Error(t, m.lastError, "must set lastError when link [3] not present")
+}
+
+// TestDispatchCopyNoArgSetsError confirms that `:copy` without a
+// digit argument sets m.lastError (usage guard).
+func TestDispatchCopyNoArgSetsError(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m2, cmd := m.dispatchCommand("copy")
+	m = m2.(Model)
+	require.Nil(t, cmd)
+	require.Error(t, m.lastError)
+}
+
 // TestComposeSnapshot_IncludesAttachments verifies that the attachment
 // list round-trips through Snapshot / Restore.
 func TestComposeSnapshot_IncludesAttachments(t *testing.T) {

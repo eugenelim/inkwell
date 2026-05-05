@@ -297,7 +297,11 @@ sessions older than 24h get garbage-collected on launch.
 | `:refresh`                    | Force a sync cycle now (same as `Ctrl+R`)                       |
 | `:folder <name>`              | Jump the list pane to a folder (DisplayName or well-known like `inbox`) |
 | `:search <query>`             | Run an FTS search and show hits (same as `/<query>`)            |
-| `:open`                       | Open the focused message's webLink in the system browser       |
+| `:open`                       | Open the focused message's webLink in the system browser        |
+| `:open <N>`                   | Open numbered link N (1–9) from the viewer in the system browser |
+| `:copy <N>`                   | Copy numbered link N URL to the clipboard (OSC 52 / pbcopy)    |
+| `:save <letter>`              | Save viewer attachment by letter (`a`=first, `b`=second, …) to `attachment_save_dir` |
+| `:save <letter> <path>`       | Save viewer attachment to a specific path (e.g. `:save a ~/Desktop/invoice.pdf`) |
 | `:backfill`                   | Pull older messages past the cache wall for the focused folder |
 | `:cal` / `:calendar`          | Open today's calendar in a modal                                |
 | `:settings`                   | Open the read-only mailbox-settings overview modal              |

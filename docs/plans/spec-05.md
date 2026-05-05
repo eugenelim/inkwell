@@ -1,9 +1,7 @@
 # Spec 05 — Message Rendering
 
 ## Status
-done (CI scope) — `:save` / `:open` attachment shellouts and link-open
-keybindings deferred (need viewer key dispatch landed in spec 07);
-manual viewer smoke deferred per CLAUDE.md §5.5.
+done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
 
 ## DoD checklist
 - [x] Headers render with proper truncation (3 visible recipients + "(N more)").
@@ -24,11 +22,16 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
 - [x] Renderer wired into the viewer pane via Deps.Renderer; opening a
       message in the list pane kicks off `openMessageCmd` (cache hit
       OR async fetch) → BodyRenderedMsg → viewer SetBody.
-- [ ] **Deferred:** `:save <path>` and `:open` attachment commands.
-      Need cmd-bar argument plumbing (in scope for spec 07 alongside
-      :move <folder>).
-- [ ] **Deferred:** `o N` keybinding to open numbered link.
-      Same dispatch layer.
+- [x] **`:save <letter> [path]`** command-bar form: saves named attachment
+      via the default save path (startSaveAttachment) or a caller-supplied
+      path (saveAttachmentToPathCmd). Falls through to filter-rule save when
+      the first arg isn't a known attachment letter.
+- [x] **`:open <N>`** command-bar form: opens numbered link N in the system
+      browser (goroutine fire-and-forget); falls through to webLink open when
+      no digit arg is present.
+- [x] **`:copy <N>`** command-bar form: copies numbered link N URL to the
+      clipboard via the yanker (OSC 52 / pbcopy path).
+- [x] Tests for all three command-bar forms in `dispatch_test.go`.
 
 ## Iteration log
 
@@ -296,3 +299,22 @@ manual viewer smoke deferred per CLAUDE.md §5.5.
   in request paths; error paths in external converter covered; single-flight
   race-free by sync.Map semantics.
 - Next: C-1 done. Next PR is D-1 (spec-13).
+
+### Iter 8 — 2026-05-05 (command-bar forms for attachment save + link open/copy)
+
+- Slice: close the two remaining deferred DoD bullets — `:save <letter> [path]`,
+  `:open <N>`, `:copy <N>` command-bar forms.
+- Changes:
+  - `internal/ui/app.go` — extended `dispatchCommand` "save" case: detects
+    single-letter first arg in viewer pane, routes to `startSaveAttachment`
+    (default path) or new `saveAttachmentToPathCmd` (caller-supplied path);
+    falls through to rule-save otherwise. Extended "open" case: digit first arg
+    → open numbered link. New "copy" case: digit first arg → `yankURL` for link N.
+    New helpers: `expandHomePath` (local `~` expansion), `saveAttachmentToPathCmd`.
+  - Fixed path-extraction bug: strip "save" + TrimSpace before stripping letter arg.
+  - `internal/ui/dispatch_test.go` — 8 new tests covering happy + error paths for
+    all three forms; new `stubAttachmentFetcher` + `openViewerWithAttachments` helpers.
+- Commands run:
+  - `go vet ./...` — clean.
+  - `go test -race ./...` — all 17 packages pass.
+  - `go test -tags=e2e ./...` — all 17 packages pass.
