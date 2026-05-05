@@ -22,6 +22,11 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
 - [x] Renderer wired into the viewer pane via Deps.Renderer; opening a
       message in the list pane kicks off `openMessageCmd` (cache hit
       OR async fetch) → BodyRenderedMsg → viewer SetBody.
+- [x] **`H` full-header toggle renders spec §4 extra fields**: Importance,
+      Categories, FlagStatus, HasAttachments, Message-ID, and all
+      `internetMessageHeaders` (rawHeaders) when `showFullHdr` is true.
+- [x] **`e`/`Q` quote collapse**: `ToggleQuotes()` wired; both keys swap
+      collapsed ↔ expanded body views; tests confirm state and body content.
 - [x] **`:save <letter> [path]`** command-bar form: saves named attachment
       via the default save path (startSaveAttachment) or a caller-supplied
       path (saveAttachmentToPathCmd). Falls through to filter-rule save when
@@ -299,6 +304,25 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
   in request paths; error paths in external converter covered; single-flight
   race-free by sync.Map semantics.
 - Next: C-1 done. Next PR is D-1 (spec-13).
+
+### Iter 9 — 2026-05-05 (H full-header extra fields)
+
+- Slice: close the `H` toggle gap — viewer was only showing compact vs full
+  To/Cc/Bcc but not rendering Importance, Categories, FlagStatus, HasAttachments,
+  Message-ID, or rawHeaders (internetMessageHeaders) in full-header mode.
+- Changes:
+  - `internal/ui/panes.go` — in `showFullHdr` block: appended Importance,
+    Categories (joined), FlagStatus (when ≠ "notFlagged"), Has-Attachments,
+    Message-ID (from `InternetMessageID`), and all `rawHeaders` as `Name: Value`.
+  - `internal/ui/dispatch_test.go` — `TestViewerFullHeaderShowsExtraFields`:
+    seeds a message with all extra fields + one rawHeader sentinel, asserts
+    they appear in full mode and are absent in compact mode.
+- Commands run:
+  - `go vet ./...` — clean.
+  - `go test -race ./...` — all 17 packages pass.
+  - `go test -tags=e2e ./...` — all 17 packages pass.
+- Note: `e`/`Q` quote collapse was already fully shipped in Iter 7 + tested.
+  No code change needed; plan bullets updated to reflect that.
 
 ### Iter 8 — 2026-05-05 (command-bar forms for attachment save + link open/copy)
 

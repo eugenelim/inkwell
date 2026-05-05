@@ -2009,6 +2009,53 @@ func TestViewerCapitalHTogglesFullHeaders(t *testing.T) {
 	require.False(t, m.viewer.showFullHdr, "H toggles back to compact")
 }
 
+// TestViewerFullHeaderShowsExtraFields verifies that pressing H in the viewer
+// renders Importance, Categories, Flag, Has-Attachments, Message-ID, and any
+// stored internet message headers — spec 05 §4.
+func TestViewerFullHeaderShowsExtraFields(t *testing.T) {
+	m := newDispatchTestModel(t)
+
+	msg := store.Message{
+		ID:                "m-full",
+		Subject:           "Full headers test",
+		Importance:        "high",
+		Categories:        []string{"Work", "Q4"},
+		FlagStatus:        "flagged",
+		HasAttachments:    true,
+		InternetMessageID: "<abc123@example.invalid>",
+	}
+	m.viewer.SetMessage(msg)
+	m.viewer.SetRawHeaders([]RawHeader{
+		{Name: "X-Custom", Value: "sentinel-value"},
+	})
+	m.focused = ViewerPane
+	m.width = 120
+	m.height = 40
+
+	// Compact mode — extra fields should NOT appear.
+	frame := m.View()
+	require.NotContains(t, frame, "Importance", "compact mode must not show Importance")
+	require.NotContains(t, frame, "sentinel-value", "compact mode must not show rawHeaders")
+
+	// Press H → full mode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	m = m2.(Model)
+	frame = m.View()
+	require.Contains(t, frame, "high", "full mode must show Importance value")
+	require.Contains(t, frame, "Work", "full mode must show Categories")
+	require.Contains(t, frame, "Q4", "full mode must show all categories")
+	require.Contains(t, frame, "flagged", "full mode must show FlagStatus")
+	require.Contains(t, frame, "Has-Attachments", "full mode must show HasAttachments label")
+	require.Contains(t, frame, "<abc123@example.invalid>", "full mode must show Message-ID")
+	require.Contains(t, frame, "sentinel-value", "full mode must show rawHeaders values")
+
+	// Press H again → compact mode, extra fields gone.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	m = m2.(Model)
+	frame = m.View()
+	require.NotContains(t, frame, "sentinel-value", "compact mode must hide rawHeaders again")
+}
+
 // TestCompactAddrsSummarisesAcrossToCcBcc covers the helper used by
 // the viewer's compact-headers row.
 func TestCompactAddrsSummarisesAcrossToCcBcc(t *testing.T) {

@@ -1041,6 +1041,26 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 		if len(m.current.BccAddresses) > 0 {
 			hdrs = append(hdrs, "Bcc:     "+joinAddrs(m.current.BccAddresses))
 		}
+		// Spec §4: extra structured fields shown in full-header mode.
+		if m.current.Importance != "" {
+			hdrs = append(hdrs, "Importance: "+m.current.Importance)
+		}
+		if len(m.current.Categories) > 0 {
+			hdrs = append(hdrs, "Categories: "+strings.Join(m.current.Categories, ", "))
+		}
+		if s := m.current.FlagStatus; s != "" && s != "notFlagged" {
+			hdrs = append(hdrs, "Flag:    "+s)
+		}
+		if m.current.HasAttachments {
+			hdrs = append(hdrs, "Has-Attachments: yes")
+		}
+		if m.current.InternetMessageID != "" {
+			hdrs = append(hdrs, "Message-ID: "+m.current.InternetMessageID)
+		}
+		// Raw RFC 822 headers from Graph's internetMessageHeaders field.
+		for _, h := range m.rawHeaders {
+			hdrs = append(hdrs, h.Name+": "+h.Value)
+		}
 	} else {
 		hdrs = append(hdrs, "To:      "+compactAddrs(m.current.ToAddresses, m.current.CcAddresses, m.current.BccAddresses))
 	}
