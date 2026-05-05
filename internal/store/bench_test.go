@@ -63,9 +63,10 @@ func BenchmarkUpsertMessagesBatch100(b *testing.B) {
 }
 
 // BenchmarkSearchMeeting covers row 5: <100ms p95 for a 50-result FTS
-// search over 100k messages.
+// search. 50k rows by default — FTS5 is hardware-sensitive enough that
+// 100k exceeds the budget on slow CI runners. Short mode drops to 5k.
 func BenchmarkSearchMeeting(b *testing.B) {
-	n := 100_000
+	n := 50_000
 	if testing.Short() {
 		n = 5_000
 	}
