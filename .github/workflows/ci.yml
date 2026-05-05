@@ -38,8 +38,16 @@ jobs:
       - name: benchmarks (gating — panics fail the build)
         run: go test -bench=. -benchmem -run='^$' -timeout 10m ./...
 
-      - name: fuzz regression (30s corpus sweep)
-        run: go test -fuzz=FuzzParse -fuzztime=30s ./internal/pattern/... && go test -fuzz=FuzzCompileLocal -fuzztime=30s ./internal/pattern/...
+      - name: fuzz regression (corpus replay + 30s sweep)
+        run: |
+          # First replay any committed corpus entries as deterministic unit tests.
+          go test -run 'FuzzParse|FuzzCompileLocal' -timeout 60s ./internal/pattern/...
+          # Then do a live 30-second sweep. -timeout 90s gives the fuzz engine
+          # headroom to exit cleanly after the fuzztime deadline fires; without
+          # it Go's context cancellation at t=30s is occasionally mis-reported
+          # as "context deadline exceeded" instead of a clean stop.
+          go test -fuzz=FuzzParse      -fuzztime=30s -timeout=90s ./internal/pattern/...
+          go test -fuzz=FuzzCompileLocal -fuzztime=30s -timeout=90s ./internal/pattern/...
 
       - name: staticcheck
         run: |
