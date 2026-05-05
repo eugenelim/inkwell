@@ -213,6 +213,24 @@ func TestEventAttendeeCascadeOnEventDelete(t *testing.T) {
 	require.Nil(t, got, "attendee rows must cascade-delete with their event")
 }
 
+// TestEventResponseStatusRoundTrip verifies that response_status survives a
+// PutEvents → ListEvents round-trip (migration 008 / spec 12 §3).
+func TestEventResponseStatusRoundTrip(t *testing.T) {
+	s := OpenTestStore(t)
+	acc := SeedAccount(t, s)
+
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutEvents(context.Background(), []Event{
+		{ID: "ev-rs", AccountID: acc, Start: now, End: now.Add(time.Hour), ResponseStatus: "accepted"},
+	}))
+
+	got, err := s.ListEvents(context.Background(), EventQuery{AccountID: acc})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "accepted", got[0].ResponseStatus,
+		"response_status must survive PutEvents → ListEvents")
+}
+
 // TestEventsCascadeOnAccountDelete is the FK invariant: deleting
 // the account cascades event rows.
 func TestEventsCascadeOnAccountDelete(t *testing.T) {

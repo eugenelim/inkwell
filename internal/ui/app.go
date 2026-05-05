@@ -468,7 +468,11 @@ type CalendarEvent struct {
 	IsAllDay         bool
 	Location         string
 	OnlineMeetingURL string
-	WebLink          string
+	// ResponseStatus is the user's own response: "accepted" |
+	// "tentativelyAccepted" | "declined" | "notResponded" | "none" | "organizer".
+	// Used by the adapter to filter declined events per calendar.show_declined.
+	ResponseStatus string
+	WebLink        string
 }
 
 // CalendarEventDetail is the spec 12 §7 detail-modal payload —

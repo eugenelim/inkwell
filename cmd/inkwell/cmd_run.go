@@ -233,7 +233,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Account:                  acc,
 		Triage:                   triageAdapter{exec: exec},
 		Bulk:                     bulkAdapter{exec: exec},
-		Calendar:                 calendarAdapter{gc: gc, st: st, accountID: acc.ID},
+		Calendar:                 calendarAdapter{gc: gc, st: st, accountID: acc.ID, showDeclined: cfg.Calendar.ShowDeclined},
 		Mailbox:                  mailboxAdapter{gc: gc},
 		Drafts:                   draftAdapter{exec: exec},
 		Search:                   newSearchAdapter(st, gc, acc.ID, cfg.Search),
@@ -581,9 +581,10 @@ func parseGraphDateTime(s string) (time.Time, error) {
 // persisted nowhere" without yet wiring the engine's third sync
 // state — that's PR 6b's scope.
 type calendarAdapter struct {
-	gc        *graph.Client
-	st        store.Store
-	accountID int64
+	gc           *graph.Client
+	st           store.Store
+	accountID    int64
+	showDeclined bool // when false, declined events are filtered out (spec 12 §6.1)
 }
 
 const calendarCacheTTL = 15 * time.Minute
@@ -608,7 +609,7 @@ func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEven
 		}
 	}
 	if fresh {
-		return convertStoreEvents(cached), nil
+		return filterDeclined(convertStoreEvents(cached), c.showDeclined), nil
 	}
 
 	// Cache miss / stale: fetch from Graph and persist.
@@ -618,7 +619,7 @@ func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEven
 		// so the user sees the last-known state rather than an
 		// empty modal. Stale-data fallback per spec 12 §5.
 		if len(cached) > 0 {
-			return convertStoreEvents(cached), nil
+			return filterDeclined(convertStoreEvents(cached), c.showDeclined), nil
 		}
 		return nil, err
 	}
@@ -628,7 +629,22 @@ func (c calendarAdapter) ListEventsToday(ctx context.Context) ([]ui.CalendarEven
 		// for this session; next launch refetches.
 		c.gc.Logger().Warn("calendar: persist failed", "err", err.Error())
 	}
-	return convertStoreEventsFromGraph(es), nil
+	return filterDeclined(convertStoreEventsFromGraph(es), c.showDeclined), nil
+}
+
+// filterDeclined removes events where the user has declined, unless
+// showDeclined is true (spec 12 §6.1 calendar.show_declined config).
+func filterDeclined(events []ui.CalendarEvent, showDeclined bool) []ui.CalendarEvent {
+	if showDeclined {
+		return events
+	}
+	out := events[:0:len(events)]
+	for _, e := range events {
+		if e.ResponseStatus != "declined" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func convertStoreEvents(events []store.Event) []ui.CalendarEvent {
@@ -644,6 +660,7 @@ func convertStoreEvents(events []store.Event) []ui.CalendarEvent {
 			IsAllDay:         e.IsAllDay,
 			Location:         e.Location,
 			OnlineMeetingURL: e.OnlineMeetingURL,
+			ResponseStatus:   e.ResponseStatus,
 			WebLink:          e.WebLink,
 		}
 	}
@@ -663,6 +680,7 @@ func convertStoreEventsFromGraph(events []graph.Event) []ui.CalendarEvent {
 			IsAllDay:         e.IsAllDay,
 			Location:         e.Location,
 			OnlineMeetingURL: e.OnlineMeetingURL,
+			ResponseStatus:   e.ResponseStatus,
 			WebLink:          e.WebLink,
 		}
 	}
@@ -686,12 +704,12 @@ func (c calendarAdapter) ListEventsBetween(ctx context.Context, start, end time.
 		}
 	}
 	if fresh {
-		return convertStoreEvents(cached), nil
+		return filterDeclined(convertStoreEvents(cached), c.showDeclined), nil
 	}
 	es, err := c.gc.ListEventsBetween(ctx, start, end)
 	if err != nil {
 		if len(cached) > 0 {
-			return convertStoreEvents(cached), nil
+			return filterDeclined(convertStoreEvents(cached), c.showDeclined), nil
 		}
 		return nil, err
 	}
@@ -699,7 +717,7 @@ func (c calendarAdapter) ListEventsBetween(ctx context.Context, start, end time.
 	if err := c.st.PutEvents(ctx, storeEvents); err != nil {
 		c.gc.Logger().Warn("calendar: persist failed", "err", err.Error())
 	}
-	return convertStoreEventsFromGraph(es), nil
+	return filterDeclined(convertStoreEventsFromGraph(es), c.showDeclined), nil
 }
 
 // GetEvent fetches a single event with attendees + body preview from
@@ -720,6 +738,7 @@ func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEv
 			IsAllDay:         det.IsAllDay,
 			Location:         det.Location,
 			OnlineMeetingURL: det.OnlineMeetingURL,
+			ResponseStatus:   det.ResponseStatus,
 			WebLink:          det.WebLink,
 		},
 		BodyPreview: det.BodyPreview,
@@ -767,6 +786,7 @@ func convertGraphEvents(accountID int64, events []graph.Event) []store.Event {
 			Location:         e.Location,
 			OnlineMeetingURL: e.OnlineMeetingURL,
 			ShowAs:           e.ShowAs,
+			ResponseStatus:   e.ResponseStatus,
 			WebLink:          e.WebLink,
 			CachedAt:         now,
 		}

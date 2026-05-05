@@ -130,6 +130,59 @@ func TestSyncCalendarPrunesOldEvents(t *testing.T) {
 	require.Empty(t, got, "events outside the sync window must be pruned")
 }
 
+// TestTruncateToDayMidnightUTC verifies that truncateToDay always returns
+// midnight UTC regardless of the input time component (spec 12 §11).
+func TestTruncateToDayMidnightUTC(t *testing.T) {
+	cases := []struct {
+		name string
+		in   time.Time
+		want time.Time
+	}{
+		{
+			name: "noon UTC",
+			in:   time.Date(2026, 5, 1, 12, 30, 59, 0, time.UTC),
+			want: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "already midnight",
+			in:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "one nanosecond before midnight",
+			in:   time.Date(2026, 5, 1, 23, 59, 59, 999999999, time.UTC),
+			want: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, truncateToDay(tc.in))
+		})
+	}
+}
+
+// TestTruncateToDayDSTBoundary verifies correct UTC midnight for inputs
+// near a DST boundary (spec 12 §11: "Window slide computes correct UTC
+// bounds for various time zones").
+func TestTruncateToDayDSTBoundary(t *testing.T) {
+	nyc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	// 2026-03-08 is DST spring-forward day. 02:30 NYC = 07:30 UTC.
+	// truncateToDay operates on UTC, so result must be 2026-03-08 00:00 UTC.
+	nycTime := time.Date(2026, 3, 8, 2, 30, 0, 0, nyc).UTC()
+	got := truncateToDay(nycTime)
+	require.Equal(t, time.UTC, got.Location())
+	y, m, d := got.Date()
+	h, min, sec := got.Clock()
+	require.Equal(t, 2026, y)
+	require.Equal(t, time.March, m)
+	require.Equal(t, 8, d)
+	require.Equal(t, 0, h, "hour must be 0 (midnight UTC)")
+	require.Equal(t, 0, min)
+	require.Equal(t, 0, sec)
+}
+
 // TestSyncCalendarUsesStoredDeltaLink confirms that when a delta token
 // exists in the store, it is passed to the Graph call verbatim (the full
 // URL is forwarded rather than rebuilt from scratch).

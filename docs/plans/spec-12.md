@@ -1,11 +1,17 @@
 # Spec 12 — Calendar (Read-Only)
 
 ## Status
-done. All deferred bullets now shipped in PR H-1 (spec 12 finish):
-timezone threading, sidebar calendar pane, week/agenda view toggle,
-`c` key from folders pane, plus full test suite.
+done. All open items closed in Iter 7 (spec 12 audit finish):
+response_status column, filterDeclined wiring, all-day 📅 prefix,
+attendee cap, no-organizer placeholder, plus full test coverage.
 
 ## DoD checklist (mirrored from spec)
+- [x] `response_status` column in events table (migration 008), store, graph, sync layers.
+- [x] `calendar.show_declined` config key filters declined events via filterDeclined.
+- [x] All-day events render with 📅 prefix in formatEvent (no time range).
+- [x] Attendee cap at 10 with "… and N more" in CalendarDetailModel.View().
+- [x] "(no organizer)" placeholder when organizer fields are empty.
+- [x] Tests: TestEventResponseStatusRoundTrip, TestFilterDeclinedRemovesDeclined/ShowDeclinedKeepsAll, TestFormatEventAllDay, TestFormatEventOnlineMeeting, TestAttendeeStatusGlyphAllCases, TestFormatAttendeeFormats, TestCalendarDetailViewAttendeeCap, TestCalendarDetailViewNoOrganizerPlaceholder, TestTruncateToDayMidnightUTC, TestTruncateToDayDSTBoundary.
 - [x] `internal/graph/calendar.go` — `ListEventsBetween(start, end)` + `ListEventsToday()` against `/me/calendarView` with the right $select fields.
 - [x] Read-only — no `Calendars.ReadWrite` requested or used.
 - [x] `:cal` (and `:calendar`) command opens a modal showing today's events.
@@ -50,6 +56,40 @@ timezone threading, sidebar calendar pane, week/agenda view toggle,
       to agenda; fetchCalendarForWeekCmd fetches Mon–Sun window.
 
 ## Iteration log
+
+### Iter 7 — 2026-05-05 (audit finish: response_status + filterDeclined + UI fixes + test coverage)
+- Slice: 5 open items found by spec-12 audit, all closed in one pass.
+- Files modified:
+  - `internal/store/migrations/008_events_response_status.sql` (new): adds
+    `response_status TEXT` column; bumps SchemaVersion to 8.
+  - `internal/store/types.go`: `Event.ResponseStatus string`.
+  - `internal/store/events.go`: `response_status` in eventColumns, upsert SQL,
+    PutEvents ExecContext, scanEvent.
+  - `internal/store/store.go`: SchemaVersion = 8.
+  - `internal/graph/calendar.go`: `Event.ResponseStatus`; `$select` strings
+    updated in all 3 endpoints; decode + assignment in all 3 event-building paths.
+  - `internal/sync/calendar_sync.go`: `storeEvents[i].ResponseStatus = ev.ResponseStatus`.
+  - `internal/ui/app.go`: `CalendarEvent.ResponseStatus string`.
+  - `internal/ui/calendar.go`: all-day path in formatEvent uses `📅 Subject`
+    (was `"  all day  Subject"`); attendee cap = 10 in CalendarDetailModel.View();
+    "(no organizer)" fallback when organizer fields empty.
+  - `cmd/inkwell/cmd_run.go`: `filterDeclined` applied in ListEventsToday +
+    ListEventsBetween (both cache-hit and Graph-fetch paths); `ResponseStatus`
+    carried through convertStoreEvents, convertStoreEventsFromGraph,
+    convertGraphEvents, GetEvent adapter conversion.
+- Tests added:
+  - `internal/store/events_test.go`: TestEventResponseStatusRoundTrip.
+  - `internal/sync/calendar_sync_test.go`: TestTruncateToDayMidnightUTC,
+    TestTruncateToDayDSTBoundary.
+  - `internal/ui/calendar_test.go`: TestAttendeeStatusGlyphAllCases,
+    TestFormatAttendeeFormats, TestFormatEventAllDay, TestFormatEventOnlineMeeting,
+    TestCalendarDetailViewAttendeeCap, TestCalendarDetailViewNoOrganizerPlaceholder.
+  - `cmd/inkwell/cmd_run_test.go` (new): TestFilterDeclinedRemovesDeclined,
+    TestFilterDeclinedShowDeclinedKeepsAll, TestFilterDeclinedEmptySliceIsNoop.
+- Commands: `make regress` — all 6 gates green.
+- Critique: no layering violations; no new public symbols beyond spec; no PII
+  logging added; filterDeclined is a pure function with no I/O; idempotent.
+- Result: spec 12 fully closed. All DoD bullets ticked.
 
 ### Iter 5 — 2026-05-04 (timezone threading + sidebar + week view + `c` key, PR H-1)
 - Slice: spec 12 finish — all deferred DoD bullets.

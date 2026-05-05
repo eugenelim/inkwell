@@ -65,6 +65,7 @@ func (e *engine) syncCalendar(ctx context.Context) error {
 				Location:         ev.Location,
 				OnlineMeetingURL: ev.OnlineMeetingURL,
 				ShowAs:           ev.ShowAs,
+				ResponseStatus:   ev.ResponseStatus,
 				WebLink:          ev.WebLink,
 				CachedAt:         time.Now(),
 			}

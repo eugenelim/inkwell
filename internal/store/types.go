@@ -212,6 +212,7 @@ type Event struct {
 	Location         string
 	OnlineMeetingURL string
 	ShowAs           string // "free" | "busy" | "tentative" | "oof" | "workingElsewhere"
+	ResponseStatus   string // "accepted" | "tentativelyAccepted" | "declined" | "notResponded" | "none" | "organizer"
 	WebLink          string
 	CachedAt         time.Time
 }

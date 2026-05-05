@@ -22,6 +22,7 @@ type Event struct {
 	Location         string
 	OnlineMeetingURL string
 	ShowAs           string // "free" | "busy" | "tentative" | "oof" | "workingElsewhere"
+	ResponseStatus   string // "accepted" | "tentativelyAccepted" | "declined" | "notResponded" | "none" | "organizer"
 	WebLink          string
 }
 
@@ -69,6 +70,9 @@ type rawEventDetail struct {
 	OnlineMeeting struct {
 		JoinURL string `json:"joinUrl"`
 	} `json:"onlineMeeting"`
+	ResponseStatus struct {
+		Response string `json:"response"`
+	} `json:"responseStatus"`
 	ShowAs      string `json:"showAs"`
 	WebLink     string `json:"webLink"`
 	BodyPreview string `json:"bodyPreview"`
@@ -110,6 +114,9 @@ type rawCalendarView struct {
 		OnlineMeeting struct {
 			JoinURL string `json:"joinUrl"`
 		} `json:"onlineMeeting"`
+		ResponseStatus struct {
+			Response string `json:"response"`
+		} `json:"responseStatus"`
 		ShowAs  string `json:"showAs"`
 		WebLink string `json:"webLink"`
 	} `json:"value"`
@@ -125,7 +132,7 @@ func (c *Client) ListEventsBetween(ctx context.Context, start, end time.Time) ([
 	q.Set("endDateTime", end.UTC().Format("2006-01-02T15:04:05"))
 	q.Set("$top", "100")
 	q.Set("$orderby", "start/dateTime asc")
-	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink")
+	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,responseStatus,webLink")
 
 	resp, err := c.Do(ctx, http.MethodGet, "/me/calendarView?"+q.Encode(), nil, nil)
 	if err != nil {
@@ -154,6 +161,7 @@ func (c *Client) ListEventsBetween(ctx context.Context, start, end time.Time) ([
 			Location:         e.Location.DisplayName,
 			OnlineMeetingURL: e.OnlineMeeting.JoinURL,
 			ShowAs:           e.ShowAs,
+			ResponseStatus:   e.ResponseStatus.Response,
 			WebLink:          e.WebLink,
 		})
 	}
@@ -181,7 +189,7 @@ func (c *Client) ListCalendarDelta(ctx context.Context, start, end time.Time, de
 		q.Set("startDateTime", start.UTC().Format("2006-01-02T15:04:05"))
 		q.Set("endDateTime", end.UTC().Format("2006-01-02T15:04:05"))
 		q.Set("$top", "100")
-		q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink")
+		q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,responseStatus,webLink")
 		endpoint = "/me/calendarView/delta?" + q.Encode()
 	} else {
 		endpoint = deltaLink
@@ -222,6 +230,9 @@ func (c *Client) ListCalendarDelta(ctx context.Context, start, end time.Time, de
 			OnlineMeeting struct {
 				JoinURL string `json:"joinUrl"`
 			} `json:"onlineMeeting"`
+			ResponseStatus struct {
+				Response string `json:"response"`
+			} `json:"responseStatus"`
 			ShowAs  string `json:"showAs"`
 			WebLink string `json:"webLink"`
 		} `json:"value"`
@@ -251,6 +262,7 @@ func (c *Client) ListCalendarDelta(ctx context.Context, start, end time.Time, de
 			Location:         e.Location.DisplayName,
 			OnlineMeetingURL: e.OnlineMeeting.JoinURL,
 			ShowAs:           e.ShowAs,
+			ResponseStatus:   e.ResponseStatus.Response,
 			WebLink:          e.WebLink,
 		})
 	}
@@ -279,7 +291,7 @@ func (c *Client) GetEvent(ctx context.Context, id string) (EventDetail, error) {
 		return EventDetail{}, fmt.Errorf("graph: GetEvent: id required")
 	}
 	q := url.Values{}
-	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink,bodyPreview,attendees")
+	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,responseStatus,webLink,bodyPreview,attendees")
 	resp, err := c.Do(ctx, http.MethodGet, "/me/events/"+url.PathEscape(id)+"?"+q.Encode(), nil, nil)
 	if err != nil {
 		return EventDetail{}, err
@@ -306,6 +318,7 @@ func (c *Client) GetEvent(ctx context.Context, id string) (EventDetail, error) {
 			Location:         raw.Location.DisplayName,
 			OnlineMeetingURL: raw.OnlineMeeting.JoinURL,
 			ShowAs:           raw.ShowAs,
+			ResponseStatus:   raw.ResponseStatus.Response,
 			WebLink:          raw.WebLink,
 		},
 		BodyPreview: raw.BodyPreview,

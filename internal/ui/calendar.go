@@ -218,15 +218,18 @@ func formatEvent(t Theme, e CalendarEvent, selected bool, tz *time.Location) str
 	if tz == nil {
 		tz = time.Local
 	}
-	timeRange := e.Start.In(tz).Format("15:04") + " – " + e.End.In(tz).Format("15:04")
-	if e.IsAllDay {
-		timeRange = "all day"
-	}
 	marker := "  "
 	if selected {
 		marker = "▶ "
 	}
-	first := marker + t.Bold.Render(timeRange) + "  " + e.Subject
+	var first string
+	if e.IsAllDay {
+		// All-day events: 📅 prefix, no time range (spec 12 §6.1).
+		first = marker + "📅 " + e.Subject
+	} else {
+		timeRange := e.Start.In(tz).Format("15:04") + " – " + e.End.In(tz).Format("15:04")
+		first = marker + t.Bold.Render(timeRange) + "  " + e.Subject
+	}
 	if selected {
 		first = t.HelpKey.Render(first)
 	}
@@ -344,7 +347,7 @@ func (m CalendarDetailModel) View(t Theme, width, height int) string {
 
 	// Build scrollable body lines.
 	var bodyLines []string
-	if d.OrganizerName != "" || d.OrganizerAddress != "" {
+	{
 		who := d.OrganizerName
 		if d.OrganizerAddress != "" {
 			if who != "" {
@@ -353,13 +356,24 @@ func (m CalendarDetailModel) View(t Theme, width, height int) string {
 				who = d.OrganizerAddress
 			}
 		}
+		if who == "" {
+			who = "(no organizer)"
+		}
 		bodyLines = append(bodyLines, "")
 		bodyLines = append(bodyLines, "Organizer: "+who)
 	}
 	if len(d.Attendees) > 0 {
+		const attendeeCap = 10
 		bodyLines = append(bodyLines, "Attendees:")
-		for _, a := range d.Attendees {
+		shown := d.Attendees
+		if len(shown) > attendeeCap {
+			shown = shown[:attendeeCap]
+		}
+		for _, a := range shown {
 			bodyLines = append(bodyLines, fmt.Sprintf("  %s %s", attendeeStatusGlyph(a.Status), formatAttendee(a)))
+		}
+		if extra := len(d.Attendees) - attendeeCap; extra > 0 {
+			bodyLines = append(bodyLines, fmt.Sprintf("  … and %d more", extra))
 		}
 	}
 	if d.BodyPreview != "" {

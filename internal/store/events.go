@@ -40,7 +40,7 @@ func (s *store) PutEvents(ctx context.Context, events []Event) error {
 			nullStr(e.Subject), nullStr(e.OrganizerName), nullStr(e.OrganizerAddress),
 			e.Start.Unix(), e.End.Unix(), boolToInt(e.IsAllDay),
 			nullStr(e.Location), nullStr(e.OnlineMeetingURL),
-			nullStr(e.ShowAs), nullStr(e.WebLink),
+			nullStr(e.ShowAs), nullStr(e.ResponseStatus), nullStr(e.WebLink),
 			e.CachedAt.Unix(),
 		); err != nil {
 			return fmt.Errorf("upsert event %s: %w", e.ID, err)
@@ -114,7 +114,7 @@ const eventColumns = `
 	COALESCE(organizer_name, ''), COALESCE(organizer_address, ''),
 	start_at, end_at, is_all_day,
 	COALESCE(location, ''), COALESCE(online_meeting_url, ''),
-	COALESCE(show_as, ''), COALESCE(web_link, ''),
+	COALESCE(show_as, ''), COALESCE(response_status, ''), COALESCE(web_link, ''),
 	cached_at
 `
 
@@ -122,8 +122,8 @@ const upsertEventSQL = `
 INSERT INTO events (
 	id, account_id, subject, organizer_name, organizer_address,
 	start_at, end_at, is_all_day, location, online_meeting_url,
-	show_as, web_link, cached_at
-) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?)
+	show_as, response_status, web_link, cached_at
+) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	account_id = excluded.account_id,
 	subject = excluded.subject,
@@ -135,6 +135,7 @@ ON CONFLICT(id) DO UPDATE SET
 	location = excluded.location,
 	online_meeting_url = excluded.online_meeting_url,
 	show_as = excluded.show_as,
+	response_status = excluded.response_status,
 	web_link = excluded.web_link,
 	cached_at = excluded.cached_at
 `
@@ -201,7 +202,7 @@ func scanEvent(row rowScanner) (*Event, error) {
 		&e.OrganizerName, &e.OrganizerAddress,
 		&startAt, &endAt, &isAllDay,
 		&e.Location, &e.OnlineMeetingURL,
-		&e.ShowAs, &e.WebLink,
+		&e.ShowAs, &e.ResponseStatus, &e.WebLink,
 		&cachedAt,
 	); err != nil {
 		return nil, err

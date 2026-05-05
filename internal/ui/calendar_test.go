@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -126,6 +127,106 @@ func TestCalendarModelWeekModeToggle(t *testing.T) {
 func TestCalendarModelIsWeekModeDefault(t *testing.T) {
 	var m CalendarModel
 	require.False(t, m.IsWeekMode(), "zero-value CalendarModel must be in agenda mode")
+}
+
+// TestAttendeeStatusGlyphAllCases verifies all spec 12 §7 status → glyph mappings.
+func TestAttendeeStatusGlyphAllCases(t *testing.T) {
+	cases := []struct {
+		status string
+		want   string
+	}{
+		{"accepted", "✓"},
+		{"organizer", "✓"},
+		{"declined", "✗"},
+		{"tentativelyAccepted", "~"},
+		{"notResponded", "?"},
+		{"none", "?"},
+		{"", "?"},
+		{"unknown", "?"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status, func(t *testing.T) {
+			require.Equal(t, tc.want, attendeeStatusGlyph(tc.status))
+		})
+	}
+}
+
+// TestFormatAttendeeFormats verifies name+addr, name-only, and addr-only rendering.
+func TestFormatAttendeeFormats(t *testing.T) {
+	require.Equal(t, "Alice <alice@example.invalid>",
+		formatAttendee(CalendarAttendee{Name: "Alice", Address: "alice@example.invalid"}))
+	require.Equal(t, "Bob",
+		formatAttendee(CalendarAttendee{Name: "Bob", Address: ""}))
+	require.Equal(t, "carol@example.invalid",
+		formatAttendee(CalendarAttendee{Name: "", Address: "carol@example.invalid"}))
+}
+
+// TestFormatEventAllDay verifies that all-day events render with 📅 prefix and no time range.
+func TestFormatEventAllDay(t *testing.T) {
+	th := DefaultTheme()
+	ev := CalendarEvent{Subject: "Company Holiday", IsAllDay: true}
+	line := formatEvent(th, ev, false, time.UTC)
+	require.Contains(t, line, "📅 Company Holiday")
+	// No colon means no "HH:MM" time range rendered.
+	require.NotContains(t, line, "00:00")
+}
+
+// TestFormatEventOnlineMeeting verifies that an event with a join URL shows 🔗 in meta line.
+func TestFormatEventOnlineMeeting(t *testing.T) {
+	th := DefaultTheme()
+	start := time.Date(2026, 5, 4, 14, 0, 0, 0, time.UTC)
+	ev := CalendarEvent{
+		Subject:          "Planning",
+		Start:            start,
+		End:              start.Add(time.Hour),
+		OnlineMeetingURL: "https://teams.example.invalid/join/x",
+	}
+	line := formatEvent(th, ev, false, time.UTC)
+	require.Contains(t, line, "🔗")
+}
+
+// TestCalendarDetailViewAttendeeCap verifies that 11 attendees render the first 10
+// plus "… and 1 more" (spec 12 §7 attendee cap).
+func TestCalendarDetailViewAttendeeCap(t *testing.T) {
+	attendees := make([]CalendarAttendee, 11)
+	for i := range attendees {
+		attendees[i] = CalendarAttendee{
+			Name:    fmt.Sprintf("Person %d", i),
+			Address: fmt.Sprintf("p%d@example.invalid", i),
+			Status:  "accepted",
+		}
+	}
+	detail := CalendarEventDetail{
+		CalendarEvent: CalendarEvent{
+			Subject: "Big Meeting",
+			Start:   time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),
+			End:     time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
+		},
+		Attendees: attendees,
+	}
+	m := NewCalendarDetail()
+	m.SetDetail(detail)
+	rendered := m.View(DefaultTheme(), 120, 40)
+	require.Contains(t, rendered, "… and 1 more", "overflow line must appear for 11 attendees")
+	require.Contains(t, rendered, "Person 0", "first attendee must be shown")
+	require.Contains(t, rendered, "Person 9", "tenth attendee must be shown")
+	require.NotContains(t, rendered, "Person 10", "eleventh attendee must be hidden")
+}
+
+// TestCalendarDetailViewNoOrganizerPlaceholder verifies that an event with empty
+// organizer fields shows "(no organizer)" rather than a blank line.
+func TestCalendarDetailViewNoOrganizerPlaceholder(t *testing.T) {
+	detail := CalendarEventDetail{
+		CalendarEvent: CalendarEvent{
+			Subject: "Orphaned Meeting",
+			Start:   time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),
+			End:     time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	m := NewCalendarDetail()
+	m.SetDetail(detail)
+	rendered := m.View(DefaultTheme(), 120, 40)
+	require.Contains(t, rendered, "(no organizer)")
 }
 
 // TestFormatEventUsesProvidedTimezone verifies that formatEvent formats
