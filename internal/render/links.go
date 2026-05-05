@@ -181,7 +181,7 @@ func renderLinkBlock(links []ExtractedLink, theme Theme) string {
 	var b strings.Builder
 	b.WriteString("\nLinks:\n")
 	for _, l := range links {
-		fmt.Fprintf(&b, "  [%d] %s\n", l.Index, theme.Link.Render(osc8(l.URL, l.URL)))
+		fmt.Fprintf(&b, "  [%d] %s\n", l.Index, osc8(l.URL, theme.Link.Render(l.URL)))
 	}
 	return b.String()
 }
@@ -243,7 +243,7 @@ func linkifyURLsInText(body string, urlMaxDisplay int, theme Theme) string {
 		// Preserve any trailing punctuation we didn't consume.
 		suffix := u[len(trimmed):]
 		display := truncateURLForDisplay(trimmed, urlMaxDisplay)
-		return theme.Link.Render(osc8(trimmed, display)) + suffix
+		return osc8(trimmed, theme.Link.Render(display)) + suffix
 	})
 }
 

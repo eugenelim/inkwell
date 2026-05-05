@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/require"
 
 	"github.com/eugenelim/inkwell/internal/store"
@@ -486,6 +488,55 @@ func TestLinkifyURLsInText_Colored(t *testing.T) {
 	require.Contains(t, colored, "https://example.invalid/x",
 		"URL must be present regardless of color rendering")
 	_ = plain // acceptable: non-TTY environments strip colors; URL presence is the key assertion
+}
+
+// TestLinkifyURLsInText_ANSIInsideOSC8 is the regression test for the OSC 8 +
+// ANSI ordering bug: theme.Link.Render must wrap the display text INSIDE the
+// OSC 8 sequence, not around it. When ANSI codes precede the OSC 8 preamble,
+// terminals strip the invisible ESC sequences and render the bare preamble text
+// "]8;id=uXXX;" as visible characters. We force a TrueColor renderer so lipgloss
+// emits ANSI codes even in a non-TTY test environment.
+func TestLinkifyURLsInText_ANSIInsideOSC8(t *testing.T) {
+	r := lipgloss.NewRenderer(os.Stdout, termenv.WithProfile(termenv.TrueColor))
+	linkStyle := r.NewStyle().Underline(true).Foreground(lipgloss.Color("45"))
+	theme := Theme{Link: linkStyle}
+
+	const rawURL = "https://example.invalid/regression-osc8"
+	in := "see " + rawURL + " for details"
+	out := linkifyURLsInText(in, 0, theme)
+	id := osc8LinkID(rawURL)
+
+	osc8OpenerPrefix := "\x1b]8;id=" + id + ";"
+	osc8Pos := strings.Index(out, osc8OpenerPrefix)
+	require.NotEqual(t, -1, osc8Pos, "OSC 8 opener must be present in output")
+
+	// No ANSI SGR code (\x1b[) must precede the OSC 8 opener.
+	before := out[:osc8Pos]
+	require.NotContains(t, before, "\x1b[",
+		"ANSI SGR codes must appear inside the OSC 8 text portion, not before the preamble")
+}
+
+// TestRenderLinkBlock_ANSIInsideOSC8 is the renderLinkBlock counterpart of
+// TestLinkifyURLsInText_ANSIInsideOSC8.
+func TestRenderLinkBlock_ANSIInsideOSC8(t *testing.T) {
+	r := lipgloss.NewRenderer(os.Stdout, termenv.WithProfile(termenv.TrueColor))
+	linkStyle := r.NewStyle().Underline(true).Foreground(lipgloss.Color("45"))
+	theme := Theme{Link: linkStyle}
+
+	const rawURL = "https://example.invalid/regression-osc8-block"
+	links := []ExtractedLink{{Index: 1, URL: rawURL, Text: rawURL}}
+	out := renderLinkBlock(links, theme)
+	id := osc8LinkID(rawURL)
+
+	osc8OpenerPrefix := "\x1b]8;id=" + id + ";"
+	osc8Pos := strings.Index(out, osc8OpenerPrefix)
+	require.NotEqual(t, -1, osc8Pos, "OSC 8 opener must be present in link block")
+
+	// No ANSI SGR code (\x1b[) must precede the OSC 8 opener on the same line.
+	lineStart := strings.LastIndex(out[:osc8Pos], "\n")
+	before := out[lineStart+1 : osc8Pos]
+	require.NotContains(t, before, "\x1b[",
+		"ANSI SGR codes must appear inside the OSC 8 text portion, not before the preamble in link block")
 }
 
 // helpers
