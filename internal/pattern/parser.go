@@ -163,12 +163,14 @@ func buildPredicateValue(f Field, raw string) (PredicateValue, error) {
 // `*foo` → suffix, `foo*` → prefix, `*foo*` → contains, `foo` → exact.
 // Internal `*` (foo*bar) is treated as contains over the post-strip raw.
 func parseStringValue(raw string) StringValue {
-	hasL := strings.HasPrefix(raw, "*")
-	hasR := strings.HasSuffix(raw, "*")
 	stripped := raw
+	hasL := strings.HasPrefix(stripped, "*")
 	if hasL {
 		stripped = stripped[1:]
 	}
+	// Re-check HasSuffix on the post-hasL string to avoid negative-index
+	// panic when raw is exactly "*" (hasL + hasR both true, len=0 after strip).
+	hasR := strings.HasSuffix(stripped, "*")
 	if hasR {
 		stripped = stripped[:len(stripped)-1]
 	}

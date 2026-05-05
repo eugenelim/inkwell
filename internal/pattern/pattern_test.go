@@ -40,6 +40,8 @@ func TestParseWildcardKinds(t *testing.T) {
 		{"~f *@vendor.com", MatchSuffix, "@vendor.com"},
 		{"~f *spam*", MatchContains, "spam"},
 		{"~s a*b*c", MatchContains, "abc"}, // multi-* degrades to contains
+		// Bare-star must not panic (fuzz regression: slice bounds out of range).
+		{"~B*", MatchSuffix, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.src, func(t *testing.T) {

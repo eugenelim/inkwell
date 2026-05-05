@@ -26,10 +26,9 @@ func BenchmarkGetMessageCached(b *testing.B) {
 }
 
 // BenchmarkListMessagesInbox100kLimit100 covers row 2: <10ms p95 over
-// a 100k-message inbox. Reduced to 50k by default so CI stays fast;
-// budget is verified against the per-op time, not the dataset size.
+// a 100k-message inbox. Short mode drops to 5k to keep -short fast.
 func BenchmarkListMessagesInbox100kLimit100(b *testing.B) {
-	n := 50_000
+	n := 100_000
 	if testing.Short() {
 		n = 5_000
 	}
@@ -66,7 +65,7 @@ func BenchmarkUpsertMessagesBatch100(b *testing.B) {
 // BenchmarkSearchMeeting covers row 5: <100ms p95 for a 50-result FTS
 // search over 100k messages.
 func BenchmarkSearchMeeting(b *testing.B) {
-	n := 50_000
+	n := 100_000
 	if testing.Short() {
 		n = 5_000
 	}

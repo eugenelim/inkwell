@@ -310,7 +310,7 @@ These are the remaining deferred items after all primary specs ship.
 | H-1 | 12 | done \| 2026-05-04 | spec 12 deferred sidebar pane; week/agenda view; timezone resolution; `c` key from folders pane | docs/plans/spec-12.md iter 5 |
 | H-2 | 02 | done \| 2026-05-04 | spec 02 flag_due_at / flag_completed_at via MessageFields + DateTimeTimeZone.ToTime; DeleteSavedSearchByName store helper | docs/plans/spec-02.md iter 4 |
 | H-3 | 06 | done \| 2026-05-04 | spec 06 §5.3 --all cross-folder search: SearchService folderID; TUI --all prefix; default folder-scoped | docs/plans/spec-06.md iter 3 |
-| H-4 | 08 | not-started | spec 08 CI 100k bench + 10k-AST fuzz gate | — |
+| H-4 | 08 | done \| 2026-05-04 | spec 08 100k-message bench gate (TestBudgetsHonoured in dedicated CI step without -race); FuzzParse + FuzzCompileLocal 30s each as gating fuzz step; ~B* slice-bounds panic fixed in parseStringValue | docs/plans/spec-08.md iter 3 |
 
 ## Real-tenant gaps (outside the audit)
 

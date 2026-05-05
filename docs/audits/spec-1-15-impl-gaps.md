@@ -150,7 +150,7 @@ Scope: implementation and design gaps in `internal/` and `cmd/inkwell/`. Test ga
   - ~~DoD "All 18 operators from §3.1 implemented." `~h` server-only rejected.~~ **Closed.** `eval_search.go::EmitSearch` renders `~h` to the server `$search` dialect; the strategy selector routes `~h`-bearing patterns to StrategyServerSearch (or TwoStage when combined with read/flag predicates).
   - ~~DoD "Strategy selection table-driven test passes for ≥30 patterns."~~ **Closed.** `compile_test.go::TestCompileStrategySelection` covers 30+ pattern shapes mapping to LocalOnly / ServerFilter / ServerSearch / TwoStage with the rendered query strings asserted as substrings.
   - ~~DoD "`--explain` output is human-readable for at least 10 sample patterns."~~ **Closed.** `Compiled.Explain()` renders strategy + reason + Local SQL / Graph $filter / Graph $search / folder scope on separate lines; tested via TestCompileExplainOutput.
-  - DoD "Property-based parser tests pass on 10k random ASTs." — `fuzz_test.go` ships `FuzzParse` / `FuzzCompileLocal`; the spec-mandated 10k-iteration counter in CI is **still deferred** (CI-runtime decision).
+  - ~~DoD "Property-based parser tests pass on 10k random ASTs."~~ **Closed by PR H-4 (v0.35.0).** `FuzzParse` + `FuzzCompileLocal` run 30s each in CI; a `~B*` panic was found and fixed (`parseStringValue` slice-bounds regression, corpus in `testdata/fuzz/FuzzParse/5263fae713f805d0`).
   - ~~Two-stage execution (§11), server-hybrid (§7.3), server-filter, server-search — none exist.~~ **Closed.** `execute.go::Execute` dispatches per strategy via consumer-side `LocalSearcher` + `GraphService` seams. TwoStage uses `EvaluateInMemory` against cached envelopes; ServerHybrid INTERSECTs `$filter` + `$search` IDs. `:filter` UI now routes through Compile + Execute.
 - Design drifts:
   - ~~Spec §6 declares `pattern.Compile` / `pattern.Execute`.~~ **Closed.** `compile.go::Compile` returns `*Compiled`; `execute.go::Execute` dispatches per strategy. Per-spec API matches; legacy `CompileLocal` retained as the implementation detail Step 0 / Step 4 fall through to.
@@ -341,7 +341,7 @@ inline. Refresh after every audit-drain PR.
 | 05   | partial | 12 | — | viewer keybindings (links/attachments/conv-thread/quote toggles) all absent; body $select drift; no GetAttachment helper |
 | 06   | closed  | 0 | streaming Searcher + graph $search + merger + field prefixes + UI streaming integration (PR 8), --all cross-folder flag (PR H-3) | all gaps addressed |
 | 07   | partial | 9 | undo (PR 1); permanent_delete (PR 4a); add/remove category (PR 4b); inverse computation (PR 1); move-with-folder-picker (PR 4c) | replay-on-startup; lifecycle InFlight skipped; move-id stale after `/move` |
-| 08   | shipped | 1 | Compile/Execute API + $filter/$search evaluators + TwoStage + strategy selector + [pattern] config (PR 9) | 100k-message bench + 10k-AST property test in CI deferred |
+| 08   | closed  | 0 | Compile/Execute API + $filter/$search evaluators + TwoStage + strategy selector + [pattern] config (PR 9); 100k-message bench gate + 30s fuzz CI step + `~B*` panic fix (PR H-4) | all gaps addressed |
 | 09   | partial | 9 | — | no per-sub-request 429 retry; no concurrent batch fan-out; no composite undo |
 | 10   | partial | ~14 | bulk-config skeleton (PR 12) | no preview screen; no progress modal; 6 of 10 `;` verbs unbound; `F` keybind unhandled |
 | 11   | mostly-spec-only | 12 | — | whole `Manager` API absent; live counts / TOML mirror / `:rule` / seed defaults all unimplemented |

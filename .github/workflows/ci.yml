@@ -32,8 +32,14 @@ jobs:
       - name: e2e tests
         run: go test -tags=e2e -timeout 5m ./...
 
-      - name: benchmarks (informational, non-gating)
-        run: go test -bench=. -benchmem -run='^$' -timeout 5m ./... || true
+      - name: budget gate (TestBudgetsHonoured without -race)
+        run: go test -run TestBudgetsHonoured -timeout 15m ./internal/store/...
+
+      - name: benchmarks (gating — panics fail the build)
+        run: go test -bench=. -benchmem -run='^$' -timeout 10m ./...
+
+      - name: fuzz regression (30s corpus sweep)
+        run: go test -fuzz=FuzzParse -fuzztime=30s ./internal/pattern/... && go test -fuzz=FuzzCompileLocal -fuzztime=30s ./internal/pattern/...
 
       - name: staticcheck
         run: |
