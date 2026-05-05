@@ -1,0 +1,9 @@
+# Generated and vendor files
+vendor/
+*.pb.go
+
+# Test fixtures
+internal/*/testdata/
+
+# Test files that intentionally trigger patterns
+*_test.go

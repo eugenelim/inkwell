@@ -1,12 +1,10 @@
 # Spec 17 — Security testing and CASA evidence
 
 ## Status
-partial — CI tooling shipped v0.12.0 (gosec / Semgrep / govulncheck +
-`make sec` chain + SECURITY.md placeholder). v0.13.0 adds the rest
-of the testing scaffold + `THREAT_MODEL.md` + `PRIVACY.md` +
-gitleaks + Dependabot + dependency-review + SBOM. The remaining
-work (SECURITY_TESTS.md generator, real `security@<domain>`
-mailbox, third-party pentest) is gated on the v1.0 release.
+done. All deliverable DoD bullets shipped. §4.4 path traversal tests
+remain deferred (SaveAttachment not yet implemented); §4.5 TLS test
+now shipped (v0.39.0). Third-party pentest + real security@ mailbox
+are v1.0 release-gated and not tracked here.
 
 ## DoD checklist (mirrored from spec)
 ### Tooling (§3)
@@ -22,23 +20,18 @@ mailbox, third-party pentest) is gated on the v1.0 release.
       groupings for the charm and golang.org/x families.
 - [x] anchore/sbom-action attached to release artefacts via
       `gh release upload --clobber`.
-- [ ] `.gosec.json` baseline file. Deferred — current state is
-      0 findings + 9 inline `#nosec` annotations with one-line
-      WHY comments. Switch to a baseline file once the inline
-      list crosses double digits or proves unwieldy in PR review.
-- [ ] `.semgrepignore` baseline. Same deferral logic.
-- [ ] Pre-commit hooks for gitleaks. CI gate covers the same
-      ground; pre-commit lands when contributors hit it as
-      friction in real PRs.
+- [x] `.gosec.json` baseline file (v0.39.0).
+- [x] `.semgrepignore` baseline (v0.39.0).
+- [x] `.pre-commit-config.yaml` pre-commit gitleaks hook (v0.39.0).
 
 ### Tests (§4) — first cut shipped v0.13.0
 - [x] §4.1 `internal/store/security_test.go::TestDatabaseFileMode`.
 - [x] §4.1 `internal/compose/security_test.go::TestDraftTempfileMode`.
 - [x] §4.1 keychain cache file mode — already covered by
       `internal/auth/keychain_test.go` (pre-existing).
-- [ ] §4.1 log file mode test. Deferred — `openLogFile` lives in
-      `cmd/inkwell/cmd_run.go` and isn't trivially testable
-      without refactoring. Track for spec 17 follow-up.
+- [x] §4.1 `cmd/inkwell/security_test.go::TestLogFileMode` —
+      refactored `openLogFile` into `openLogFileAt(dir, ...)` for
+      testability; asserts 0600 on the log file (v0.39.0).
 - [x] §4.2 log redaction tests — 8 tests already present in
       `internal/log/redact_test.go` (pre-existing). Spec 17 marks
       this fully covered.
@@ -47,15 +40,10 @@ mailbox, third-party pentest) is gated on the v1.0 release.
 - [ ] §4.4 path traversal tests. Deferred — `SaveAttachment` is
       not yet implemented (spec 05 §8). Tests land alongside the
       attachment-download feature.
-- [ ] §4.5 TLS verification test. Deferred — Go's
-      `http.DefaultTransport` is what we use; defaults are TLS
-      1.2 minimum + system trust store. A direct assertion would
-      require unwrapping the transport stack
-      (auth → throttle → logging → DefaultTransport). The risk
-      is mitigated structurally (we never set a `tls.Config`),
-      and gosec's G402 rule fires if `InsecureSkipVerify: true`
-      is ever introduced. Add an explicit unwrap test if a
-      future refactor surfaces the transport.
+- [x] §4.5 `internal/graph/security_test.go::TestGraphClientTLSVerificationEnabled`
+      — walks the transport chain (auth → throttle → logging →
+      DefaultTransport) and asserts no layer has
+      InsecureSkipVerify: true (v0.39.0).
 - [x] §4.6
       `internal/store/security_test.go::TestSearchByPredicateSurvivesAdversarialInput`
       — proves SQL injection through `SearchByPredicate` is
@@ -64,10 +52,9 @@ mailbox, third-party pentest) is gated on the v1.0 release.
       `internal/compose/security_test.go::TestEditorCommandUsesArgvNotShell`
       — proves the editor invocation uses argv form, not
       `sh -c`.
-- [ ] §4.7 `:open` URL argv-form test. Deferred — `openInBrowser`
-      is fire-and-forget background work; testing it requires
-      injecting a fake `exec.Command`. The contract is
-      documented in the source's `#nosec G204` annotation.
+- [x] §4.7 `internal/ui/security_test.go::TestOpenInBrowserUsesArgvNotShell`
+      — extracted `openInBrowserArgs` helper; asserts argv form,
+      no shell wrapper (v0.39.0).
 - [x] §4.8
       `internal/action/security_test.go::TestActionIDsHaveHighEntropy`
       — proves action IDs are crypto/rand-backed via
@@ -82,11 +69,9 @@ mailbox, third-party pentest) is gated on the v1.0 release.
 - [x] `docs/PRIVACY.md` first cut — what data inkwell accesses,
       what leaves the device (nothing except Graph API), where
       data is stored, how users delete it.
-- [ ] `docs/SECURITY_TESTS.md` generator + checked-in output.
-      Deferred — the SECURITY-MAP annotations are added in this
-      cut (`// SECURITY-MAP: V8.1.1 V8.2.1` etc.); the
-      `scripts/security-map.go` AST walker comes in a follow-up
-      so we don't ship an unmaintained generator.
+- [x] `docs/SECURITY_TESTS.md` + `scripts/gen-security-map.sh` —
+      8-test index keyed to ASVS requirements; shell generator
+      regenerates from SECURITY-MAP annotations (v0.39.0).
 
 ### CLAUDE.md cross-cutting policy
 - [x] §11 cross-cutting checklist: every spec PR must review
@@ -161,6 +146,29 @@ include `gh run list` + `gh run view --log-failed`.
     overwrites cleanly.
   - Gaps: §4.4 / §4.5 / §4.7 (open URL) deferred with explicit
     rationale; this is honest scope-keeping, not handwaving.
+
+### Iter 4 — 2026-05-05 (deferred items + SECURITY_TESTS.md, v0.39.0)
+- Slice: close all deferred §4 bullets + tooling baselines + docs generator.
+- Changes:
+  - `.gosec.json` + `.semgrepignore` + `.pre-commit-config.yaml` — tooling
+    baselines / pre-commit gitleaks hook.
+  - `cmd/inkwell/cmd_run.go` — refactored `openLogFile` into `openLogFileAt`
+    (testable seam).
+  - `cmd/inkwell/security_test.go::TestLogFileMode` — §4.1 log file 0600.
+  - `internal/ui/compose.go` — extracted `openInBrowserArgs` from
+    `openInBrowser`.
+  - `internal/ui/security_test.go::TestOpenInBrowserUsesArgvNotShell` — §4.7
+    argv form.
+  - `internal/graph/security_test.go::TestGraphClientTLSVerificationEnabled`
+    — §4.5 TLS chain walk.
+  - `docs/SECURITY_TESTS.md` — 8-test index keyed to ASVS.
+  - `scripts/gen-security-map.sh` — shell generator.
+- Commands run + results:
+  - `go vet ./...` clean.
+  - `go test -race ./...` all 17 packages pass.
+- Critique: §4.4 (path traversal) remains deferred — SaveAttachment is not
+  yet implemented; tests land with the attachment-download feature. All other
+  deferred bullets now closed.
 
 ## Cross-cutting checklist (CLAUDE.md §11)
 - [x] Scopes used: none new. This spec is hardening; no Graph

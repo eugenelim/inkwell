@@ -1,0 +1,8 @@
+# Belt-and-suspenders: CI already runs gitleaks via the security
+# workflow (.github/workflows/security.yml). This local hook catches
+# accidental secret commits before they reach the remote.
+repos:
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.25.0
+    hooks:
+      - id: gitleaks

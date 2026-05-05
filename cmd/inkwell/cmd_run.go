@@ -299,11 +299,17 @@ func storeDBPath() string {
 func openLogFile(ownUPN string, level slog.Level) (*slog.Logger, io.Closer, error) {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, "Library", "Logs", "inkwell")
+	return openLogFileAt(dir, level, ownUPN)
+}
+
+// openLogFileAt opens (or creates) inkwell.log inside dir. Extracted
+// so tests can pass t.TempDir() without touching the real home directory.
+func openLogFileAt(dir string, level slog.Level, ownUPN string) (*slog.Logger, io.Closer, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, noopCloser{}, fmt.Errorf("mkdir log dir: %w", err)
 	}
 	path := filepath.Join(dir, "inkwell.log")
-	// #nosec G304 — path is ~/Library/Logs/inkwell/inkwell.log composed from os.UserHomeDir(); not user-controlled at runtime.
+	// #nosec G304 — path is composed from a caller-supplied directory (tests use t.TempDir(); production uses ~/Library/Logs/inkwell); not user-controlled at runtime.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, noopCloser{}, fmt.Errorf("open log file: %w", err)

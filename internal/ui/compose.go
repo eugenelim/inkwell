@@ -409,18 +409,27 @@ func lookupSourceFromAddress(s store.Store, sourceID string) string {
 	return msg.FromAddress
 }
 
+// openInBrowserArgs returns the argv slice for the OS-default browser
+// handler and ok=true, or nil, false on unsupported platforms. Extracted
+// so tests can verify the argv form without spawning a process.
+func openInBrowserArgs(url string) ([]string, bool) {
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{"open", url}, true
+	case "linux", "freebsd", "netbsd", "openbsd":
+		return []string{"xdg-open", url}, true
+	default:
+		return nil, false
+	}
+}
+
 // openInBrowser opens url via the OS-default handler. macOS uses
 // `open`; Linux/BSD uses `xdg-open`. Best-effort; errors are silently
 // swallowed because the user already has the link in the status bar
 // and can copy it manually if this fails.
 func openInBrowser(url string) {
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		args = []string{"open", url}
-	case "linux", "freebsd", "netbsd", "openbsd":
-		args = []string{"xdg-open", url}
-	default:
+	args, ok := openInBrowserArgs(url)
+	if !ok {
 		return
 	}
 	// #nosec G204 — args[0] is "open" or "xdg-open" (constant per OS); args[1] is a URL drawn from a Graph webLink the server gave us. No shell, no concatenation, no user-controlled binary.
