@@ -20,9 +20,9 @@ config, flag/attachment indicators in list pane.
 - [x] Sub-models are value types (no pointer aliasing across Update cycles); CLAUDE.md §4 honoured.
 - [x] Default folder pick prefers `wellKnownName=inbox` over alphabetical first.
 - [x] Privacy: panes never render raw addresses other than the user's own UPN in the status bar; the rendering helpers route through theme styles only (no inline ANSI).
-- [ ] **Deferred to spec 05:** viewer pane fills with rendered headers / body / attachments.
-- [ ] **Deferred to spec 06:** `/` search prompt actual query semantics.
-- [ ] **Deferred to spec 07:** triage actions wired to the keymap (the bindings exist; the dispatchers are stubs).
+- [x] **Deferred to spec 05:** viewer pane fills with rendered headers / body / attachments. *(spec 05 done)*
+- [x] **Deferred to spec 06:** `/` search prompt actual query semantics. *(spec 06 done)*
+- [x] **Deferred to spec 07:** triage actions wired to the keymap (the bindings exist; the dispatchers are stubs). *(spec 07 done)*
 
 ## Iteration log
 

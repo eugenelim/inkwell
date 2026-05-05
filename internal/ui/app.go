@@ -258,6 +258,12 @@ type Deps struct {
 	// section shows (spec 12). From [calendar].sidebar_show_days.
 	// 0 or negative falls back to 1.
 	CalendarSidebarDays int
+	// SavedSearchBgRefresh is the interval for the background count refresh
+	// timer (spec 11 §6.2). Zero disables the timer.
+	SavedSearchBgRefresh time.Duration
+	// SavedSearchSuggestAfterN is how many times a pattern must be used as
+	// a :filter before a "save this search" hint appears. 0 disables.
+	SavedSearchSuggestAfterN int
 }
 
 // SearchSnapshot is one progressive emission from a streaming
@@ -318,6 +324,12 @@ type SavedSearchService interface {
 	// RefreshCounts evaluates all pinned searches and returns the full
 	// list with updated Count fields. Errors per-search are silently skipped.
 	RefreshCounts(ctx context.Context) ([]SavedSearch, error)
+	// Edit updates an existing saved search atomically. If newName ≠ originalName,
+	// the old entry is deleted and a new one with the new name is created.
+	Edit(ctx context.Context, originalName, newName, pattern string, pinned bool) error
+	// EvaluatePattern compiles and runs patternSrc against the local store,
+	// returning the match count. Used by the edit modal's ctrl+t test key.
+	EvaluatePattern(ctx context.Context, patternSrc string) (int, error)
 }
 
 // CalendarFetcher is the read-only calendar surface the UI consumes
@@ -570,6 +582,22 @@ type Model struct {
 	// while the confirm modal is open.
 	pendingRuleDelete string
 
+	// ruleEdit* holds state for the spec 11 B-2 edit modal.
+	ruleEditOrigName string // original name before edits
+	ruleEditName     string // current name buffer
+	ruleEditPattern  string // current pattern buffer
+	ruleEditPinned   bool   // current pinned toggle
+	ruleEditField    int    // 0=name 1=pattern 2=pinned
+	ruleEditTestMsg  string // last ctrl+t test result
+	ruleEditTesting  bool   // true while test cmd in flight
+
+	// filterSuggestCounts tracks how many times each pattern has been run
+	// as :filter in this session (spec 11 §5.4 auto-suggest).
+	filterSuggestCounts map[string]int
+	// filterSuggestedFor is the set of patterns we have already hinted
+	// about in this session (so we suggest only once per pattern).
+	filterSuggestedFor map[string]bool
+
 	// Compose / reply (spec 15). Tracks the most-recently-saved draft
 	// so the viewer-pane `s` shortcut can open it in Outlook and `D`
 	// can discard it. Both fields are cleared together by the TTL timer
@@ -681,28 +709,30 @@ func New(deps Deps) (Model, error) {
 		return Model{}, fmt.Errorf("ui: %w", err)
 	}
 	return Model{
-		deps:           deps,
-		paneWidths:     DefaultPaneWidths(),
-		focused:        ListPane,
-		mode:           NormalMode,
-		keymap:         keymap,
-		theme:          theme,
-		folders:        folders,
-		savedSearches:  savedSearches,
-		list:           NewList(),
-		viewer:         NewViewer(),
-		cmd:            NewCommand(),
-		status:         NewStatus(upn, tenant),
-		signin:         NewSignIn(),
-		confirm:        NewConfirm(),
-		calendar:       NewCalendar(),
-		oof:            NewOOF(),
-		help:           NewHelp(),
-		urlPicker:      NewURLPicker(),
-		folderPicker:   NewFolderPicker(),
-		calendarDetail: NewCalendarDetail(),
-		compose:        NewCompose(),
-		yanker:         newYanker(stdoutOSC52Writer),
+		deps:                deps,
+		paneWidths:          DefaultPaneWidths(),
+		focused:             ListPane,
+		mode:                NormalMode,
+		keymap:              keymap,
+		theme:               theme,
+		folders:             folders,
+		savedSearches:       savedSearches,
+		filterSuggestCounts: make(map[string]int),
+		filterSuggestedFor:  make(map[string]bool),
+		list:                NewList(),
+		viewer:              NewViewer(),
+		cmd:                 NewCommand(),
+		status:              NewStatus(upn, tenant),
+		signin:              NewSignIn(),
+		confirm:             NewConfirm(),
+		calendar:            NewCalendar(),
+		oof:                 NewOOF(),
+		help:                NewHelp(),
+		urlPicker:           NewURLPicker(),
+		folderPicker:        NewFolderPicker(),
+		calendarDetail:      NewCalendarDetail(),
+		compose:             NewCompose(),
+		yanker:              newYanker(stdoutOSC52Writer),
 	}, nil
 }
 
@@ -730,6 +760,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
 		cmds = append(cmds, refreshCmd)
+	}
+	if m.deps.SavedSearchBgRefresh > 0 && m.deps.SavedSearchSvc != nil {
+		cmds = append(cmds, m.backgroundRefreshTimerCmd())
 	}
 	if m.deps.Mailbox != nil {
 		cmds = append(cmds, m.doMailboxRefreshCmd())
@@ -1179,6 +1212,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.FolderID = "filter:" + msg.src
 		m.list.SetMessages(msg.messages)
 		m.focused = ListPane
+		// Auto-suggest: hint after N uses of the same pattern (spec 11 §5.4).
+		if m.deps.SavedSearchSuggestAfterN > 0 && msg.src != "" {
+			alreadySaved := false
+			for _, ss := range m.savedSearches {
+				if ss.Pattern == msg.src {
+					alreadySaved = true
+					break
+				}
+			}
+			if !alreadySaved && !m.filterSuggestedFor[msg.src] {
+				m.filterSuggestCounts[msg.src]++
+				if m.filterSuggestCounts[msg.src] >= m.deps.SavedSearchSuggestAfterN {
+					m.engineActivity = "tip: :rule save <name> to keep this filter"
+					m.filterSuggestedFor[msg.src] = true
+				}
+			}
+		}
 		return m, nil
 
 	case bulkDoneMsg:
@@ -1204,6 +1254,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case savedSearchesUpdatedMsg:
 		m.savedSearches = msg.searches
 		m.folders.SetSavedSearches(msg.searches)
+		return m, nil
+
+	case savedSearchBgRefreshMsg:
+		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.backgroundRefreshTimerCmd())
+
+	case ruleEditDoneMsg:
+		m.mode = NormalMode
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("rule edit: %w", msg.err)
+			return m, nil
+		}
+		m.engineActivity = fmt.Sprintf("✓ rule saved %q", msg.newName)
+		if len(msg.searches) > 0 {
+			m.savedSearches = msg.searches
+			m.folders.SetSavedSearches(msg.searches)
+		}
+		return m, m.clearTransientCmd()
+
+	case ruleEditTestDoneMsg:
+		m.ruleEditTesting = false
+		if msg.err != nil {
+			m.ruleEditTestMsg = "⚠ " + msg.err.Error()
+		} else {
+			m.ruleEditTestMsg = fmt.Sprintf("✓ matches %d messages", msg.count)
+		}
 		return m, nil
 
 	case savedSearchSavedMsg:
@@ -1392,6 +1467,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateFolderPicker(msg)
 	case CalendarDetailMode:
 		return m.updateCalendarDetail(msg)
+	case RuleEditMode:
+		return m.updateRuleEdit(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -2458,7 +2535,7 @@ type filterAppliedMsg struct {
 // line is the full argument string after "rule " (for multi-word names).
 func (m Model) dispatchRule(args []string, line string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
-		m.lastError = fmt.Errorf("rule: usage :rule save <name> | list | show <name> | delete <name>")
+		m.lastError = fmt.Errorf("rule: usage :rule save <name> | list | show <name> | edit <name> | delete <name>")
 		return m, nil
 	}
 	switch args[0] {
@@ -2498,6 +2575,19 @@ func (m Model) dispatchRule(args []string, line string) (tea.Model, tea.Cmd) {
 		}
 		m.lastError = fmt.Errorf("rule show: %q not found", name)
 		return m, nil
+	case "edit":
+		if len(args) < 2 {
+			m.lastError = fmt.Errorf("rule edit: usage :rule edit <name>")
+			return m, nil
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "edit"))
+		for _, ss := range m.savedSearches {
+			if ss.Name == name {
+				return m.startRuleEdit(ss)
+			}
+		}
+		m.lastError = fmt.Errorf("rule edit: %q not found", name)
+		return m, nil
 	case "delete":
 		if len(args) < 2 {
 			m.lastError = fmt.Errorf("rule delete: usage :rule delete <name>")
@@ -2509,7 +2599,7 @@ func (m Model) dispatchRule(args []string, line string) (tea.Model, tea.Cmd) {
 		m.mode = ConfirmMode
 		return m, nil
 	}
-	m.lastError = fmt.Errorf("rule: unknown sub-command %q (save / list / show / delete)", args[0])
+	m.lastError = fmt.Errorf("rule: unknown sub-command %q (save / list / show / edit / delete)", args[0])
 	return m, nil
 }
 
@@ -2577,6 +2667,136 @@ func (m Model) ruleDeleteCmd(name string) tea.Cmd {
 		}
 		searches, _ := m.deps.SavedSearchSvc.Reload(ctx)
 		return savedSearchSavedMsg{action: "deleted", name: name, searches: searches}
+	}
+}
+
+// startRuleEdit opens the spec 11 B-2 edit modal for the given saved search.
+func (m Model) startRuleEdit(ss SavedSearch) (tea.Model, tea.Cmd) {
+	if m.deps.SavedSearchSvc == nil {
+		m.lastError = fmt.Errorf("rule edit: not wired")
+		return m, nil
+	}
+	m.ruleEditOrigName = ss.Name
+	m.ruleEditName = ss.Name
+	m.ruleEditPattern = ss.Pattern
+	m.ruleEditPinned = ss.Pinned
+	m.ruleEditField = 0
+	m.ruleEditTestMsg = ""
+	m.ruleEditTesting = false
+	m.mode = RuleEditMode
+	return m, nil
+}
+
+// updateRuleEdit handles keyboard input while the rule-edit modal is open.
+// Fields: 0=name, 1=pattern, 2=pinned (boolean toggle).
+// ctrl+t tests the pattern; Enter saves; Esc cancels; Tab/Shift+Tab cycle fields.
+func (m Model) updateRuleEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		m.mode = NormalMode
+		m.ruleEditTestMsg = ""
+		m.engineActivity = "rule edit cancelled"
+		return m, nil
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.ruleEditName)
+		pat := strings.TrimSpace(m.ruleEditPattern)
+		if name == "" {
+			m.ruleEditTestMsg = "⚠ name is required"
+			return m, nil
+		}
+		if pat == "" {
+			m.ruleEditTestMsg = "⚠ pattern is required"
+			return m, nil
+		}
+		origName := m.ruleEditOrigName
+		pinned := m.ruleEditPinned
+		svc := m.deps.SavedSearchSvc
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			if err := svc.Edit(ctx, origName, name, pat, pinned); err != nil {
+				return ruleEditDoneMsg{err: err, newName: name}
+			}
+			searches, err := svc.Reload(ctx)
+			if err != nil {
+				searches = nil
+			}
+			return ruleEditDoneMsg{searches: searches, newName: name}
+		}
+	case tea.KeyTab, tea.KeyDown:
+		m.ruleEditField = (m.ruleEditField + 1) % 3
+		return m, nil
+	case tea.KeyShiftTab, tea.KeyUp:
+		m.ruleEditField = (m.ruleEditField + 2) % 3
+		return m, nil
+	case tea.KeyBackspace:
+		switch m.ruleEditField {
+		case 0:
+			if len(m.ruleEditName) > 0 {
+				m.ruleEditName = m.ruleEditName[:len(m.ruleEditName)-1]
+			}
+		case 1:
+			if len(m.ruleEditPattern) > 0 {
+				m.ruleEditPattern = m.ruleEditPattern[:len(m.ruleEditPattern)-1]
+			}
+		}
+		return m, nil
+	case tea.KeyCtrlT:
+		// ctrl+t tests the pattern from any field without consuming
+		// regular 't' runes from name/pattern text inputs.
+		if !m.ruleEditTesting {
+			pat := strings.TrimSpace(m.ruleEditPattern)
+			if pat == "" {
+				m.ruleEditTestMsg = "⚠ enter a pattern first"
+				return m, nil
+			}
+			m.ruleEditTesting = true
+			m.ruleEditTestMsg = "testing…"
+			svc := m.deps.SavedSearchSvc
+			return m, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				count, err := svc.EvaluatePattern(ctx, pat)
+				return ruleEditTestDoneMsg{count: count, err: err}
+			}
+		}
+		return m, nil
+	case tea.KeyRunes:
+		switch m.ruleEditField {
+		case 0:
+			m.ruleEditName += string(keyMsg.Runes)
+		case 1:
+			m.ruleEditPattern += string(keyMsg.Runes)
+		case 2:
+			// Space toggles pinned in the boolean field.
+			if string(keyMsg.Runes) == " " {
+				m.ruleEditPinned = !m.ruleEditPinned
+			}
+		}
+	case tea.KeySpace:
+		switch m.ruleEditField {
+		case 0:
+			m.ruleEditName += " "
+		case 1:
+			m.ruleEditPattern += " "
+		case 2:
+			m.ruleEditPinned = !m.ruleEditPinned
+		}
+	}
+	return m, nil
+}
+
+// backgroundRefreshTimerCmd sleeps for the configured background refresh
+// interval and emits savedSearchBgRefreshMsg to trigger a count refresh.
+func (m Model) backgroundRefreshTimerCmd() tea.Cmd {
+	interval := m.deps.SavedSearchBgRefresh
+	return func() tea.Msg {
+		time.Sleep(interval)
+		return savedSearchBgRefreshMsg{}
 	}
 }
 
@@ -2909,6 +3129,10 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.calendar.SetLoading()
 		m.mode = CalendarMode
 		return m, m.fetchCalendarCmd()
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
+		if ss, ok := m.folders.SelectedSavedSearch(); ok {
+			return m.startRuleEdit(ss)
+		}
 	case key.Matches(msg, m.keymap.Open), key.Matches(msg, m.keymap.Right):
 		// Calendar event row: open detail modal.
 		if ev, ok := m.folders.SelectedCalendarEvent(); ok {
@@ -4407,6 +4631,32 @@ func (m Model) View() string {
 		}
 		body := title + "\n\n" + m.theme.HelpKey.Render(verb+":") + " " + m.categoryBuf + "▎\n\n" +
 			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
+		box := m.theme.Modal.Render(body)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	}
+	if m.mode == RuleEditMode {
+		cursor := func(field int) string {
+			if m.ruleEditField == field {
+				return "▎"
+			}
+			return " "
+		}
+		nameLine := m.theme.HelpKey.Render("name:   ") + " " + m.ruleEditName + cursor(0)
+		patLine := m.theme.HelpKey.Render("pattern:") + " " + m.ruleEditPattern + cursor(1)
+		pinnedStr := "[ ] show in sidebar"
+		if m.ruleEditPinned {
+			pinnedStr = "[✓] show in sidebar"
+		}
+		pinnedLine := m.theme.HelpKey.Render("pinned: ") + " " + pinnedStr + cursor(2)
+		hints := m.theme.Dim.Render("Tab next field  ·  ctrl+t test  ·  Enter save  ·  Esc cancel")
+		body := "Edit saved search: " + m.ruleEditOrigName + "\n\n" +
+			nameLine + "\n" +
+			patLine + "\n" +
+			pinnedLine + "\n\n" +
+			hints
+		if m.ruleEditTestMsg != "" {
+			body += "\n\n" + m.ruleEditTestMsg
+		}
 		box := m.theme.Modal.Render(body)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}

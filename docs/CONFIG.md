@@ -283,8 +283,21 @@ pattern = "~A & ~d >180d"
 | `name` | string | (required) | Display name in the sidebar; must be unique. |
 | `pattern` | string | (required) | Spec 08 pattern source. Plain text without `~` desugars to `~B <text>`. |
 
-Future keys (deferred): `cache_ttl`, `background_refresh_interval`,
-`pinned`, `sort_order`, `toml_mirror_path`.
+**Owner spec:** 11.
+
+---
+
+## `[saved_search]`
+
+Runtime knobs for the saved-search Manager (spec 11 §9).
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cache_ttl` | duration | `"60s"` | How long `Evaluate` results are reused before re-querying. |
+| `background_refresh_interval` | duration | `"2m"` | How often pinned-search counts refresh in the sidebar, independent of sync events. `"0s"` disables the timer. |
+| `seed_defaults` | bool | `true` | Seed `Unread`, `Flagged`, `From me` on first launch when the table is empty. |
+| `toml_mirror_path` | string | `"~/.config/inkwell/saved_searches.toml"` | Path for the human-readable TOML snapshot written after every save/delete. Empty string disables. |
+| `suggest_save_after_n_uses` | int | `4` | After running the same `:filter` pattern this many times in a session, show a hint to save it as a named rule. `0` disables. |
 
 **Owner spec:** 11.
 
@@ -299,8 +312,6 @@ Controls bulk-operation UX.
 | `preview_sample_size` | int | `5` | 0–50 | Number of sample messages shown in the bulk-confirm modal. |
 | `progress_threshold` | int | `50` | 1–10000 | Show a progress modal for bulks larger than this. Smaller bulks finish too fast for the modal to be useful. |
 | `progress_update_hz` | int | `10` | 1–60 | Maximum progress UI update frequency, in Hz. |
-| `suggest_save_after_n_uses` | int | `4` | 0–50 | After running the same `:filter` pattern this many times in a session, suggest saving as a named rule. `0` disables the suggestion. |
-
 **Owner spec:** 10.
 
 ---

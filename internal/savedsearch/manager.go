@@ -204,6 +204,78 @@ func (m *Manager) SeedDefaults(ctx context.Context, upn string) error {
 	return nil
 }
 
+// Edit atomically updates an existing saved search. If newName ≠ originalName
+// the old row is deleted and a new one is inserted with the new name.
+// The cache is invalidated for both names so the next Evaluate re-queries.
+func (m *Manager) Edit(ctx context.Context, originalName, newName, pat string, pinned bool) error {
+	if _, err := pattern.Compile(pat, pattern.CompileOptions{LocalOnly: true}); err != nil {
+		return fmt.Errorf("invalid pattern: %w", err)
+	}
+	if originalName == newName {
+		// Name unchanged — update in place.
+		old, err := m.Get(ctx, originalName)
+		if err != nil {
+			return err
+		}
+		if old == nil {
+			return fmt.Errorf("saved search %q not found", originalName)
+		}
+		updated := *old
+		updated.Pattern = pat
+		updated.Pinned = pinned
+		if err := m.st.PutSavedSearch(ctx, updated); err != nil {
+			return err
+		}
+		m.invalidate(originalName)
+		_ = m.writeTOMLMirror(ctx)
+		return nil
+	}
+	// Name changed — delete old, create new.
+	old, err := m.Get(ctx, originalName)
+	if err != nil {
+		return err
+	}
+	if old == nil {
+		return fmt.Errorf("saved search %q not found", originalName)
+	}
+	if err := m.st.DeleteSavedSearchByName(ctx, m.accountID, originalName); err != nil {
+		return err
+	}
+	newSS := store.SavedSearch{
+		AccountID: m.accountID,
+		Name:      newName,
+		Pattern:   pat,
+		Pinned:    pinned,
+		SortOrder: old.SortOrder,
+		CreatedAt: old.CreatedAt,
+	}
+	if err := m.st.PutSavedSearch(ctx, newSS); err != nil {
+		return err
+	}
+	m.invalidate(originalName)
+	m.invalidate(newName)
+	_ = m.writeTOMLMirror(ctx)
+	return nil
+}
+
+// EvaluatePattern compiles and executes patternSrc against the local store,
+// returning the count of matching messages. Used by the edit modal to dry-run
+// a pattern before committing.
+func (m *Manager) EvaluatePattern(ctx context.Context, patternSrc string) (int, error) {
+	compiled, err := pattern.Compile(patternSrc, pattern.CompileOptions{LocalOnly: true})
+	if err != nil {
+		return 0, fmt.Errorf("invalid pattern: %w", err)
+	}
+	ids, err := pattern.Execute(ctx, compiled, m.st, nil, pattern.ExecuteOptions{
+		AccountID:       m.accountID,
+		LocalMatchLimit: 5000,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
 // InvalidateCache discards all cached evaluation results so the next
 // Evaluate call re-queries the store. Called by the UI after a sync
 // event that could affect match counts.

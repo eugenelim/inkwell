@@ -258,6 +258,10 @@ type SavedSearchSettings struct {
 	// human-readable snapshot (version-control friendly). Tilde is
 	// expanded. Empty string disables the mirror.
 	TOMLMirrorPath string `toml:"toml_mirror_path"`
+	// SuggestSaveAfterNUses is the number of times the user must run the
+	// same :filter pattern before a "save this search" hint appears.
+	// 0 disables the suggestion.
+	SuggestSaveAfterNUses int `toml:"suggest_save_after_n_uses"`
 }
 
 // AccountConfig owns the [account] section (spec 01).

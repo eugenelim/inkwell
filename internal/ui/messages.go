@@ -43,6 +43,8 @@ const (
 	// SettingsMode shows the read-only mailbox-settings overview modal
 	// (spec 13 §5.2). Press `o` to switch to OOFMode for editing.
 	SettingsMode
+	// RuleEditMode is the spec 11 B-2 edit modal for saved searches.
+	RuleEditMode
 )
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update
@@ -175,3 +177,20 @@ type draftWebLinkExpiredMsg struct{}
 // draftDiscardDoneMsg fires after the DiscardDraft Graph call
 // completes (success or failure). Spec 15 §6.3 / F-1.
 type draftDiscardDoneMsg struct{ err error }
+
+// savedSearchBgRefreshMsg fires on the background refresh timer tick
+// (spec 11 §6.2). The handler in Update refreshes counts and re-arms.
+type savedSearchBgRefreshMsg struct{}
+
+// ruleEditDoneMsg is the result of saving an edited saved search.
+type ruleEditDoneMsg struct {
+	searches []SavedSearch
+	err      error
+	newName  string
+}
+
+// ruleEditTestDoneMsg carries the result of a `:rule edit` pattern test.
+type ruleEditTestDoneMsg struct {
+	count int
+	err   error
+}

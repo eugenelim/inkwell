@@ -42,9 +42,15 @@ sub-folders, sub-sub-folders, any depth. The tree renders with
 two-space indentation per level; `▾` / `▸` glyphs mark expanded /
 collapsed parents. Inbox is auto-expanded on first launch.
 
-Saved searches (configured in `[[saved_searches]]`) show under a
-"Saved Searches" section with a `☆` glyph. Enter on one runs its
-pattern via the filter machinery.
+Saved searches (configured in `[[saved_searches]]` or via `:rule save`) show
+under a "Saved Searches" section with a `☆` glyph. Enter on one runs its
+pattern via the filter machinery. `e` opens the edit modal for the focused
+saved search.
+
+| Key       | Action (Saved Searches section)                     |
+| --------- | --------------------------------------------------- |
+| `Enter` / `l` | Run the saved search (loads matches, focus → list) |
+| `e`       | Open edit modal (rename, change pattern or pinned) |
 
 ## Messages pane (when focused)
 
@@ -298,7 +304,12 @@ sessions older than 24h get garbage-collected on launch.
 | `:ooo off`                    | Disable automatic replies immediately                           |
 | `:ooo schedule`               | Open the OOF modal with "scheduled" pre-selected                |
 | `:unsub` / `:unsubscribe`     | Unsubscribe from the focused message (same flow as `U` keybinding) |
-| `:help` / `:?`                | Open the help overlay (same as `?`)                              |
+| `:rule save <name>`           | Save the active `:filter` pattern as a named saved search       |
+| `:rule list`                  | Show all saved search names in the status bar                   |
+| `:rule show <name>`           | Show a saved search's pattern in the status bar                 |
+| `:rule edit <name>`           | Open the edit modal (rename, change pattern/pinned)             |
+| `:rule delete <name>`         | Delete a saved search (with confirm)                            |
+| `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
 search across subject and body (`~B *<text>*`). `:filter [External]`

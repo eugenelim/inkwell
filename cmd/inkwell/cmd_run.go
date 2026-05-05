@@ -225,40 +225,42 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// UI
 	model, err := ui.New(ui.Deps{
-		Auth:                   a,
-		Store:                  st,
-		Engine:                 engine,
-		Renderer:               renderer,
-		Logger:                 logger,
-		Account:                acc,
-		Triage:                 triageAdapter{exec: exec},
-		Bulk:                   bulkAdapter{exec: exec},
-		Calendar:               calendarAdapter{gc: gc, st: st, accountID: acc.ID},
-		Mailbox:                mailboxAdapter{gc: gc},
-		Drafts:                 draftAdapter{exec: exec},
-		Search:                 newSearchAdapter(st, gc, acc.ID, cfg.Search),
-		Unsubscribe:            newUnsubAdapter(st, gc, version),
-		SavedSearchSvc:         &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
-		ThemeName:              cfg.UI.Theme,
-		SavedSearches:          saved,
-		Bindings:               bindingsToOverrides(cfg.Bindings),
-		RecentFoldersCount:     cfg.Triage.RecentFoldersCount,
-		WrapColumns:            cfg.Rendering.WrapColumns,
-		URLDisplayMaxWidth:     cfg.Rendering.URLDisplayMaxWidth,
-		Attachments:            gc,
-		AttachmentSaveDir:      expandHome(cfg.Rendering.AttachmentSaveDir),
-		LargeAttachmentWarnMB:  cfg.Rendering.LargeAttachmentWarnMB,
-		UnreadIndicator:        cfg.UI.UnreadIndicator,
-		FlagIndicator:          cfg.UI.FlagIndicator,
-		AttachmentIndicator:    cfg.UI.AttachmentIndicator,
-		TransientStatusTTL:     cfg.UI.TransientStatusTTL,
-		MinTerminalCols:        cfg.UI.MinTerminalCols,
-		MinTerminalRows:        cfg.UI.MinTerminalRows,
-		OOOIndicator:           cfg.MailboxSettings.OOOIndicator,
-		MailboxRefreshInterval: cfg.MailboxSettings.RefreshInterval,
-		DraftWebLinkTTL:        cfg.Compose.WebLinkTTL,
-		CalendarTZ:             sm.ResolvedTimeZone(),
-		CalendarSidebarDays:    cfg.Calendar.SidebarShowDays,
+		Auth:                     a,
+		Store:                    st,
+		Engine:                   engine,
+		Renderer:                 renderer,
+		Logger:                   logger,
+		Account:                  acc,
+		Triage:                   triageAdapter{exec: exec},
+		Bulk:                     bulkAdapter{exec: exec},
+		Calendar:                 calendarAdapter{gc: gc, st: st, accountID: acc.ID},
+		Mailbox:                  mailboxAdapter{gc: gc},
+		Drafts:                   draftAdapter{exec: exec},
+		Search:                   newSearchAdapter(st, gc, acc.ID, cfg.Search),
+		Unsubscribe:              newUnsubAdapter(st, gc, version),
+		SavedSearchSvc:           &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
+		ThemeName:                cfg.UI.Theme,
+		SavedSearches:            saved,
+		Bindings:                 bindingsToOverrides(cfg.Bindings),
+		RecentFoldersCount:       cfg.Triage.RecentFoldersCount,
+		WrapColumns:              cfg.Rendering.WrapColumns,
+		URLDisplayMaxWidth:       cfg.Rendering.URLDisplayMaxWidth,
+		Attachments:              gc,
+		AttachmentSaveDir:        expandHome(cfg.Rendering.AttachmentSaveDir),
+		LargeAttachmentWarnMB:    cfg.Rendering.LargeAttachmentWarnMB,
+		UnreadIndicator:          cfg.UI.UnreadIndicator,
+		FlagIndicator:            cfg.UI.FlagIndicator,
+		AttachmentIndicator:      cfg.UI.AttachmentIndicator,
+		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
+		MinTerminalCols:          cfg.UI.MinTerminalCols,
+		MinTerminalRows:          cfg.UI.MinTerminalRows,
+		OOOIndicator:             cfg.MailboxSettings.OOOIndicator,
+		MailboxRefreshInterval:   cfg.MailboxSettings.RefreshInterval,
+		DraftWebLinkTTL:          cfg.Compose.WebLinkTTL,
+		CalendarTZ:               sm.ResolvedTimeZone(),
+		CalendarSidebarDays:      cfg.Calendar.SidebarShowDays,
+		SavedSearchBgRefresh:     cfg.SavedSearch.BackgroundRefreshInterval,
+		SavedSearchSuggestAfterN: cfg.SavedSearch.SuggestSaveAfterNUses,
 	})
 	if err != nil {
 		return fmt.Errorf("tui init: %w", err)
@@ -1095,6 +1097,14 @@ func (a *savedSearchAdapter) RefreshCounts(ctx context.Context) ([]ui.SavedSearc
 		}
 	}
 	return result, nil
+}
+
+func (a *savedSearchAdapter) Edit(ctx context.Context, originalName, newName, pat string, pinned bool) error {
+	return a.mgr.Edit(ctx, originalName, newName, pat, pinned)
+}
+
+func (a *savedSearchAdapter) EvaluatePattern(ctx context.Context, patternSrc string) (int, error) {
+	return a.mgr.EvaluatePattern(ctx, patternSrc)
 }
 
 // convertSavedSearchList maps store.SavedSearch → ui.SavedSearch with

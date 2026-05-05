@@ -1,7 +1,7 @@
 # Spec 11 — Saved Searches as Virtual Folders
 
 ## Status
-in-progress (B-1 shipped: Manager API + sidebar counts + :rule CRUD + seed defaults; B-2 deferred: edit modal, auto-suggest, CLI subcommands, background refresh timer).
+done (B-1: Manager API + sidebar counts + :rule CRUD + seed defaults; B-2: edit modal + auto-suggest + background refresh timer; CLI rule subcommands shipped by spec-14).
 
 ## DoD checklist (mirrored from spec)
 - [x] `[[saved_searches]]` TOML config table with `name` + `pattern`.
@@ -22,10 +22,10 @@ in-progress (B-1 shipped: Manager API + sidebar counts + :rule CRUD + seed defau
 - [x] `:rule delete <name>` — confirm modal → delete.
 - [x] Seed defaults (`Unread`, `Flagged`, `From me`) on first launch.
 - [x] Tests: Manager unit tests (9 cases) + UI dispatch tests (rule + saved search + count badge).
-- [ ] Edit modal (`e` keybinding / `:rule edit <name>`) — deferred B-2.
-- [ ] Auto-suggest after N filter uses — deferred B-2.
+- [x] Edit modal (`e` keybinding / `:rule edit <name>`) — B-2 shipped 2026-05-04.
+- [x] Auto-suggest after N filter uses — B-2 shipped 2026-05-04.
 - [x] CLI `inkwell rule list/save/edit/delete/eval/apply` — shipped by PR G-1 (spec-14, 2026-05-04).
-- [ ] Background refresh timer (independent of sync event) — deferred B-2.
+- [x] Background refresh timer (independent of sync event) — B-2 shipped 2026-05-04.
 
 ## Perf budgets
 | Surface | Budget | Measured | Bench | Status |
@@ -67,6 +67,29 @@ in-progress (B-1 shipped: Manager API + sidebar counts + :rule CRUD + seed defau
   - Count badge shows "0" for a pinned search that matched nothing — correct per spec; user sees the search is active but empty.
   - TOML mirror writes best-effort; parse errors on next launch produce no divergence detection yet (spec §4 prompt) — deferred B-2.
 - Next: B-2 (edit modal, auto-suggest, CLI rule subcommands, background refresh timer).
+
+### Iter 3 — 2026-05-04 (B-2: edit modal + auto-suggest + background refresh timer)
+- Slice: three remaining B-2 features in one change.
+- Files:
+  - internal/ui/messages.go: RuleEditMode constant; savedSearchBgRefreshMsg, ruleEditDoneMsg, ruleEditTestDoneMsg types.
+  - internal/ui/app.go: SavedSearchService extended with Edit + EvaluatePattern; Deps gains SavedSearchBgRefresh + SavedSearchSuggestAfterN; Model gains ruleEdit* fields + filterSuggestCounts + filterSuggestedFor; Init fires backgroundRefreshTimerCmd; Update handles savedSearchBgRefreshMsg/ruleEditDoneMsg/ruleEditTestDoneMsg/auto-suggest in filterAppliedMsg; dispatchRule adds "edit" case; dispatchFolders adds "e" keybinding; View adds RuleEditMode rendering block; new helpers startRuleEdit/updateRuleEdit/backgroundRefreshTimerCmd.
+  - internal/savedsearch/manager.go: Added Manager.Edit (rename + pattern/pinned update) and Manager.EvaluatePattern (compile + execute → count).
+  - internal/config/config.go: SavedSearchSettings gains SuggestSaveAfterNUses int.
+  - internal/config/defaults.go: SuggestSaveAfterNUses: 4.
+  - cmd/inkwell/cmd_run.go: savedSearchAdapter gains Edit + EvaluatePattern; Deps threads SavedSearchBgRefresh + SavedSearchSuggestAfterN from config.
+  - docs/CONFIG.md: [saved_search] section added with all five keys; stale [bulk] entry removed.
+  - docs/user/reference.md: `e` keybinding + `:rule edit` documented in saved searches section.
+  - docs/plans/spec-04.md: three stale deferred bullets marked [x].
+  - internal/ui/dispatch_test.go: stubSavedSearchService updated with Edit + EvaluatePattern stubs; 30 new tests covering all B-2 surfaces.
+- Commands: `make regress` green. go vet clean. go test -race ./... green. staticcheck pre-existing S1016 in compose.go (not introduced here).
+- Critique:
+  - No layering violations. RuleEditMode rendering is in View() where it belongs.
+  - No comments that restate code.
+  - No token/body/PII log paths introduced.
+  - backgroundRefreshTimerCmd re-arms via Cmd (no goroutine leak).
+  - All error paths covered in tests (pattern compile fail, name conflict, missing name).
+  - ctrl+t chosen over `t` to avoid conflict with text field typing.
+- Next: done.
 
 ## Cross-cutting checklist (CLAUDE.md §11)
 - [x] Scopes used: Mail.Read (existing).

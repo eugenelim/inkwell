@@ -156,6 +156,7 @@ func Defaults() *Config {
 			BackgroundRefreshInterval: 2 * time.Minute,
 			SeedDefaults:              true,
 			TOMLMirrorPath:            "~/.config/inkwell/saved_searches.toml",
+			SuggestSaveAfterNUses:     4,
 		},
 		MailboxSettings: MailboxSettingsConfig{
 			ConfirmOOOChange:       true,
