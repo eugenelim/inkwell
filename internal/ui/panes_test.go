@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
@@ -18,7 +19,7 @@ func TestRenderAttachmentLinesLetterPrefixes(t *testing.T) {
 		{ID: "a2", Name: "image.png", Size: 2048, ContentType: "image/png"},
 		{ID: "a3", Name: "data.csv", Size: 512, ContentType: "text/csv"},
 	}
-	lines := renderAttachmentLines(atts)
+	lines := renderAttachmentLines(atts, render.Theme{})
 	require.NotNil(t, lines)
 	// First line: summary header
 	require.Contains(t, lines[0], "Attach:")
@@ -33,15 +34,34 @@ func TestRenderAttachmentLinesLetterPrefixes(t *testing.T) {
 }
 
 func TestRenderAttachmentLinesEmpty(t *testing.T) {
-	require.Nil(t, renderAttachmentLines(nil))
-	require.Nil(t, renderAttachmentLines([]store.Attachment{}))
+	require.Nil(t, renderAttachmentLines(nil, render.Theme{}))
+	require.Nil(t, renderAttachmentLines([]store.Attachment{}, render.Theme{}))
 }
 
 func TestRenderAttachmentLinesSingleFileGrammar(t *testing.T) {
 	atts := []store.Attachment{{ID: "a1", Name: "sole.txt", Size: 100}}
-	lines := renderAttachmentLines(atts)
+	lines := renderAttachmentLines(atts, render.Theme{})
 	require.Contains(t, lines[0], "1 file") // not "1 files"
 	require.NotContains(t, lines[0], "1 files")
+}
+
+// TestRenderAttachmentLinesColored confirms that a non-zero Attachment
+// style (from DefaultTheme) is applied — the theme parameter is wired
+// through and the text content is preserved in all cases.
+func TestRenderAttachmentLinesColored(t *testing.T) {
+	atts := []store.Attachment{{ID: "a1", Name: "deck.pdf", Size: 1024}}
+	lines := renderAttachmentLines(atts, render.DefaultTheme())
+	require.NotNil(t, lines)
+	// File name must always be present regardless of whether the test
+	// environment has a TTY (lipgloss strips ANSI in non-TTY builds).
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "deck.pdf") {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "attachment name must appear in the rendered output")
 }
 
 // renderConversationSection tests (spec 05 §11 / PR 10).

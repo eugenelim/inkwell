@@ -22,15 +22,46 @@ reply-all/forward/new (PR 7-iii), crash-recovery `compose_sessions`
 - [x] Forward (f in viewer) — **closed by PR 7-iii (v0.13.x).** Viewer-pane f fires startComposeForward; ApplyForwardSkeleton clears To/Cc, prefixes Subject Fwd: with Fw:/Fwd: normalisation, body opens with the canonical Forwarded message header block; saveComposeCmd routes via DraftCreator.CreateDraftForward → graph.CreateForward → PATCH. When Drafts isn't wired the binding falls back to the legacy ToggleFlag for graceful degradation.
 - [x] New message (m) — **closed by PR 7-iii (v0.13.x).** Folders-pane and viewer-pane m (when Drafts wired) fire startComposeNew; ApplyNewSkeleton blanks the form and focuses the To field; saveComposeCmd routes via DraftCreator.CreateNewDraft → graph.CreateNewDraft (single-stage POST /me/messages with the full payload — no createX/PATCH dance). List-pane m keeps move-with-folder-picker.
 - [x] `compose_sessions` table for crash recovery — **closed by PR 7-ii (v0.13.x).** Migration 005 adds the table per spec §7; SchemaVersion bumped to 5. `internal/ui/ComposeModel` gains a SessionID; entry / focus changes persist a JSON-encoded snapshot via `store.PutComposeSession`; save (Ctrl+S/Esc) and discard (Ctrl+D) stamp `confirmed_at` so the resume scan ignores the row. Init runs `scanComposeSessionsCmd` which GCs confirmed sessions older than 24h then offers the most-recent unconfirmed row via a confirm modal. Y restores into ComposeMode preserving SessionID; n inline-confirms. Corrupt snapshots are confirmed-and-skipped to avoid resume loops.
-- [ ] Confirm pane after editor exit (`s` save / `e` re-edit / `d` discard) — deferred. v0.11.0 saves immediately on non-empty body.
+- [x] Confirm pane after editor exit — `Ctrl+E` drop-out wired: body written to tempfile → `$EDITOR` via `tea.ExecProcess` → `composeEditorDoneMsg` updates body on return. Confirm pane (s/e/d) deferred; on non-error exit body is applied directly.
 - [x] Attachment infrastructure — `AttachmentRef` / `safeReadFile` path-traversal guard / `graph.AddDraftAttachment` / `uploadAttachments` pipeline wired through all four create methods. UI `AttachmentSnapshotRef` + snapshot round-trip + `snapshotRefsToAction` conversion. **Closed F-1 (v0.30.0).**
-- [ ] Attachment UI picker — deferred. Infrastructure is wired; the file-picker overlay lands in a follow-up spec.
+- [x] Attachment UI picker — `Ctrl+A` in ComposeMode opens `AttachPickMode` (path-input overlay); Enter validates path + size + count limits, stages `AttachmentSnapshotRef`; Esc returns to ComposeMode. Snapshot/Restore round-trips attachments. `AttachmentMaxSizeMB` / `MaxAttachments` wired from `[compose]` config.
 - [ ] HTML drafts — deferred (PRD §6 — plain text in v1).
 - [x] Lint guard for `Mail.Send` strings — `scripts/check-no-mail-send.sh` (greps for `"Mail.Send"` literal in Go files outside scopes.go) + CI `permissions-check` job already covers this. **Closed F-1 (v0.30.0).**
 - [x] Server-side discard (DELETE /me/messages/{id}) — viewer-pane `D` key, when `lastDraftID` is set, opens a confirm modal and fires `graph.DeleteDraft` (404 = success). Status bar hint updated to `✓ draft saved · s open · D discard`. **Closed F-1 (v0.30.0).**
 - [x] WebLink TTL auto-clear — `[compose].web_link_ttl` (default 30s) fires `draftWebLinkExpiredMsg` which clears `lastDraftWebLink` + `lastDraftID`. **Closed F-1 (v0.30.0).**
 
 ## Iteration log
+
+### Iter 7 — 2026-05-05 (link/attachment colors + Ctrl+E drop-out + Ctrl+A attachment picker)
+- Slice (render): Threaded `Theme` parameter through `linkifyURLsInText`,
+  `renderLinkBlock`, `normalisePlain`, `htmlToText`, and `htmlToTextWithConfig`
+  so link and attachment colors from `BodyOpts.Theme` are applied. Root cause:
+  these functions previously ignored the theme entirely; callers passed it but
+  it was silently dropped. Updated all callers in render package + tests.
+- Slice (ui/panes): Added `renderTheme render.Theme` parameter to
+  `renderAttachmentLines`; apply `renderTheme.Attachment.Render()` to header
+  and per-file lines. Wired `t.RenderTheme` at call site. Added render import
+  to panes.go. Updated panes_test.go and dispatch_test.go call sites.
+- Slice (Ctrl+E): Added `composeEditorDoneMsg` type; `case tea.KeyCtrlE` in
+  `updateCompose` writes tempfile, resolves editor via `compose.EditorCmd`,
+  returns `tea.ExecProcess`; handler in Update's type-switch reads tempfile +
+  calls `CleanupTempfile` + `SetBody`. Added `compose` package import to app.go.
+- Slice (Ctrl+A / AttachPickMode): Added `AttachPickMode` constant; `attachPickInput
+  textinput.Model` field on Model; `AttachmentMaxSizeMB` / `MaxAttachments` on
+  Deps; `newAttachPickInput()` ctor. `updateAttachPick` handles Esc/Enter/other;
+  Enter validates path (Lstat, size limit, count limit), stages ref. View renders
+  attach-pick overlay via `lipgloss.Place`. `ComposeModel` gains `attachments`
+  field + `Attachments()` / `AddAttachment()` + Snapshot/Restore round-trip.
+  View shows staged attachments + updated footer hint. Wired `AttachmentMaxSizeMB`
+  / `MaxAttachments` in cmd_run.go.
+- Tests: 8 new dispatch tests (Ctrl+E happy path, Ctrl+E error path, AttachPickMode
+  open/close, add attachment, too-large rejection, snapshot round-trip,
+  renderAttachmentLines colored, linkifyURLsInText colored). All existing tests
+  updated for new signatures.
+- Commands: `go build ./...` clean; `go test -race ./internal/render/... ./internal/ui/...`
+  — all pass.
+- Critique: no layering violations (ui→compose is top→middle, valid); no new
+  PII log sites; Ctrl+E tempfile cleanup fires both on success and error.
 
 ### Iter 6 — 2026-05-04 (discard DELETE + webLink TTL + Mail.Send guard + attachments, PR F-1 of audit-drain)
 - Trigger: `docs/audits/spec-1-15-impl-gaps.md` F-1 row. Four

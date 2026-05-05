@@ -76,7 +76,7 @@ func TestExpandQuotes(t *testing.T) {
 
 func TestAttributionLineDim(t *testing.T) {
 	body := "On Mon, 1 Jan 2024, Alice Smith wrote:\nSome reply text.\n"
-	out, _ := normalisePlain(body, 80, 0, 0)
+	out, _ := normalisePlain(body, 80, 0, 0, Theme{})
 	require.Contains(t, out, "\x1b[2m", "attribution line must be wrapped in dim ANSI")
 	require.Contains(t, out, "\x1b[0m", "ANSI reset must follow attribution line")
 	require.Contains(t, out, "On Mon, 1 Jan 2024, Alice Smith wrote:", "attribution line text must be present")
@@ -86,7 +86,7 @@ func TestAttributionLineNotDimmedWhenQuoted(t *testing.T) {
 	// Attribution lines inside quoted blocks should not get extra dim treatment
 	// (they are already rendered with quote markers).
 	body := "> On Mon, 1 Jan 2024, Alice Smith wrote:\n> some previous text\n"
-	out, _ := normalisePlain(body, 80, 0, 0)
+	out, _ := normalisePlain(body, 80, 0, 0, Theme{})
 	// The quoted attribution is at depth > 0 so it bypasses the attribution check.
 	// It should not have the standalone dim escape applied.
 	require.NotContains(t, out, "\x1b[2mOn Mon", "quoted attribution line must not get standalone dim treatment")
@@ -133,8 +133,8 @@ func TestStripPatternsEmptyWhenConfigured(t *testing.T) {
 
 func TestNormalisePlainWithQuoteCollapse(t *testing.T) {
 	body := "Introduction\n> q1\n> q2\n> q3\nConclusion\n"
-	collapsed, _ := normalisePlain(body, 80, 0, 1)
+	collapsed, _ := normalisePlain(body, 80, 0, 1, Theme{})
 	require.Contains(t, collapsed, "[… 3 quoted lines]", "quotes collapsed at threshold=1")
-	notCollapsed, _ := normalisePlain(body, 80, 0, 0)
+	notCollapsed, _ := normalisePlain(body, 80, 0, 0, Theme{})
 	require.Contains(t, notCollapsed, "> q1", "quotes not collapsed at threshold=0")
 }

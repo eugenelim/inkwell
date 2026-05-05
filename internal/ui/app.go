@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/pattern"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -246,6 +248,13 @@ type Deps struct {
 	// MailboxRefreshInterval is how long to wait between automatic
 	// mailbox-settings re-fetches. From [mailbox_settings].refresh_interval.
 	MailboxRefreshInterval time.Duration
+	// AttachmentMaxSizeMB is the per-file size limit for staged
+	// attachments in the compose pane. 0 disables the check.
+	AttachmentMaxSizeMB int
+	// MaxAttachments caps the number of staged attachments per draft.
+	// 0 disables the check.
+	MaxAttachments int
+
 	// DraftWebLinkTTL controls how long the "press s to open in Outlook"
 	// status-bar hint lives after a successful draft save. 0 disables
 	// auto-clear. From [compose].web_link_ttl (default 30s).
@@ -506,23 +515,24 @@ type Model struct {
 	height     int
 	paneWidths PaneWidths
 
-	folders        FoldersModel
-	list           ListModel
-	viewer         ViewerModel
-	cmd            CommandModel
-	status         StatusModel
-	signin         SignInModel
-	confirm        ConfirmModel
-	calendar       CalendarModel
-	oof            OOFModel
-	oofReturnMode  Mode // mode to restore when OOF modal saves or cancels
-	settingsView   SettingsModel
-	help           HelpModel
-	urlPicker      URLPickerModel
-	folderPicker   FolderPickerModel
-	calendarDetail CalendarDetailModel
-	compose        ComposeModel
-	yanker         *yanker
+	folders         FoldersModel
+	list            ListModel
+	viewer          ViewerModel
+	cmd             CommandModel
+	status          StatusModel
+	signin          SignInModel
+	confirm         ConfirmModel
+	calendar        CalendarModel
+	oof             OOFModel
+	oofReturnMode   Mode // mode to restore when OOF modal saves or cancels
+	settingsView    SettingsModel
+	help            HelpModel
+	urlPicker       URLPickerModel
+	folderPicker    FolderPickerModel
+	calendarDetail  CalendarDetailModel
+	compose         ComposeModel
+	attachPickInput textinput.Model
+	yanker          *yanker
 
 	// mailboxSettings is the cached copy used for OOO status bar indicator.
 	mailboxSettings *MailboxSettings
@@ -732,8 +742,17 @@ func New(deps Deps) (Model, error) {
 		folderPicker:        NewFolderPicker(),
 		calendarDetail:      NewCalendarDetail(),
 		compose:             NewCompose(),
+		attachPickInput:     newAttachPickInput(),
 		yanker:              newYanker(stdoutOSC52Writer),
 	}, nil
+}
+
+// newAttachPickInput builds the textinput used by the attachment picker
+// overlay. Initialised once in New(); reset on each Ctrl+A activation.
+func newAttachPickInput() textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = "~/Downloads/report.pdf"
+	return ti
 }
 
 // stdoutOSC52Writer writes the supplied OSC 52 escape sequence to
@@ -818,6 +837,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case composeResumeNoneMsg:
 		// Nothing to resume; this exists so tests can assert the
 		// scan-Cmd ran end-to-end on Init.
+		return m, nil
+
+	case composeEditorDoneMsg:
+		if msg.err != nil {
+			m.lastError = msg.err
+			return m, nil
+		}
+		content, err := os.ReadFile(msg.tempPath) // #nosec G304 — path is an inkwell-generated tempfile from compose.WriteTempfile
+		compose.CleanupTempfile(msg.tempPath)
+		if err != nil {
+			m.lastError = fmt.Errorf("compose: read tempfile: %w", err)
+			return m, nil
+		}
+		m.compose.SetBody(string(content))
 		return m, nil
 
 	case clearTransientMsg:
@@ -1469,6 +1502,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCalendarDetail(msg)
 	case RuleEditMode:
 		return m.updateRuleEdit(msg)
+	case AttachPickMode:
+		return m.updateAttachPick(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -1733,6 +1768,27 @@ func (m Model) updateCompose(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compose = NewCompose()
 		m.engineActivity = "draft discarded"
 		return m, nil
+	case tea.KeyCtrlE:
+		body := m.compose.Body()
+		path, err := compose.WriteTempfile(body)
+		if err != nil {
+			m.lastError = err
+			return m, nil
+		}
+		editorCmd, err := compose.EditorCmd(path)
+		if err != nil {
+			compose.CleanupTempfile(path)
+			m.lastError = err
+			return m, nil
+		}
+		return m, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+			return composeEditorDoneMsg{tempPath: path, err: err}
+		})
+	case tea.KeyCtrlA:
+		m.attachPickInput = newAttachPickInput()
+		m.attachPickInput.Focus()
+		m.mode = AttachPickMode
+		return m, textinput.Blink
 	}
 	// Any other key: forward to the focused field. textinput /
 	// textarea handle character insert / cursor movement / etc.
@@ -1780,6 +1836,59 @@ func (m Model) updateOOF(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.toggleOOFCmd(s)
 	}
 	return m, nil
+}
+
+// updateAttachPick handles input for the attachment path-input overlay.
+// Esc returns to ComposeMode; Enter validates and stages the file.
+func (m Model) updateAttachPick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, isKey := msg.(tea.KeyMsg)
+	if !isKey {
+		var cmd tea.Cmd
+		m.attachPickInput, cmd = m.attachPickInput.Update(msg)
+		return m, cmd
+	}
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		m.mode = ComposeMode
+		return m, nil
+	case tea.KeyEnter:
+		path := strings.TrimSpace(m.attachPickInput.Value())
+		if strings.HasPrefix(path, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				path = home + path[1:]
+			}
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			m.lastError = fmt.Errorf("attach: %w", err)
+			m.mode = ComposeMode
+			return m, nil
+		}
+		if m.deps.AttachmentMaxSizeMB > 0 {
+			limitBytes := int64(m.deps.AttachmentMaxSizeMB) * 1024 * 1024
+			if info.Size() > limitBytes {
+				m.lastError = fmt.Errorf("attach: file exceeds %d MB limit", m.deps.AttachmentMaxSizeMB)
+				m.mode = ComposeMode
+				return m, nil
+			}
+		}
+		if m.deps.MaxAttachments > 0 && len(m.compose.Attachments()) >= m.deps.MaxAttachments {
+			m.lastError = fmt.Errorf("attach: maximum %d attachments per draft", m.deps.MaxAttachments)
+			m.mode = ComposeMode
+			return m, nil
+		}
+		m.compose.AddAttachment(AttachmentSnapshotRef{
+			LocalPath: path,
+			Name:      filepath.Base(path),
+			SizeBytes: info.Size(),
+		})
+		m.mode = ComposeMode
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.attachPickInput, cmd = m.attachPickInput.Update(msg)
+		return m, cmd
+	}
 }
 
 // updateSettings handles input while the mailbox-settings overview modal
@@ -4573,6 +4682,14 @@ func (m Model) View() string {
 	}
 	if m.mode == ComposeMode {
 		return m.compose.View(m.theme, m.width, m.height)
+	}
+	if m.mode == AttachPickMode {
+		base := m.compose.View(m.theme, m.width, m.height)
+		prompt := m.theme.Modal.Render(
+			"Attach file:\n\n" + m.attachPickInput.View() + "\n\n" +
+				m.theme.Dim.Render("Enter to add  ·  Esc cancel"),
+		)
+		return base + "\n" + lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, prompt)
 	}
 	if m.mode == HelpMode {
 		return m.help.View(m.theme, m.keymap, m.width, m.height)

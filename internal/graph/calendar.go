@@ -27,7 +27,7 @@ type Event struct {
 
 // EventDetail extends Event with the data the spec 12 §7 detail
 // modal renders: full attendee list with response status + the
-// body preview. Returned by GetEvent($expand=attendees).
+// body preview. Returned by GetEvent with attendees in $select.
 type EventDetail struct {
 	Event
 	BodyPreview string
@@ -44,7 +44,7 @@ type EventAttendee struct {
 	Status  string
 }
 
-// rawEventDetail is the decode shape for GET /me/events/{id}?$expand=attendees.
+// rawEventDetail is the decode shape for GET /me/events/{id} with attendees in $select.
 type rawEventDetail struct {
 	ID        string `json:"id"`
 	Subject   string `json:"subject"`
@@ -279,7 +279,6 @@ func (c *Client) GetEvent(ctx context.Context, id string) (EventDetail, error) {
 		return EventDetail{}, fmt.Errorf("graph: GetEvent: id required")
 	}
 	q := url.Values{}
-	q.Set("$expand", "attendees")
 	q.Set("$select", "id,subject,organizer,start,end,isAllDay,location,onlineMeeting,showAs,webLink,bodyPreview,attendees")
 	resp, err := c.Do(ctx, http.MethodGet, "/me/events/"+url.PathEscape(id)+"?"+q.Encode(), nil, nil)
 	if err != nil {

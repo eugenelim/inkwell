@@ -88,6 +88,19 @@ timezone threading, sidebar calendar pane, week/agenda view toggle,
   `go test -tags=e2e ./internal/ui/...` ✓ (pass).
 - Result: all five mandatory commands green; DoD fully ticked.
 
+### Iter 6 — 2026-05-05 (bugfix: $expand=attendees → $select only)
+- Slice: `graph.GetEvent` was sending `$expand=attendees` which Graph
+  rejects with "BadRequest: attendees is not a navigation property or
+  complex property" — because `attendees` is a regular collection
+  property on `microsoft.graph.event`, not a navigation link.
+- Fix: removed `q.Set("$expand", "attendees")` in `GetEvent`; kept
+  `attendees` in `$select`. Graph returns the attendee list as part of
+  the event payload when it appears in `$select`.
+- Added `TestGetEvent_NoExpandAttendees` to lock in the fix: asserts
+  `$expand` does NOT reference attendees, `$select` DOES contain it,
+  and the response is decoded correctly.
+- Commands: `go vet ./...` clean; `go test -race ./internal/graph/...` green.
+
 ### Iter 4 — 2026-05-02 (sync engine + day nav + attendees persistence, PR 6b-ii of audit-drain)
 - Slice: spec 12 §4.2 (ListCalendarDelta), §5 (engine 3rd state +
   SyncCalendar API), §5.1 (midnight window slide), §6.2 (]/[/{/}/t

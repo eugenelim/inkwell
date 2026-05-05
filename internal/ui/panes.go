@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
@@ -1049,7 +1050,7 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	// sees what's attached before scrolling. Real-tenant complaint
 	// 2026-05-01: previously the only signal was the list-pane
 	// `📎` glyph; the user couldn't see filenames at all.
-	attLines := renderAttachmentLines(m.attachments)
+	attLines := renderAttachmentLines(m.attachments, t.RenderTheme)
 	hdrs = append(hdrs, attLines...)
 	body := m.body
 	if body == "" {
@@ -1084,18 +1085,18 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 // shown above the body (spec 05 §8). One line per attachment with an
 // accelerator letter prefix `[a]`, `[b]`, … so the user can press
 // that letter to save, or Shift+letter to open (spec 05 §12 / PR 10).
-func renderAttachmentLines(atts []store.Attachment) []string {
+func renderAttachmentLines(atts []store.Attachment, renderTheme render.Theme) []string {
 	if len(atts) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(atts)+2)
-	out = append(out, "Attach:  "+attachmentSummary(atts))
+	out = append(out, renderTheme.Attachment.Render("Attach:  "+attachmentSummary(atts)))
 	for i, a := range atts {
 		letter := "?"
 		if i < 26 {
 			letter = string(rune('a' + i))
 		}
-		out = append(out, "  ["+letter+"] "+attachmentLine(a))
+		out = append(out, renderTheme.Attachment.Render("  ["+letter+"] "+attachmentLine(a)))
 	}
 	out = append(out, "")
 	return out

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -3634,8 +3635,8 @@ func TestBodyRenderedMsgPopulatesAttachmentsBlock(t *testing.T) {
 // helper returns nil for an empty list — the viewer's tight height
 // budget shouldn't be wasted on a header for zero entries.
 func TestRenderAttachmentLinesEmptyForNoAttachments(t *testing.T) {
-	require.Nil(t, renderAttachmentLines(nil))
-	require.Nil(t, renderAttachmentLines([]store.Attachment{}))
+	require.Nil(t, renderAttachmentLines(nil, render.Theme{}))
+	require.Nil(t, renderAttachmentLines([]store.Attachment{}, render.Theme{}))
 }
 
 // TestComposeSessionPersistsOnEntry covers the spec 15 §7 / PR 7-ii
@@ -5803,4 +5804,163 @@ func TestRuleEditEKeyOnSavedSearchRowOpenModal(t *testing.T) {
 	// setup (no real folders loaded) — that's OK; the core logic tested
 	// by TestRuleEditCommandOpensModal. We just verify no panic/crash.
 	_ = m.mode
+}
+
+// TestUpdateComposeCtrlE_LaunchesExecProcess asserts that Ctrl+E in
+// ComposeMode returns a non-nil Cmd (the tea.ExecProcess cmd for the
+// editor). The mode stays ComposeMode — the Cmd suspends the program.
+func TestUpdateComposeCtrlE_LaunchesExecProcess(t *testing.T) {
+	// Use cat as a known-present no-op editor so the test is
+	// environment-independent. exec.LookPath("cat") resolves via PATH.
+	t.Setenv("INKWELL_EDITOR", "cat")
+
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Enter ComposeMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+
+	// Ctrl+E in ComposeMode must return a non-nil Cmd (ExecProcess).
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m = m2.(Model)
+	// The mode remains ComposeMode before the editor exits.
+	require.Equal(t, ComposeMode, m.mode)
+	require.NotNil(t, cmd, "Ctrl+E must return a non-nil ExecProcess cmd")
+}
+
+// TestComposeEditorDoneMsg_ErrorPath asserts that a composeEditorDoneMsg
+// with a non-nil err sets m.lastError and keeps the mode unchanged.
+func TestComposeEditorDoneMsg_ErrorPath(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Enter ComposeMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+
+	// Deliver an error done message.
+	m2, _ = m.Update(composeEditorDoneMsg{err: fmt.Errorf("oops")})
+	m = m2.(Model)
+	require.NotNil(t, m.lastError, "error path must set m.lastError")
+}
+
+// TestAttachPickMode_OpenClose asserts that Ctrl+A in ComposeMode
+// enters AttachPickMode and Esc returns to ComposeMode.
+func TestAttachPickMode_OpenClose(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Enter ComposeMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+
+	// Ctrl+A opens AttachPickMode.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	m = m2.(Model)
+	require.Equal(t, AttachPickMode, m.mode, "Ctrl+A must enter AttachPickMode")
+
+	// Esc returns to ComposeMode.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "Esc must return to ComposeMode")
+}
+
+// TestAttachPickMode_AddAttachment creates a real temp file, opens the
+// attach picker, types the path, and presses Enter. It asserts that
+// m.compose.Attachments() has exactly one entry with the correct name
+// and size.
+func TestAttachPickMode_AddAttachment(t *testing.T) {
+	// Write a real temp file so os.Lstat succeeds.
+	content := []byte("attachment content")
+	dir := t.TempDir()
+	tmpFile := filepath.Join(dir, "report.pdf")
+	require.NoError(t, os.WriteFile(tmpFile, content, 0o600))
+
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+
+	// Enter ComposeMode then AttachPickMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	m = m2.(Model)
+	require.Equal(t, AttachPickMode, m.mode)
+
+	// Type the file path character by character.
+	for _, ch := range tmpFile {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = m2.(Model)
+	}
+
+	// Press Enter to stage the attachment.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode, "Enter must return to ComposeMode")
+	atts := m.compose.Attachments()
+	require.Len(t, atts, 1, "one attachment must be staged")
+	require.Equal(t, "report.pdf", atts[0].Name)
+	require.Equal(t, int64(len(content)), atts[0].SizeBytes)
+}
+
+// TestAttachPickMode_TooLarge asserts that a file exceeding the size
+// limit is rejected with an error status, the mode returns to
+// ComposeMode, and no attachment is staged.
+func TestAttachPickMode_TooLarge(t *testing.T) {
+	// Write a file just above 1 MB.
+	dir := t.TempDir()
+	tmpFile := filepath.Join(dir, "big.bin")
+	big := make([]byte, 2*1024*1024) // 2 MB
+	require.NoError(t, os.WriteFile(tmpFile, big, 0o600))
+
+	m := newDispatchTestModel(t)
+	m.deps.Drafts = stubDraftCreator{}
+	m.deps.AttachmentMaxSizeMB = 1
+
+	// Enter ComposeMode then AttachPickMode.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	m = m2.(Model)
+
+	for _, ch := range tmpFile {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, ComposeMode, m.mode, "must return to ComposeMode on rejection")
+	require.NotNil(t, m.lastError, "must set an error for oversized file")
+	require.Empty(t, m.compose.Attachments(), "no attachment must be staged")
+}
+
+// TestComposeSnapshot_IncludesAttachments verifies that the attachment
+// list round-trips through Snapshot / Restore.
+func TestComposeSnapshot_IncludesAttachments(t *testing.T) {
+	c := NewCompose()
+	ref := AttachmentSnapshotRef{LocalPath: "/tmp/a.pdf", Name: "a.pdf", SizeBytes: 1234}
+	c.AddAttachment(ref)
+
+	snap := c.Snapshot()
+	require.Len(t, snap.Attachments, 1)
+	require.Equal(t, ref, snap.Attachments[0])
+
+	c2 := NewCompose()
+	c2.Restore(snap)
+	require.Equal(t, c.Attachments(), c2.Attachments(), "attachments must survive Snapshot/Restore")
 }

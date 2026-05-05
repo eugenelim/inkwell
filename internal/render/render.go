@@ -290,7 +290,7 @@ func (r *renderer) renderBody(b store.Body, opts BodyOpts) BodyView {
 	content := r.applyStripPatterns(b.Content)
 	switch strings.ToLower(b.ContentType) {
 	case "html":
-		text, links, err := r.htmlToTextWithConfig(content, width, opts.URLDisplayMaxWidth)
+		text, links, err := r.htmlToTextWithConfig(content, width, opts.URLDisplayMaxWidth, opts.Theme)
 		if err != nil {
 			return BodyView{State: BodyError, Text: "html conversion failed"}
 		}
@@ -300,8 +300,8 @@ func (r *renderer) renderBody(b store.Body, opts BodyOpts) BodyView {
 		}
 		return BodyView{State: BodyReady, Text: text, TextExpanded: expanded, Links: links}
 	default:
-		text, links := normalisePlain(content, width, opts.URLDisplayMaxWidth, r.quoteCollapseThreshold)
-		expanded, _ := normalisePlain(content, width, opts.URLDisplayMaxWidth, 0)
+		text, links := normalisePlain(content, width, opts.URLDisplayMaxWidth, r.quoteCollapseThreshold, opts.Theme)
+		expanded, _ := normalisePlain(content, width, opts.URLDisplayMaxWidth, 0, opts.Theme)
 		return BodyView{State: BodyReady, Text: text, TextExpanded: expanded, Links: links}
 	}
 }

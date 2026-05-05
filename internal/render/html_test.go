@@ -16,7 +16,7 @@ func TestExternalConverterFallsBackOnError(t *testing.T) {
 		externalConverterTimeout: 0, // use default 5s
 	}
 	html := `<p>Hello <b>world</b></p>`
-	text, links, err := r.htmlToTextWithConfig(html, 80, 0)
+	text, links, err := r.htmlToTextWithConfig(html, 80, 0, Theme{})
 	require.NoError(t, err, "fallback to internal must succeed even when external command fails")
 	require.Contains(t, text, "Hello", "internal fallback must produce readable text")
 	_ = links
@@ -32,7 +32,7 @@ func TestExternalConverterUsesStdout(t *testing.T) {
 		externalConverterTimeout: 0,
 	}
 	html := `<p>ignored html content</p>`
-	text, _, err := r.htmlToTextWithConfig(html, 80, 0)
+	text, _, err := r.htmlToTextWithConfig(html, 80, 0, Theme{})
 	require.NoError(t, err)
 	require.Contains(t, text, "plain text from converter", "output must be the command's stdout")
 }
@@ -43,7 +43,7 @@ func TestInternalConverterUsedWhenConfigured(t *testing.T) {
 		htmlConverter: "internal",
 	}
 	html := `<p>Hello <a href="https://example.invalid/x">link</a></p>`
-	text, links, err := r.htmlToTextWithConfig(html, 80, 0)
+	text, links, err := r.htmlToTextWithConfig(html, 80, 0, Theme{})
 	require.NoError(t, err)
 	require.Contains(t, text, "Hello", "internal converter must produce readable text")
 	require.True(t, anyLinkContains(links, "example.invalid/x"), "internal converter must extract links")

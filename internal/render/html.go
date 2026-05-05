@@ -20,7 +20,7 @@ var trackingPixel = regexp.MustCompile(`(?i)<img[^>]*\s(?:width|height)\s*=\s*["
 // the converted text plus the numbered link block. urlMaxDisplay is
 // passed through to the OSC 8 hyperlink wrapping (0 = no
 // truncation; see [BodyOpts.URLDisplayMaxWidth]).
-func htmlToText(html string, width, urlMaxDisplay int) (string, []ExtractedLink, error) {
+func htmlToText(html string, width, urlMaxDisplay int, theme Theme) (string, []ExtractedLink, error) {
 	cleaned := trackingPixel.ReplaceAllString(html, "")
 	text, err := html2text.FromString(cleaned, html2text.Options{
 		PrettyTables: false,
@@ -29,24 +29,24 @@ func htmlToText(html string, width, urlMaxDisplay int) (string, []ExtractedLink,
 	if err != nil {
 		return "", nil, err
 	}
-	out, links := normalisePlain(text, width, urlMaxDisplay, 0)
+	out, links := normalisePlain(text, width, urlMaxDisplay, 0, theme)
 	return out, links, nil
 }
 
 // htmlToTextWithConfig converts HTML using the renderer's configured
 // backend. Falls back to the internal html2text path on error.
-func (r *renderer) htmlToTextWithConfig(html string, width, urlMaxDisplay int) (string, []ExtractedLink, error) {
+func (r *renderer) htmlToTextWithConfig(html string, width, urlMaxDisplay int, theme Theme) (string, []ExtractedLink, error) {
 	if r.htmlConverter == "external" && r.htmlConverterCmd != "" {
 		text, err := runExternalConverter(r.htmlConverterCmd, html, r.externalConverterTimeout)
 		if err == nil {
-			out, links := normalisePlain(text, width, urlMaxDisplay, 0)
+			out, links := normalisePlain(text, width, urlMaxDisplay, 0, theme)
 			return out, links, nil
 		}
 		if r.logger != nil {
 			r.logger.Warn("external html converter failed, falling back to internal", slog.String("err", err.Error()))
 		}
 	}
-	return htmlToText(html, width, urlMaxDisplay)
+	return htmlToText(html, width, urlMaxDisplay, theme)
 }
 
 // runExternalConverter pipes html into cmd's stdin and returns stdout.

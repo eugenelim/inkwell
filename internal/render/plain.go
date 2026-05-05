@@ -17,7 +17,7 @@ var attributionLine = regexp.MustCompile(`(?i)^On .{1,80}, .{1,80} wrote:$`)
 // visible OSC 8 text width (0 = no truncation); the URL portion stays
 // full regardless. See [BodyOpts.URLDisplayMaxWidth]. quoteThreshold
 // collapses runs of quoted lines at depth ≥ threshold (0 = disabled).
-func normalisePlain(content string, width, urlMaxDisplay, quoteThreshold int) (string, []ExtractedLink) {
+func normalisePlain(content string, width, urlMaxDisplay, quoteThreshold int, theme Theme) (string, []ExtractedLink) {
 	if width < 20 {
 		width = 80
 	}
@@ -64,9 +64,9 @@ func normalisePlain(content string, width, urlMaxDisplay, quoteThreshold int) (s
 	// terminals make them clickable so users don't drag-select
 	// across pane borders. Done BEFORE the link block is appended
 	// so the [N] references in the body itself become clickable.
-	body = linkifyURLsInText(body, urlMaxDisplay)
+	body = linkifyURLsInText(body, urlMaxDisplay, theme)
 	if len(links) > 0 {
-		body += renderLinkBlock(links)
+		body += renderLinkBlock(links, theme)
 	}
 	return body, links
 }

@@ -93,7 +93,8 @@ type ComposeModel struct {
 	subject textinput.Model
 	body    textarea.Model
 
-	focused ComposeFieldKind
+	focused     ComposeFieldKind
+	attachments []AttachmentSnapshotRef
 }
 
 // NewCompose builds an empty compose model with focus on the body
@@ -130,6 +131,16 @@ func (m ComposeModel) Subject() string { return m.subject.Value() }
 func (m ComposeModel) Body() string    { return m.body.Value() }
 func (m ComposeModel) Focused() ComposeFieldKind {
 	return m.focused
+}
+
+// Attachments returns the staged local-file attachments for this session.
+func (m ComposeModel) Attachments() []AttachmentSnapshotRef {
+	return append([]AttachmentSnapshotRef(nil), m.attachments...)
+}
+
+// AddAttachment appends ref to the staged attachment list.
+func (m *ComposeModel) AddAttachment(ref AttachmentSnapshotRef) {
+	m.attachments = append(m.attachments, ref)
 }
 
 // SetTo / SetCc / SetSubject / SetBody set field values. Used by
@@ -207,6 +218,18 @@ func (m *ComposeModel) ApplyNewSkeleton() {
 	m.SetSubject("")
 	m.SetBody("")
 	m.setFocus(ComposeFieldTo)
+}
+
+// humanComposeBytes formats a byte count for the staged-attachment list.
+func humanComposeBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%dB", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+	}
 }
 
 // replyPrefix returns the subject decorated with "Re: ". A subject
@@ -360,12 +383,13 @@ func (m ComposeModel) UpdateField(msg tea.Msg) (ComposeModel, tea.Cmd) {
 // shape. PR 7-ii's compose_sessions persistence consumes this.
 func (m ComposeModel) Snapshot() ComposeSnapshot {
 	return ComposeSnapshot{
-		Kind:     m.Kind,
-		SourceID: m.SourceID,
-		To:       m.To(),
-		Cc:       m.Cc(),
-		Subject:  m.Subject(),
-		Body:     m.Body(),
+		Kind:        m.Kind,
+		SourceID:    m.SourceID,
+		To:          m.To(),
+		Cc:          m.Cc(),
+		Subject:     m.Subject(),
+		Body:        m.Body(),
+		Attachments: m.Attachments(),
 	}
 }
 
@@ -378,6 +402,7 @@ func (m *ComposeModel) Restore(s ComposeSnapshot) {
 	m.SetCc(s.Cc)
 	m.SetSubject(s.Subject)
 	m.SetBody(s.Body)
+	m.attachments = s.Attachments
 }
 
 // View renders the compose pane: headers stacked at the top, body
@@ -432,9 +457,23 @@ func (m ComposeModel) View(t Theme, width, height int) string {
 	}
 	bodySection := bodyLabel + bodyLabelStyle.Render("Body:") + "\n" + body.View()
 
-	footer := t.Dim.Render("Ctrl+S / Esc save  ·  Ctrl+D discard  ·  Tab cycle field")
+	var attSection string
+	if len(m.attachments) > 0 {
+		lines := make([]string, 0, len(m.attachments))
+		for _, a := range m.attachments {
+			lines = append(lines, fmt.Sprintf("  [a] %s · %s", a.Name, humanComposeBytes(a.SizeBytes)))
+		}
+		attSection = strings.Join(lines, "\n")
+	}
 
-	composed := strings.Join([]string{header, "", bodySection, "", footer}, "\n")
+	footer := t.Dim.Render("Ctrl+S / Esc save  ·  Ctrl+D discard  ·  Tab cycle field  ·  Ctrl+E editor  ·  Ctrl+A attach")
+
+	parts := []string{header, "", bodySection}
+	if attSection != "" {
+		parts = append(parts, "", attSection)
+	}
+	parts = append(parts, "", footer)
+	composed := strings.Join(parts, "\n")
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top,
 		t.Modal.Render(composed))
 }

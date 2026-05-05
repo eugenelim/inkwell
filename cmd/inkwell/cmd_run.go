@@ -257,6 +257,8 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		OOOIndicator:             cfg.MailboxSettings.OOOIndicator,
 		MailboxRefreshInterval:   cfg.MailboxSettings.RefreshInterval,
 		DraftWebLinkTTL:          cfg.Compose.WebLinkTTL,
+		AttachmentMaxSizeMB:      cfg.Compose.AttachmentMaxSizeMB,
+		MaxAttachments:           cfg.Compose.MaxAttachments,
 		CalendarTZ:               sm.ResolvedTimeZone(),
 		CalendarSidebarDays:      cfg.Calendar.SidebarShowDays,
 		SavedSearchBgRefresh:     cfg.SavedSearch.BackgroundRefreshInterval,

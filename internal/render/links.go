@@ -174,14 +174,14 @@ func isWrappedURLContinuation(prev, next string) bool {
 // Terminals without OSC 8 support (Apple Terminal.app, older xterm)
 // silently strip the escape; the URL still renders as plain text and
 // the user falls back to the numbered-link `1`-`9` keys (spec 05 §9).
-func renderLinkBlock(links []ExtractedLink) string {
+func renderLinkBlock(links []ExtractedLink, theme Theme) string {
 	if len(links) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\nLinks:\n")
 	for _, l := range links {
-		fmt.Fprintf(&b, "  [%d] %s\n", l.Index, osc8(l.URL, l.URL))
+		fmt.Fprintf(&b, "  [%d] %s\n", l.Index, theme.Link.Render(osc8(l.URL, l.URL)))
 	}
 	return b.String()
 }
@@ -234,7 +234,7 @@ func osc8LinkID(url string) string {
 // a phishing URL at a glance. The full URL is also retained in the
 // trailing `Links:` block produced by [renderLinkBlock] so the
 // user has one always-untruncated source of truth.
-func linkifyURLsInText(body string, urlMaxDisplay int) string {
+func linkifyURLsInText(body string, urlMaxDisplay int, theme Theme) string {
 	return urlPattern.ReplaceAllStringFunc(body, func(u string) string {
 		trimmed := trimTrailingPunct(u)
 		if trimmed == "" {
@@ -243,7 +243,7 @@ func linkifyURLsInText(body string, urlMaxDisplay int) string {
 		// Preserve any trailing punctuation we didn't consume.
 		suffix := u[len(trimmed):]
 		display := truncateURLForDisplay(trimmed, urlMaxDisplay)
-		return osc8(trimmed, display) + suffix
+		return theme.Link.Render(osc8(trimmed, display)) + suffix
 	})
 }
 

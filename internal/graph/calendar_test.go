@@ -141,9 +141,57 @@ func TestListCalendarDeltaWithDeltaLink(t *testing.T) {
 	require.Empty(t, result.Removed)
 }
 
-// TestListCalendarDeltaSurfaces410 verifies that a 410 response is returned
-// as an error that IsSyncStateNotFound can classify. The sync engine handles
-// the reset; the graph layer just surfaces the error faithfully.
+// TestGetEvent_NoExpandAttendees verifies that GetEvent uses $select (not
+// $expand) for attendees. $expand on attendees causes Graph to return
+// "BadRequest: attendees is not a navigation property" because attendees
+// is a regular collection property on microsoft.graph.event, not a nav link.
+func TestGetEvent_NoExpandAttendees(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Contains(t, r.URL.Path, "/me/events/")
+		q := r.URL.Query()
+		require.NotContains(t, q.Get("$expand"), "attendees", "$expand must not reference attendees")
+		require.Contains(t, q.Get("$select"), "attendees", "attendees must be in $select")
+
+		resp := map[string]any{
+			"id":       "ev-1",
+			"subject":  "Q4 Planning",
+			"start":    map[string]any{"dateTime": "2026-05-10T10:00:00.0000000"},
+			"end":      map[string]any{"dateTime": "2026-05-10T11:00:00.0000000"},
+			"isAllDay": false,
+			"organizer": map[string]any{"emailAddress": map[string]any{
+				"name": "Alice", "address": "alice@example.invalid",
+			}},
+			"showAs":      "busy",
+			"webLink":     "https://outlook.example.invalid/event/1",
+			"bodyPreview": "Let's plan Q4.",
+			"attendees": []map[string]any{
+				{
+					"emailAddress": map[string]any{
+						"name":    "Bob",
+						"address": "bob@example.invalid",
+					},
+					"status": map[string]any{"response": "accepted"},
+					"type":   "required",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(resp))
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+
+	det, err := c.GetEvent(context.Background(), "ev-1")
+	require.NoError(t, err)
+	require.Equal(t, "Q4 Planning", det.Subject)
+	require.Len(t, det.Attendees, 1)
+	require.Equal(t, "bob@example.invalid", det.Attendees[0].Address)
+	require.Equal(t, "accepted", det.Attendees[0].Status)
+}
+
 func TestListCalendarDeltaSurfaces410(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusGone)

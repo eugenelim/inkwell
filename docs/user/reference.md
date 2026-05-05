@@ -246,6 +246,8 @@ While in compose:
 | `Ctrl+S`       | Save the draft, close the pane                      |
 | `Esc`          | Save (alias for Ctrl+S — the "I'm done" gesture)    |
 | `Ctrl+D`       | Discard the draft (no Graph round-trip)             |
+| `Ctrl+E`       | Open the body in `$INKWELL_EDITOR` / `$EDITOR` / nano; apply on exit |
+| `Ctrl+A`       | Attach a local file — opens a path-input prompt     |
 
 Save dispatches via the action queue to Microsoft Graph: Reply /
 Reply All / Forward use a two-stage createReply* + PATCH; New

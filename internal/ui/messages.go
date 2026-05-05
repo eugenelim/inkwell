@@ -45,7 +45,17 @@ const (
 	SettingsMode
 	// RuleEditMode is the spec 11 B-2 edit modal for saved searches.
 	RuleEditMode
+	// AttachPickMode is the file-path prompt for staging a local
+	// attachment in the compose pane (spec 15 §5 / plan item 27).
+	AttachPickMode
 )
+
+// composeEditorDoneMsg is returned by tea.ExecProcess when the user's
+// $EDITOR exits after a Ctrl+E drop-out from the compose pane.
+type composeEditorDoneMsg struct {
+	tempPath string
+	err      error
+}
 
 // SyncEventMsg wraps a sync.Event for delivery into Bubble Tea's update
 // loop. The engine's Notifications() channel is consumed by a
