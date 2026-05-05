@@ -69,6 +69,23 @@ func (e *Executor) BulkRemoveCategory(ctx context.Context, accountID int64, mess
 	return e.batchExecute(ctx, accountID, store.ActionRemoveCategory, messageIDs, map[string]any{"category": category}, false)
 }
 
+// BulkMove moves N messages to the user-specified destination folder via /$batch.
+// destFolderID is the Graph folder ID; destAlias is the well-known name if known
+// (e.g. "archive", "deleteditems") — the Graph API accepts either.
+func (e *Executor) BulkMove(ctx context.Context, accountID int64, messageIDs []string, destFolderID, destAlias string) ([]BatchResult, error) {
+	if destFolderID == "" && destAlias == "" {
+		return nil, fmt.Errorf("bulk_move: destination required")
+	}
+	dest := destFolderID
+	if dest == "" {
+		dest = destAlias
+	}
+	return e.batchExecute(ctx, accountID, store.ActionMove, messageIDs, map[string]any{
+		"destination_folder_id":    dest,
+		"destination_folder_alias": destAlias,
+	}, false)
+}
+
 // BatchExecute applies a single action type to many messages via /$batch.
 // Local mutations apply optimistically; per-message Graph failures roll back
 // only that message. Successful messages are marked Done and get a composite
@@ -96,7 +113,9 @@ func (e *Executor) batchExecute(ctx context.Context, accountID int64, actionType
 		return nil, fmt.Errorf("batchExecute: %d messages exceeds hard max %d", len(messageIDs), hardMax)
 	}
 
-	// Resolve well-known destinations once for move-like actions.
+	// Resolve well-known destinations once for move-like actions,
+	// unless the caller already provided a destination in extraParams
+	// (e.g. BulkMove to a user-chosen folder).
 	destID, destAlias := "", ""
 	switch actionType {
 	case store.ActionSoftDelete:
@@ -106,10 +125,12 @@ func (e *Executor) batchExecute(ctx context.Context, accountID int64, actionType
 			return nil, err
 		}
 	case store.ActionMove:
-		var err error
-		destID, destAlias, err = e.resolveWellKnownDestination(ctx, accountID, "archive")
-		if err != nil {
-			return nil, err
+		if _, hasExplicit := extraParams["destination_folder_id"]; !hasExplicit {
+			var err error
+			destID, destAlias, err = e.resolveWellKnownDestination(ctx, accountID, "archive")
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

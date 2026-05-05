@@ -442,6 +442,11 @@ func (b bulkAdapter) BulkRemoveCategory(ctx context.Context, accountID int64, id
 	return convertBatchResults(got), err
 }
 
+func (b bulkAdapter) BulkMove(ctx context.Context, accountID int64, ids []string, destFolderID, destAlias string) ([]ui.BulkResult, error) {
+	got, err := b.exec.BulkMove(ctx, accountID, ids, destFolderID, destAlias)
+	return convertBatchResults(got), err
+}
+
 // draftAdapter bridges action.Executor.CreateDraftReply →
 // ui.DraftCreator. Same shape; the adapter exists so the UI doesn't
 // import internal/action.
@@ -977,9 +982,9 @@ func newSearchAdapter(st store.Store, gc *graph.Client, accountID int64, cfg con
 //
 // folderID scopes the search to a single folder; empty = all folders
 // (spec 06 §5.3 --all mode).
-func (a searchAdapter) Search(ctx context.Context, query, folderID string) (<-chan ui.SearchSnapshot, func()) {
+func (a searchAdapter) Search(ctx context.Context, query, folderID string, sortByRelevance bool) (<-chan ui.SearchSnapshot, func()) {
 	out := make(chan ui.SearchSnapshot, 4)
-	stream := a.searcher.Search(ctx, search.Query{Text: query, FolderID: folderID})
+	stream := a.searcher.Search(ctx, search.Query{Text: query, FolderID: folderID, SortByRelevance: sortByRelevance})
 	go func() {
 		defer close(out)
 		var localCount, serverCount, bothCount int

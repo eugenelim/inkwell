@@ -24,6 +24,7 @@ explicitly deferred.
 - [x] On Confirm-yes, BulkExecutor dispatches via spec 09's BatchExecute. Status bar shows "✓ <action> N" or "⚠ <action> X/Y" partial.
 - [x] Filter clears after a successful bulk; list reloads from the prior folder.
 - [x] Tests: dispatch cases for all 9 verb chords, F key, ;F inside chord, ;c full flow.
+- [x] `;m` — bulk move all filtered to a user-chosen folder (folder picker, then BulkMove). Shipped 2026-05-05.
 - [ ] Search → filter conversion (post-`/`-search press F) — deferred.
 - [ ] Progress modal during long bulk ops — deferred. Status bar suffices for v1.
 - [ ] Composite undo (single undo entry for the whole bulk op) — handled by spec 09 batch layer; undo overlay deferred to spec 11.
@@ -31,6 +32,27 @@ explicitly deferred.
 - [ ] Dry-run mode (`:filter --dry-run` / `!` suffix) — deferred.
 
 ## Iteration log
+
+### Iter 3 — 2026-05-05 (`;m` bulk-move via folder picker)
+- Slice: `;m` chord opens `FolderPickerMode` with `pendingBulkMove=true`; Enter
+  in picker calls `runBulkMoveCmd`; Esc clears flag. `action.BulkMove` added to
+  batch layer; `batchExecute` skips archive well-known resolution when
+  `extraParams` already supplies a destination. `bulkAdapter.BulkMove` wired in
+  `cmd/inkwell/cmd_run.go`.
+- Files modified:
+  - `internal/ui/app.go`: `BulkExecutor` gains `BulkMove`; `Model.pendingBulkMove
+    bool`; `;m` chord case; `updateFolderPicker` Enter routes to `runBulkMoveCmd`
+    when `pendingBulkMove`; `runBulkMoveCmd` added.
+  - `internal/action/batch.go`: `Executor.BulkMove` added; `batchExecute`
+    skips archive resolution for `ActionMove` when `extraParams` has explicit dest.
+  - `cmd/inkwell/cmd_run.go`: `bulkAdapter.BulkMove` added.
+  - `internal/ui/dispatch_test.go`: `stubBulkExecutor.BulkMove` added;
+    `TestSemicolonMOpensFolderPickerWithBulkMoveFlag`,
+    `TestSemicolonMEnterDispatchesBulkMove`,
+    `TestSemicolonMEscClearsPendingBulkMove` added.
+  - `docs/user/reference.md`: `;m` row added to bulk-chord table.
+- Commands: `go vet ./...` ✓, `go test -race ./...` ✓, `go test -tags=e2e ./...` ✓,
+  `go test -tags=integration ./...` ✓.
 
 ### Iter 2 — 2026-05-02 (PR A-3: full verb set + F key + ;c/;C + confirm sample)
 - Slice: UI, tests.

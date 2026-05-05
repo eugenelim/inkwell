@@ -68,6 +68,9 @@ type Query struct {
 	// should not normally need this — local-first is the spec's
 	// invariant.
 	ServerOnly bool
+	// SortByRelevance sorts results by BM25 score (ascending, lower=better)
+	// instead of the default received_at DESC. Spec 06 §4.3 optional flag.
+	SortByRelevance bool
 }
 
 // Stream is the streaming Searcher result handle. Updates emits
@@ -204,7 +207,7 @@ func (s *Searcher) Search(ctx context.Context, q Query) *Stream {
 	}
 
 	parsed := ParseQuery(q.Text)
-	mrg := newMerger(s.opts.EmitThrottle, q.Limit)
+	mrg := newMerger(s.opts.EmitThrottle, q.Limit, q.SortByRelevance)
 	mrg.start(cctx, st.updates)
 
 	var wg sync.WaitGroup

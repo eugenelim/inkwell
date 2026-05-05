@@ -17,11 +17,32 @@ UI streaming (v0.17.x, PR 8).
 - [x] Highlighting / snippet generation — **closed by PR 8.** highlight.go produces match-anchored 120-char snippets with markdown-style asterisk emphasis around the first matching term.
 - [x] Field-prefix syntax (`from:` / `subject:` / `body:`) — **closed by PR 8.** ParseQuery extracts prefixed values; BuildFTSQuery + BuildGraphSearchQuery render to per-engine column scopes.
 - [x] Result merging (dedup + SourceBoth promotion + received-date-DESC sort) — **closed by PR 8** with table-driven tests covering overlap, sort, dedup.
-- [ ] Saved searches — spec 11.
-- [ ] Cross-folder match — already implicit (the FTS5 query has no folder scope unless we set FolderID); the streaming searcher passes Query.FolderID through to both branches.
-- [ ] CLI `:search --all` flag — deferred (depends on the same `--flag` parser the CLI mode work in spec 14 will land).
+- [x] Saved searches — spec 11 (done separately).
+- [x] Cross-folder match — `--all` prefix clears `searchFolderID` (Iter 3 / PR H-3).
+- [ ] CLI `:search --all` flag — deferred (depends on spec 14 flag parser).
+- [x] `--sort=relevance` flag — BM25 ascending sort (Iter 4).
 
 ## Iteration log
+
+### Iter 4 — 2026-05-05 (`--sort=relevance` BM25 sort)
+- Slice: spec 06 §4.3 — optional `--sort=relevance` prefix sorts results by
+  BM25 score ascending (lower = better) instead of received-date DESC.
+- Files modified:
+  - `internal/search/search.go`: `Query.SortByRelevance bool` added.
+  - `internal/search/merge.go`: `merger.sortByRelevance bool` field; `newMerger`
+    gains param; `snapshot()` branches on `sortByRelevance` to sort by
+    `Score` ascending instead of `ReceivedAt` DESC.
+  - `internal/ui/app.go`: `SearchService.Search` interface gains `sortByRelevance bool`
+    param; `Model.searchSortByRelev bool` field; `updateSearch` strips
+    `--sort=relevance` prefix and sets flag; `startStreamingSearchCmd` passes flag.
+  - `cmd/inkwell/cmd_run.go`: `searchAdapter.Search` passes `SortByRelevance` to
+    `search.Query`.
+  - `internal/ui/dispatch_test.go`: `stubSearchService` gains `lastSortRelev` field;
+    added `TestSearchSortByRelevancePrefixSetsFlag`,
+    `TestSearchSortByRelevanceNotSetByDefault`.
+  - `docs/user/reference.md`: added `--sort=relevance` row to search mode table.
+- Commands: `go vet ./...` ✓, `go test -race ./...` ✓, `go test -tags=e2e ./...` ✓,
+  `go test -tags=integration ./...` ✓. All regress gates green.
 
 ### Iter 3 — 2026-05-04 (`--all` cross-folder search, PR H-3)
 - Slice: spec 06 §5.3 — `--all` prefix scopes TUI search across all

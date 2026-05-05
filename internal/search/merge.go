@@ -10,11 +10,12 @@ import (
 // merger holds the canonical merged result set across both
 // branches. Each `add` dedups by message ID, marks Both for
 // overlapping rows, resorts by spec 06 §4.3 policy
-// (received_at DESC), truncates to limit, and signals the
-// debouncer to emit on the next throttle window.
+// (received_at DESC unless sortByRelevance), truncates to limit,
+// and signals the debouncer to emit on the next throttle window.
 type merger struct {
-	throttle time.Duration
-	limit    int
+	throttle        time.Duration
+	limit           int
+	sortByRelevance bool
 
 	mu      sync.Mutex
 	results map[string]*Result // keyed by message id
@@ -24,14 +25,15 @@ type merger struct {
 	flushed chan struct{} // closed when the debouncer goroutine exits
 }
 
-func newMerger(throttle time.Duration, limit int) *merger {
+func newMerger(throttle time.Duration, limit int, sortByRelevance bool) *merger {
 	return &merger{
-		throttle: throttle,
-		limit:    limit,
-		results:  make(map[string]*Result),
-		pending:  make(chan struct{}, 1),
-		closed:   make(chan struct{}),
-		flushed:  make(chan struct{}),
+		throttle:        throttle,
+		limit:           limit,
+		sortByRelevance: sortByRelevance,
+		results:         make(map[string]*Result),
+		pending:         make(chan struct{}, 1),
+		closed:          make(chan struct{}),
+		flushed:         make(chan struct{}),
 	}
 }
 
@@ -71,8 +73,10 @@ func (m *merger) add(rs []Result) {
 }
 
 // snapshot produces the current sorted+truncated result slice.
-// Spec 06 §4.3: received_at DESC; SourceBoth ranks ahead of
+// Default (spec 06 §4.3): received_at DESC; SourceBoth ranks ahead of
 // single-source ties; BM25 score is the within-bucket tiebreaker.
+// When sortByRelevance is set: BM25 score ASC (lower = better) is the
+// primary key, SourceBoth still ranks ahead of single-source ties.
 func (m *merger) snapshot() []Result {
 	m.mu.Lock()
 	out := make([]Result, 0, len(m.results))
@@ -88,6 +92,10 @@ func (m *merger) snapshot() []Result {
 		bj := sourcePriority(out[j].Source)
 		if bi != bj {
 			return bi < bj
+		}
+		if m.sortByRelevance {
+			// BM25 ascending (lower score = more relevant in FTS5).
+			return out[i].Score < out[j].Score
 		}
 		ri := out[i].Message.ReceivedAt
 		rj := out[j].Message.ReceivedAt

@@ -837,6 +837,9 @@ func (s stubBulkExecutor) BulkAddCategory(_ context.Context, _ int64, ids []stri
 func (s stubBulkExecutor) BulkRemoveCategory(_ context.Context, _ int64, ids []string, _ string) ([]BulkResult, error) {
 	return bulkOK(ids)
 }
+func (s stubBulkExecutor) BulkMove(_ context.Context, _ int64, ids []string, _, _ string) ([]BulkResult, error) {
+	return bulkOK(ids)
+}
 
 // TestFKeyPreFillsFilterCommand confirms pressing F (capital) opens
 // command mode pre-filled with "filter ".
@@ -4186,17 +4189,19 @@ func TestTitleCaseHandlesSingleWordVerbs(t *testing.T) {
 // closes the channel mid-stream so tests can assert clean
 // shutdown.
 type stubSearchService struct {
-	mu        sync.Mutex
-	calls     int
-	lastQuery string
-	snapshots []SearchSnapshot
-	cancelled bool
+	mu            sync.Mutex
+	calls         int
+	lastQuery     string
+	lastSortRelev bool
+	snapshots     []SearchSnapshot
+	cancelled     bool
 }
 
-func (s *stubSearchService) Search(_ context.Context, query, _ string) (<-chan SearchSnapshot, func()) {
+func (s *stubSearchService) Search(_ context.Context, query, _ string, sortByRelevance bool) (<-chan SearchSnapshot, func()) {
 	s.mu.Lock()
 	s.calls++
 	s.lastQuery = query
+	s.lastSortRelev = sortByRelevance
 	snaps := s.snapshots
 	s.mu.Unlock()
 	out := make(chan SearchSnapshot, len(snaps)+1)
@@ -5366,6 +5371,130 @@ func TestSearchDefaultScopeIsCurrentFolder(t *testing.T) {
 
 	require.Equal(t, "budget", m.searchQuery)
 	require.Equal(t, "f-inbox", m.searchFolderID, "without --all, folder scope must be the prior folder")
+}
+
+// TestSearchSortByRelevancePrefixSetsFlag verifies that `--sort=relevance`
+// prefix in the search query sets the sortByRelevance flag passed to the
+// SearchService (spec 06 §4.3 optional BM25 sort).
+func TestSearchSortByRelevancePrefixSetsFlag(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubSearchService{
+		snapshots: []SearchSnapshot{{Status: "[searching…]"}},
+	}
+	m.deps.Search = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+
+	for _, r := range "--sort=relevance archive" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, "archive", m.searchQuery, "--sort=relevance must be stripped from the committed query")
+	require.True(t, m.searchSortByRelev, "--sort=relevance must set sortByRelevance flag on model")
+
+	// Execute the cmd so startStreamingSearchCmd calls svc.Search.
+	require.NotNil(t, cmd)
+	cmd()
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.True(t, stub.lastSortRelev, "SearchService.Search must receive sortByRelevance=true")
+}
+
+// TestSearchSortByRelevanceNotSetByDefault verifies that a plain search
+// does NOT set sortByRelevance (spec 06 §4.3: default is received-date DESC).
+func TestSearchSortByRelevanceNotSetByDefault(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &stubSearchService{
+		snapshots: []SearchSnapshot{{Status: "[searching…]"}},
+	}
+	m.deps.Search = stub
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = m2.(Model)
+
+	for _, r := range "archive" {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.False(t, m.searchSortByRelev, "sortByRelevance must be false for plain query")
+
+	require.NotNil(t, cmd)
+	cmd()
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.False(t, stub.lastSortRelev, "SearchService.Search must receive sortByRelevance=false by default")
+}
+
+// TestSemicolonMOpensFolderPickerWithBulkMoveFlag verifies that the `;m`
+// chord opens FolderPickerMode and sets pendingBulkMove=true (spec 10 §3
+// bulk-move via filter-then-move).
+func TestSemicolonMOpensFolderPickerWithBulkMoveFlag(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Bulk = stubBulkExecutor{}
+	m.filterIDs = []string{"m1", "m2", "m3"}
+	m.filterActive = true
+
+	// First `;` keystroke primes the chord.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(";")})
+	m = m2.(Model)
+
+	// Second `m` keystroke completes the chord.
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = m2.(Model)
+
+	require.Equal(t, FolderPickerMode, m.mode, ";m must open FolderPickerMode")
+	require.True(t, m.pendingBulkMove, ";m must set pendingBulkMove=true")
+}
+
+// TestSemicolonMEnterDispatchesBulkMove verifies that pressing Enter in
+// FolderPickerMode with pendingBulkMove=true fires runBulkMoveCmd.
+func TestSemicolonMEnterDispatchesBulkMove(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.deps.Bulk = stubBulkExecutor{}
+	m.filterIDs = []string{"m1", "m2"}
+	m.filterActive = true
+
+	// Simulate the state reached after ;m.
+	m.pendingBulkMove = true
+	m.mode = FolderPickerMode
+
+	// Seed the folder picker with one folder.
+	m.folders.raw = []store.Folder{
+		{ID: "f-archive", DisplayName: "Archive"},
+	}
+	m.folderPicker.Reset(m.folders.raw, nil)
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode, "Enter must close picker back to NormalMode")
+	require.False(t, m.pendingBulkMove, "pendingBulkMove must be cleared after move")
+	require.NotNil(t, cmd, "Enter with pendingBulkMove must return runBulkMoveCmd")
+}
+
+// TestSemicolonMEscClearsPendingBulkMove verifies that Esc in
+// FolderPickerMode with pendingBulkMove=true clears the flag.
+func TestSemicolonMEscClearsPendingBulkMove(t *testing.T) {
+	m := newDispatchTestModel(t)
+	m.pendingBulkMove = true
+	m.mode = FolderPickerMode
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+
+	require.Equal(t, NormalMode, m.mode, "Esc must exit FolderPickerMode")
+	require.False(t, m.pendingBulkMove, "Esc must clear pendingBulkMove")
 }
 
 // --- Spec 11 B-2: Background refresh timer ---

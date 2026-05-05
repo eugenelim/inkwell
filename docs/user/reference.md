@@ -75,6 +75,7 @@ saved search.
 | `;`       | Begin bulk chord (only when a filter is active)               |
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
+| `;m`      | Bulk move the filtered set to a folder (opens folder picker)  |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
@@ -327,6 +328,7 @@ matches any message whose subject or body contains `[External]`.
 | -------------- | -------------------------------------------------------------- |
 | `<text> Enter` | Run FTS query scoped to the current folder, replace list pane with hits |
 | `--all <text> Enter` | Run FTS query across **all** subscribed folders (spec 06 §5.3) |
+| `--sort=relevance <text> Enter` | Sort results by BM25 relevance score instead of received-date (spec 06 §4.3) |
 | `Esc`          | Cancel; if a search is active, clear it and restore the folder |
 | `Backspace`    | Delete the last character of the buffer                        |
 
@@ -336,6 +338,14 @@ Prefix the query with `--all` to search across all subscribed folders:
 ```
 /--all budget review
 ```
+
+Use `--sort=relevance` when BM25 ranking matters more than recency:
+
+```
+/--sort=relevance quarterly earnings report
+```
+
+Flags can be combined: `--all --sort=relevance <query>`.
 
 Search is local-only (FTS5 against the SQLite cache) in v0.8.
 Server-side `$search` merge is post-v0.8.

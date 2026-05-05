@@ -157,6 +157,7 @@ type BulkExecutor interface {
 	BulkPermanentDelete(ctx context.Context, accountID int64, messageIDs []string) ([]BulkResult, error)
 	BulkAddCategory(ctx context.Context, accountID int64, messageIDs []string, category string) ([]BulkResult, error)
 	BulkRemoveCategory(ctx context.Context, accountID int64, messageIDs []string, category string) ([]BulkResult, error)
+	BulkMove(ctx context.Context, accountID int64, messageIDs []string, destFolderID, destAlias string) ([]BulkResult, error)
 }
 
 // Deps wires the UI to its lower-layer collaborators.
@@ -300,7 +301,7 @@ type SearchSnapshot struct {
 // folderID scopes the search to a single folder. Empty means
 // cross-folder (spec 06 §5.3 `--all` mode).
 type SearchService interface {
-	Search(ctx context.Context, query, folderID string) (<-chan SearchSnapshot, func())
+	Search(ctx context.Context, query, folderID string, sortByRelevance bool) (<-chan SearchSnapshot, func())
 }
 
 // AttachmentFetcher downloads raw attachment bytes on demand (spec 05
@@ -556,11 +557,12 @@ type Model struct {
 
 	// Search-mode buffer + last-committed query. The list pane renders
 	// search results in place of folder messages when searchActive.
-	searchBuf      string
-	searchActive   bool
-	searchQuery    string // committed query (the one that produced m.list contents)
-	searchFolderID string // folder scope: empty = all-folders (--all), non-empty = scoped
-	priorFolderID  string // folder to restore when search is cleared
+	searchBuf         string
+	searchActive      bool
+	searchQuery       string // committed query (the one that produced m.list contents)
+	searchFolderID    string // folder scope: empty = all-folders (--all), non-empty = scoped
+	searchSortByRelev bool   // true when --sort=relevance prefix was present
+	priorFolderID     string // folder to restore when search is cleared
 	// searchStatus mirrors the spec 06 §5.1 streaming hint —
 	// "[searching local]", "[📡 searching server…]", "[merged: N
 	// local, M server]", or "[local only — offline]". Empty
@@ -580,11 +582,12 @@ type Model struct {
 	// Filter mode (spec 10): :filter <pattern> compiles via spec 08
 	// and narrows the list pane to matches. ; prefix + a triage key
 	// applies that action to all matched messages via BulkExecutor.
-	filterActive  bool
-	filterPattern string
-	filterIDs     []string // matched message IDs (for bulk apply)
-	bulkPending   bool     // true after `;` is pressed; next d/a fires bulk
-	pendingBulk   string   // action key while in ConfirmMode (bulk ops)
+	filterActive    bool
+	filterPattern   string
+	filterIDs       []string // matched message IDs (for bulk apply)
+	bulkPending     bool     // true after `;` is pressed; next d/a fires bulk
+	pendingBulkMove bool     // true while FolderPickerMode is active for ;m bulk-move
+	pendingBulk     string   // action key while in ConfirmMode (bulk ops)
 	// pendingBulkCategory holds the category name for ;c / ;C bulk ops
 	// while ConfirmMode or CategoryInputMode is active. Cleared after dispatch.
 	pendingBulkCategory       string
@@ -2184,6 +2187,12 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			q = strings.TrimSpace(q[5:])
 			allFolders = true
 		}
+		// Detect spec 06 §4.3 `--sort=relevance` prefix: BM25 sort.
+		sortByRelev := false
+		if strings.HasPrefix(q, "--sort=relevance") {
+			q = strings.TrimSpace(q[16:])
+			sortByRelev = true
+		}
 		if q == "" {
 			return m, nil
 		}
@@ -2197,6 +2206,7 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchUpdates = nil
 		m.searchActive = true
 		m.searchQuery = q
+		m.searchSortByRelev = sortByRelev
 		if allFolders {
 			m.searchFolderID = ""
 		} else {
@@ -2279,9 +2289,10 @@ func (m Model) runSearchCmd(q string) tea.Cmd {
 func (m Model) startStreamingSearchCmd(q string) tea.Cmd {
 	svc := m.deps.Search
 	folderID := m.searchFolderID
+	sortByRelev := m.searchSortByRelev
 	return func() tea.Msg {
 		ctx := context.Background()
-		ch, cancel := svc.Search(ctx, q, folderID)
+		ch, cancel := svc.Search(ctx, q, folderID, sortByRelev)
 		// Block for the first snapshot so the user sees results
 		// before the next render frame. The streaming continuation
 		// is handed off via SearchUpdateMsg.Done routing in the
@@ -3253,6 +3264,40 @@ func (m Model) runBulkCmd(action string) tea.Cmd {
 	}
 }
 
+// runBulkMoveCmd fires BulkExecutor.BulkMove for the current filter IDs
+// to the user-selected destination folder.
+func (m Model) runBulkMoveCmd(destFolderID, destAlias, destLabel string) tea.Cmd {
+	if m.deps.Bulk == nil {
+		return nil
+	}
+	ids := append([]string(nil), m.filterIDs...)
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		results, err := m.deps.Bulk.BulkMove(ctx, accountID, ids, destFolderID, destAlias)
+		var ok, fail int
+		var firstErr error
+		for _, r := range results {
+			if r.Err != nil {
+				fail++
+				if firstErr == nil {
+					firstErr = r.Err
+				}
+			} else {
+				ok++
+			}
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return bulkDoneMsg{name: "move to " + destLabel, succeeded: ok, failed: fail, firstErr: firstErr}
+	}
+}
+
 func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keymap.Up):
@@ -3388,6 +3433,21 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pendingCategoryMsg = nil
 			m.categoryBuf = ""
 			m.mode = CategoryInputMode
+			return m, nil
+		case "m":
+			// Bulk move: open folder picker; on Enter dispatch BulkMove.
+			if m.deps.Bulk == nil {
+				m.lastError = fmt.Errorf(";m: bulk not wired")
+				return m, nil
+			}
+			folders := m.folders.raw
+			if len(folders) == 0 {
+				m.lastError = fmt.Errorf(";m: no folders synced yet")
+				return m, nil
+			}
+			m.pendingBulkMove = true
+			m.folderPicker.Reset(folders, m.recentFolderIDs)
+			m.mode = FolderPickerMode
 			return m, nil
 		}
 		// Unknown chord follow-up: clear pending, fall through.
@@ -3789,6 +3849,7 @@ func (m Model) updateFolderPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.mode = NormalMode
 		m.pendingMoveMsg = nil
+		m.pendingBulkMove = false
 		m.engineActivity = "move cancelled"
 		return m, nil
 	case tea.KeyUp:
@@ -3803,13 +3864,19 @@ func (m Model) updateFolderPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "move: no folder selected"
 			return m, nil
 		}
-		src := *m.pendingMoveMsg
 		destID := row.id
 		destAlias := row.alias
 		destLabel := row.label
 		m.mode = NormalMode
-		m.pendingMoveMsg = nil
 		m.recentFolderIDs = bumpRecentFolder(m.recentFolderIDs, destID, m.recentFoldersCap())
+		// Bulk move (;m): move all filter matches to the chosen folder.
+		if m.pendingBulkMove {
+			m.pendingBulkMove = false
+			return m, m.runBulkMoveCmd(destID, destAlias, destLabel)
+		}
+		// Single-message move (m key).
+		src := *m.pendingMoveMsg
+		m.pendingMoveMsg = nil
 		return m.runTriage("move", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
 			if err := m.deps.Triage.Move(ctx, accID, s.ID, destID, destAlias); err != nil {
 				return fmt.Errorf("move to %s: %w", destLabel, err)
