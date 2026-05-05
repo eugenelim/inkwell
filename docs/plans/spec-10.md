@@ -1,7 +1,10 @@
 # Spec 10 — Bulk Operations UX
 
 ## Status
-in-progress (full verb set + F key + ;c/;C category + enhanced confirm sample shipped in PR A-3; progress modal + dry-run + cross-folder filter deferred).
+done. A-3 (PR audit-drain 2026-05-02) shipped: full bulk verb set
+(;D ;r ;R ;f ;F ;c ;C), F shortcut, enhanced confirm sample (pattern +
+5-subject sample). Progress modal, dry-run mode, cross-folder filter
+explicitly deferred.
 
 ## DoD checklist (mirrored from spec)
 - [x] `:filter <pattern>` parses via spec 08 (Parse → CompileLocal), runs against the local store via SearchByPredicate, and replaces the list pane with matches.

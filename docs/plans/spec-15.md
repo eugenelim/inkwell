@@ -1,15 +1,12 @@
 # Spec 15 — Compose / Reply (drafts only)
 
 ## Status
-in-progress. v1: viewer-pane reply via `$EDITOR` shipped
-post-v0.10.0. v0.13.x: drafts flow through the action queue with
-two-stage idempotent dispatch (PR 7-i). **v0.13.x spec rewrite:**
-in-modal compose pane replaces the editor-driven flow (real-tenant
-"select Exit command first" friction) — see iter 3. Reply-all /
-forward / new message skeletons (PR 7-iii), `compose_sessions`
-crash recovery (PR 7-ii) shipped. **v0.30.0 (F-1 audit-drain):**
-discard DELETE + webLink TTL + `Mail.Send` CI guard + attachments
-infrastructure shipped — see iter 6.
+done. F-1 (PR audit-drain 2026-05-04) closed all remaining audit
+gaps: discard DELETE, webLink 30s TTL, `Mail.Send` CI lint guard,
+attachment infrastructure. Confirm-pane-after-editor-exit and
+attachment UI picker explicitly deferred. Earlier: in-modal compose +
+reply-all/forward/new (PR 7-iii), crash-recovery `compose_sessions`
+(PR 7-ii), action-queue drafts (PR 7-i).
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/compose/`: template (reply skeleton), parse (RFC2822-style headers), editor (tempfile + `$INKWELL_EDITOR` / `$EDITOR` / nano fallback).

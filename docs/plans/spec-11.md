@@ -24,7 +24,7 @@ in-progress (B-1 shipped: Manager API + sidebar counts + :rule CRUD + seed defau
 - [x] Tests: Manager unit tests (9 cases) + UI dispatch tests (rule + saved search + count badge).
 - [ ] Edit modal (`e` keybinding / `:rule edit <name>`) — deferred B-2.
 - [ ] Auto-suggest after N filter uses — deferred B-2.
-- [ ] CLI `inkwell rule` subcommands — deferred B-2.
+- [x] CLI `inkwell rule list/save/edit/delete/eval/apply` — shipped by PR G-1 (spec-14, 2026-05-04).
 - [ ] Background refresh timer (independent of sync event) — deferred B-2.
 
 ## Perf budgets

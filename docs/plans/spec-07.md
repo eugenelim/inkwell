@@ -1,9 +1,10 @@
 # Spec 07 — Single-Message Triage Actions
 
 ## Status
-in-progress (PR A-1 of Phase 2 audit-drain). Replay-on-startup +
-InFlight state + move-id rename + [triage] config additions landed
-2026-05-02. All remaining DoD bullets ticked.
+done. All DoD bullets ticked. A-1 (PR audit-drain 2026-05-02):
+replay-on-startup, InFlight state transition, move-id rename,
+[triage] config additions. Earlier iters shipped undo (PR 1),
+permanent_delete (PR 4a), categories (PR 4b), move-with-picker (PR 4c).
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/action/` package compiles with Executor + Drain.

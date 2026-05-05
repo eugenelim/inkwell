@@ -1,7 +1,10 @@
 # Spec 09 — Batch Engine
 
 ## Status
-in-progress (concurrency + retry + composite undo shipped in PR A-2; throughput bench deferred until spec 10 UI drives 100k+ matches).
+done. A-2 (PR audit-drain 2026-05-02) shipped: bounded concurrency,
+per-sub-request 429 retry, composite undo, add/remove category,
+permanent-delete sub-request, hard cap, [batch] config.
+Throughput bench explicitly deferred (no 100k+ match UI flow yet).
 
 ## DoD checklist (mirrored from spec)
 - [x] `graph.BatchBuilder` builds Graph $batch payloads with the 20-per-batch hard limit.
