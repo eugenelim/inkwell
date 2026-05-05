@@ -254,6 +254,7 @@ type CalendarDetailModel struct {
 	detail  *CalendarEventDetail
 	loading bool
 	err     error
+	scrollY int // line offset for j/k scrolling
 }
 
 // NewCalendarDetail returns the empty detail model.
@@ -266,11 +267,33 @@ func (m *CalendarDetailModel) SetLoading() {
 	m.detail = nil
 }
 
-// SetDetail replaces the rendered detail.
+// SetDetail replaces the rendered detail and resets the scroll position.
 func (m *CalendarDetailModel) SetDetail(d CalendarEventDetail) {
 	m.detail = &d
 	m.loading = false
 	m.err = nil
+	m.scrollY = 0
+}
+
+// ScrollDown advances the detail body by one line.
+func (m *CalendarDetailModel) ScrollDown() { m.scrollY++ }
+
+// ScrollUp moves the detail body up one line.
+func (m *CalendarDetailModel) ScrollUp() {
+	if m.scrollY > 0 {
+		m.scrollY--
+	}
+}
+
+// PageDown jumps the detail body down by half a screen.
+func (m *CalendarDetailModel) PageDown() { m.scrollY += 10 }
+
+// PageUp jumps the detail body up by half a screen.
+func (m *CalendarDetailModel) PageUp() {
+	m.scrollY -= 10
+	if m.scrollY < 0 {
+		m.scrollY = 0
+	}
 }
 
 // SetError records a fetch failure.
@@ -286,7 +309,8 @@ func (m *CalendarDetailModel) Reset() { *m = CalendarDetailModel{} }
 // layer to extract the WebLink / OnlineMeetingURL for `o` / `l`.
 func (m CalendarDetailModel) Detail() *CalendarEventDetail { return m.detail }
 
-// View renders the detail modal centred on the screen.
+// View renders the detail modal centred on the screen. The body is
+// scrollable via j/k when content exceeds the available height.
 func (m CalendarDetailModel) View(t Theme, width, height int) string {
 	if m.loading {
 		body := t.Dim.Render("loading event…\n\n") + t.Dim.Render("esc  close")
@@ -301,20 +325,25 @@ func (m CalendarDetailModel) View(t Theme, width, height int) string {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, t.Modal.Render(body))
 	}
 	d := m.detail
-	var b strings.Builder
-	b.WriteString(t.Bold.Render(d.Subject))
-	b.WriteString("\n\n")
+
+	// Build fixed header lines (always visible, not scrolled).
+	var header strings.Builder
+	header.WriteString(t.Bold.Render(d.Subject))
+	header.WriteString("\n\n")
 	timeRange := d.Start.Local().Format("Mon 02 Jan 2006, 15:04") + "–" + d.End.Local().Format("15:04")
 	if d.IsAllDay {
 		timeRange = d.Start.Local().Format("Mon 02 Jan 2006") + " (all day)"
 	}
-	fmt.Fprintf(&b, "📅 %s\n", timeRange)
+	fmt.Fprintf(&header, "📅 %s\n", timeRange)
 	if d.Location != "" {
-		fmt.Fprintf(&b, "📍 %s\n", d.Location)
+		fmt.Fprintf(&header, "📍 %s\n", d.Location)
 	}
 	if d.OnlineMeetingURL != "" {
-		fmt.Fprintf(&b, "🔗 %s  %s\n", d.OnlineMeetingURL, t.Dim.Render("[press l]"))
+		fmt.Fprintf(&header, "🔗 %s  %s\n", d.OnlineMeetingURL, t.Dim.Render("[press l]"))
 	}
+
+	// Build scrollable body lines.
+	var bodyLines []string
 	if d.OrganizerName != "" || d.OrganizerAddress != "" {
 		who := d.OrganizerName
 		if d.OrganizerAddress != "" {
@@ -324,42 +353,75 @@ func (m CalendarDetailModel) View(t Theme, width, height int) string {
 				who = d.OrganizerAddress
 			}
 		}
-		fmt.Fprintf(&b, "\nOrganizer: %s\n", who)
+		bodyLines = append(bodyLines, "")
+		bodyLines = append(bodyLines, "Organizer: "+who)
 	}
 	if len(d.Attendees) > 0 {
-		b.WriteString("Attendees:\n")
-		const maxShow = 10
-		shown := d.Attendees
-		if len(shown) > maxShow {
-			shown = shown[:maxShow]
-		}
-		for _, a := range shown {
-			fmt.Fprintf(&b, "  %s %s\n", attendeeStatusGlyph(a.Status), formatAttendee(a))
-		}
-		if len(d.Attendees) > maxShow {
-			fmt.Fprintf(&b, "  %s\n", t.Dim.Render(fmt.Sprintf("… and %d more", len(d.Attendees)-maxShow)))
+		bodyLines = append(bodyLines, "Attendees:")
+		for _, a := range d.Attendees {
+			bodyLines = append(bodyLines, fmt.Sprintf("  %s %s", attendeeStatusGlyph(a.Status), formatAttendee(a)))
 		}
 	}
 	if d.BodyPreview != "" {
-		b.WriteString("\nBody:\n")
-		preview := strings.TrimSpace(d.BodyPreview)
-		if len(preview) > 400 {
-			preview = preview[:400] + "…"
+		bodyLines = append(bodyLines, "")
+		bodyLines = append(bodyLines, "Body:")
+		for _, line := range strings.Split(strings.TrimSpace(d.BodyPreview), "\n") {
+			bodyLines = append(bodyLines, "  "+line)
 		}
-		b.WriteString("  ")
-		b.WriteString(preview)
-		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	hint := "esc  back"
+
+	// Footer hint (always visible).
+	hint := "j/k  scroll  ·  esc  back"
 	if d.WebLink != "" {
 		hint = "o  Outlook  ·  " + hint
 	}
 	if d.OnlineMeetingURL != "" {
 		hint = "l  meeting  ·  " + hint
 	}
-	b.WriteString(t.Dim.Render(hint))
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, t.Modal.Render(b.String()))
+	footer := t.Dim.Render(hint)
+
+	// Modal padding: RoundedBorder (1px each side) + Padding(1,2) = 4 rows vertical, 5 cols horizontal.
+	// Reserve rows for: header lines + 1 blank separator + 1 footer.
+	headerLines := strings.Split(header.String(), "\n")
+	modalVertPad := 4 // border + padding top+bottom
+	modalHorizPad := 5
+	modalWidth := width - 10
+	if modalWidth < 40 {
+		modalWidth = 40
+	}
+	bodyWidth := modalWidth - modalHorizPad
+	_ = bodyWidth
+
+	// Available rows for the scrollable body.
+	available := height - modalVertPad - len(headerLines) - 2 // 2 = blank line + footer
+	if available < 1 {
+		available = 1
+	}
+
+	// Apply scroll offset.
+	scrolled := bodyLines
+	if m.scrollY > 0 {
+		if m.scrollY >= len(scrolled) {
+			scrolled = nil
+		} else {
+			scrolled = scrolled[m.scrollY:]
+		}
+	}
+	if len(scrolled) > available {
+		scrolled = scrolled[:available]
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(header.String(), "\n"))
+	if len(scrolled) > 0 {
+		b.WriteString("\n")
+		b.WriteString(strings.Join(scrolled, "\n"))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(footer)
+
+	box := t.Modal.Width(modalWidth).Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
 
 // attendeeStatusGlyph maps a Graph response status to a one-char

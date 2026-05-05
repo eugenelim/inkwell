@@ -539,6 +539,11 @@ type Model struct {
 
 	focused Pane
 	mode    Mode
+	// calDetailPriorMode is the mode active before entering
+	// CalendarDetailMode; Esc returns here instead of always going to
+	// CalendarMode (which would be blank when the user opened the detail
+	// directly from the folders pane rather than through :cal).
+	calDetailPriorMode Mode
 
 	keymap KeyMap
 	theme  Theme
@@ -1944,6 +1949,7 @@ func (m Model) updateCalendar(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.calendarDetail.SetLoading()
+		m.calDetailPriorMode = m.mode
 		m.mode = CalendarDetailMode
 		return m, m.fetchEventCmd(sel.ID)
 	case string(keyMsg.Runes) == "]":
@@ -1989,7 +1995,19 @@ func (m Model) updateCalendarDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyMsg.Type == tea.KeyEsc, string(keyMsg.Runes) == "q":
 		m.calendarDetail.Reset()
-		m.mode = CalendarMode
+		m.mode = m.calDetailPriorMode
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Down):
+		m.calendarDetail.ScrollDown()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Up):
+		m.calendarDetail.ScrollUp()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.PageDown):
+		m.calendarDetail.PageDown()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.PageUp):
+		m.calendarDetail.PageUp()
 		return m, nil
 	case string(keyMsg.Runes) == "o":
 		if d := m.calendarDetail.Detail(); d != nil && d.WebLink != "" {
@@ -3247,6 +3265,7 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ev, ok := m.folders.SelectedCalendarEvent(); ok {
 			if ev.ID != "" && m.deps.Calendar != nil {
 				m.calendarDetail.SetLoading()
+				m.calDetailPriorMode = m.mode
 				m.mode = CalendarDetailMode
 				return m, m.fetchEventCmd(ev.ID)
 			}
