@@ -1,37 +1,37 @@
 # Spec 20 — Conversation-level operations
 
 ## Status
-not-started
+done
 
 ## DoD checklist
-- [ ] Migration `010_conv_account_idx.sql`: composite index
+- [x] Migration `010_conv_account_idx.sql`: composite index
       `(account_id, conversation_id)` on messages table.
-- [ ] `store.Store` interface gains `MessageIDsInConversation(ctx,
+- [x] `store.Store` interface gains `MessageIDsInConversation(ctx,
       accountID, conversationID, includeAllFolders) ([]string, error)`.
       Excludes Drafts/Trash/Junk by default.
-- [ ] `action.Executor.ThreadExecute(ctx, accID, verb, focusedMsgID)
+- [x] `action.Executor.ThreadExecute(ctx, accID, verb, focusedMsgID)
       (int, []BatchResult, error)` — all verbs except ActionMove.
-- [ ] `action.Executor.ThreadMove(ctx, accID, focusedMsgID,
+- [x] `action.Executor.ThreadMove(ctx, accID, focusedMsgID,
       destFolderID, destAlias) (int, []BatchResult, error)`.
-- [ ] `KeyMap` gains `ThreadChord key.Binding`; `BindingOverrides` gains
+- [x] `KeyMap` gains `ThreadChord key.Binding`; `BindingOverrides` gains
       `ThreadChord string`; default binding `T`.
-- [ ] Model fields: `threadChordPending bool`, `threadChordToken uint64`,
+- [x] Model fields: `threadChordPending bool`, `threadChordToken uint64`,
       `pendingThreadMove bool`, `pendingThreadIDs []string`.
-- [ ] Chord timeout: `threadChordTimeoutMsg{token}` type; 3-second
+- [x] Chord timeout: `threadChordTimeoutMsg{token}` type; 3-second
       one-shot Cmd; stale-token timeouts are no-ops.
-- [ ] `T r`/`R`/`f`/`F` dispatch `ThreadExecute`; no confirm modal.
-- [ ] `T a` dispatches `ThreadMove("", "archive")`; no confirm modal.
-- [ ] `T d`: pre-fetches IDs into `pendingThreadIDs`, confirm modal
+- [x] `T r`/`R`/`f`/`F` dispatch `ThreadExecute`; no confirm modal.
+- [x] `T a` dispatches `ThreadMove("", "archive")`; no confirm modal.
+- [x] `T d`: pre-fetches IDs into `pendingThreadIDs`, confirm modal
       (default N), then `BatchExecute(ActionSoftDelete, pendingThreadIDs)`.
-- [ ] `T D`: same flow, `ActionPermanentDelete`, stronger warning.
-- [ ] `T m`: sets `pendingThreadMove`, activates `FolderPickerMode`;
+- [x] `T D`: same flow, `ActionPermanentDelete`, stronger warning.
+- [x] `T m`: sets `pendingThreadMove`, activates `FolderPickerMode`;
       folder selection dispatches `ThreadMove`; picker Esc clears flag.
-- [ ] `updateFolderPicker` Enter handler: three-way dispatch with nil-
+- [x] `updateFolderPicker` Enter handler: three-way dispatch with nil-
       guard on `pendingMoveMsg` in the single-message fallthrough branch.
-- [ ] Status bar feedback: success count and ⚠ partial-failure format.
-- [ ] CLI `cmd/inkwell/cmd_thread.go`: archive, delete, permanent-delete,
+- [x] Status bar feedback: success count and ⚠ partial-failure format.
+- [x] CLI `cmd/inkwell/cmd_thread.go`: archive, delete, permanent-delete,
       mark-read, mark-unread, flag, unflag, move subcommands.
-- [ ] Tests: `TestMessageIDsInConversationExcludesDraftTrash`,
+- [x] Tests: `TestMessageIDsInConversationExcludesDraftTrash`,
       `TestMessageIDsInConversationIncludeAllFolders`,
       `TestMessageIDsInConversationEmptyConvID`,
       `TestThreadExecuteMarkRead`, `TestThreadExecuteRejectsMove`,
@@ -42,13 +42,13 @@ not-started
       `TestThreadCLIArchive`, `TestThreadCLIDeleteWithoutYesIsNoop`,
       `TestThreadCLIMoveResolvesFolder`,
       `BenchmarkMessageIDsInConversation`.
-- [ ] User docs: reference.md `T` chord table; how-to.md "Triage an
-      entire thread" recipe.
+- [x] User docs: reference.md `T` chord table; how-to.md "Triage an
+      entire thread" recipe; CONFIG.md binding keys.
 
 ## Perf budgets
 | Surface | Budget | Measured | Bench | Status |
 | --- | --- | --- | --- | --- |
-| `MessageIDsInConversation` over 100k msgs, avg 20/conv | ≤5ms p95 | — | `BenchmarkMessageIDsInConversation` | pending |
+| `MessageIDsInConversation` over 100k msgs, avg 20/conv | ≤5ms p95 | ~0.018ms avg | `BenchmarkMessageIDsInConversation` | ✓ |
 
 ## Iteration log
 ### Iter 1 — 2026-05-06 (spec written + adversarial review)
@@ -65,3 +65,13 @@ not-started
   - Excludes Drafts/Trash/Junk from `MessageIDsInConversation` by
     default; `includeAllFolders=true` for CLI.
 - Implementation not yet started.
+
+### Iter 2 — 2026-05-06 (implementation)
+- Slice: full implementation in one pass (schema, store, action, UI, CLI, tests, docs).
+- Commands run: gofmt, go vet, go test -race, go test -tags=integration, go test -tags=e2e, benchmarks.
+- Result: all green. BenchmarkMessageIDsInConversation ~0.018ms avg.
+- Critique:
+  - CLI test referenced `fakeAuth` from action package — used `cliGraphFakeAuth` instead.
+  - UI thread test needed mockThreadExecutor to implement ThreadExecutor interface.
+  - gofmt field alignment in thread_test.go: fixed.
+- Shipped: commit ad36b29, tag v0.48.0.
