@@ -18,11 +18,12 @@ import (
 
 func newMessagesCmd(rc *rootContext) *cobra.Command {
 	var (
-		folder string
-		limit  int
-		unread bool
-		output string
-		filter string
+		folder     string
+		limit      int
+		unread     bool
+		output     string
+		filter     string
+		allFolders bool
 	)
 	cmd := &cobra.Command{
 		Use:   "messages",
@@ -51,6 +52,9 @@ Examples:
 				return err
 			}
 			var msgs []store.Message
+			if allFolders {
+				folderID = "" // ignore --folder when --all is set
+			}
 			if filter != "" {
 				msgs, err = runFilterListing(ctx, app, filter, folderID, limit)
 			} else {
@@ -80,6 +84,8 @@ Examples:
 	cmd.Flags().BoolVar(&unread, "unread", false, "only unread messages")
 	cmd.Flags().StringVar(&filter, "filter", "", "spec 08 pattern; overrides --folder/--unread when set")
 	cmd.Flags().StringVar(&output, "output", "", "output format: text|json (overrides [cli].default_output)")
+	cmd.Flags().BoolVar(&allFolders, "all", false, "ignore --folder and search all folders (requires --filter)")
+	cmd.MarkFlagsMutuallyExclusive("folder", "all")
 
 	cmd.AddCommand(newMessageShowCmd(rc))
 	cmd.AddCommand(newMessageReadCmd(rc))
@@ -129,6 +135,24 @@ func printMessageList(msgs []store.Message) {
 		fmt.Fprintf(os.Stdout, "%-19s %-26s %s\n",
 			m.ReceivedAt.Format("2006-01-02 15:04"),
 			truncCLI(from, 26), m.Subject)
+	}
+}
+
+// printMessageListWithFolder prints messages with an additional FOLDER column.
+func printMessageListWithFolder(msgs []store.Message, nameByID map[string]string) {
+	fmt.Fprintf(os.Stdout, "%-19s %-20s %-16s %s\n", "RECEIVED", "FROM", "FOLDER", "SUBJECT")
+	for _, m := range msgs {
+		from := m.FromName
+		if from == "" {
+			from = m.FromAddress
+		}
+		folder := nameByID[m.FolderID]
+		if folder == "" {
+			folder = "???"
+		}
+		fmt.Fprintf(os.Stdout, "%-19s %-20s %-16s %s\n",
+			m.ReceivedAt.Format("2006-01-02 15:04"),
+			truncCLI(from, 20), truncCLI(folder, 16), m.Subject)
 	}
 }
 

@@ -128,6 +128,47 @@ past mail from the same sender.
 Then `;a` → `y`. Archived messages still exist on the server in your
 Archive folder; nothing is permanently destroyed.
 
+## Cross-folder cleanup
+
+`:filter` already searches all folders by default, but the result
+normally hides _which_ folders were touched. To surface that
+information, prefix the pattern with `--all` (or `-a`):
+
+```
+:filter --all ~f newsletter@*
+```
+
+The status bar now shows `matched 247 (5 folders)`. The list pane
+renders a FOLDER column so you can see at a glance where each match
+lives. When you press `;d`, the confirm modal reads:
+
+```
+Delete 247 messages across 5 folders?
+```
+
+All other bulk verbs (`;a`, `;r`, `;R`, `;f`, `;F`) work the same way.
+
+**Without `--all`:** the filter runs cross-folder silently (as it
+always has), but the folder count is not shown and the FOLDER column
+is hidden. This preserves the existing UX for users with single-folder
+filter-heavy workflows.
+
+**Muted threads:** cross-folder filter includes muted messages
+(consistent with the search path). Muted rows carry the `🔕` indicator.
+
+CLI equivalent:
+
+```sh
+# Dry-run: see which folders are affected
+inkwell filter '~f newsletter@*' --all --output json | jq '.folders'
+
+# Bulk-delete (same underlying query, --all adds folder metadata to output)
+inkwell filter '~f newsletter@*' --action delete --apply --yes
+
+# All-folders listing ignoring any --folder scope
+inkwell messages --filter '~f bob@vendor.invalid' --all
+```
+
 ## Find all unread messages from the last week with attachments
 
 ```

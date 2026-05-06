@@ -56,7 +56,29 @@ Examples:
 				return err
 			}
 
-			if output == "json" {
+			if allFolders {
+				folderRows, _ := app.store.ListFolders(ctx, app.account.ID)
+				nameByID := make(map[string]string, len(folderRows))
+				for _, f := range folderRows {
+					nameByID[f.ID] = f.DisplayName
+				}
+				folderCounts := make(map[string]int)
+				for _, msg := range msgs {
+					folderCounts[nameByID[msg.FolderID]]++
+				}
+				if output == "json" {
+					_ = json.NewEncoder(os.Stdout).Encode(struct {
+						Pattern    string          `json:"pattern"`
+						AllFolders bool            `json:"all_folders"`
+						Matched    int             `json:"matched"`
+						Folders    map[string]int  `json:"folders"`
+						Messages   []store.Message `json:"messages"`
+					}{src, true, len(msgs), folderCounts, msgs})
+				} else {
+					fmt.Fprintf(os.Stderr, "matched %d message(s) across %d folder(s)\n", len(msgs), len(folderCounts))
+					printMessageListWithFolder(msgs, nameByID)
+				}
+			} else if output == "json" {
 				_ = json.NewEncoder(os.Stdout).Encode(struct {
 					Pattern  string          `json:"pattern"`
 					Matched  int             `json:"matched"`

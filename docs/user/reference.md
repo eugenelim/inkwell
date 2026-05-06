@@ -305,7 +305,9 @@ sessions older than 24h get garbage-collected on launch.
 | `:sync`                       | Trigger a sync cycle now                                        |
 | `:signin`                     | Re-auth (opens system browser)                                  |
 | `:signout`                    | Confirm modal → clears tokens + local cache                     |
-| `:filter <pattern>`           | Narrow message list to pattern matches                          |
+| `:filter <pattern>`           | Narrow message list to pattern matches (cross-folder by default, no folder metadata shown) |
+| `:filter --all <pattern>`     | Same query, but shows folder count in status bar, FOLDER column in list pane, and folder context in confirm modal |
+| `:filter -a <pattern>`        | Short form of `--all`                                           |
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
 | `:refresh`                    | Force a sync cycle now (same as `Ctrl+R`)                       |
 | `:folder <name>`              | Jump the list pane to a folder (DisplayName or well-known like `inbox`) |
@@ -549,6 +551,7 @@ JSON via `--output json`.
 | `inkwell messages --folder Inbox --limit 50`     | List envelopes from a folder.                             |
 | `inkwell messages --folder Inbox --unread`       | Only unread.                                              |
 | `inkwell messages --filter '~f bob' --limit 20`  | List by spec-08 pattern.                                  |
+| `inkwell messages --filter '~f bob' --all`       | Same, but ignores any `--folder` scope and returns all-folder results. |
 | `inkwell message show <id>`                      | Print headers + body for one message.                     |
 | `inkwell message show <id> --headers`            | Include full To / Cc / Bcc.                               |
 | `inkwell search "q4 budget"`                     | Hybrid search (local FTS5 + Graph $search), all folders.  |
@@ -556,6 +559,7 @@ JSON via `--output json`.
 | `inkwell search --local-only "draft notes"`      | FTS5 only; skip Graph $search (offline-safe).             |
 | `inkwell search --sort-relevance "annual review"`| BM25 relevance order instead of received-date DESC.       |
 | `inkwell filter '<pattern>'`                     | Print matched envelopes (dry-run).                        |
+| `inkwell filter '<pattern>' --all`               | Same, with a `folders` count map added to output (shows which folders were touched). |
 | `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
 | `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |
 | `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                      |

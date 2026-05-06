@@ -583,6 +583,9 @@ type ListModel struct {
 	FolderID string
 	messages []store.Message
 	cursor   int
+	// folderNameByID is populated when a cross-folder filter is active and
+	// results span more than one folder. Nil otherwise (column hidden).
+	folderNameByID map[string]string
 	// loadLimit is the current store.ListMessages limit. Starts at the
 	// initial-load default and grows as the user scrolls down. The UI
 	// fires a "load more" Cmd when the cursor approaches the bottom
@@ -815,6 +818,10 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		body := strings.Join([]string{header, t.Dim.Render("  (select a folder)")}, "\n")
 		return t.List.Width(width).Height(height).Render(body)
 	}
+	var colHeader string
+	if m.folderNameByID != nil {
+		colHeader = t.Dim.Render(fmt.Sprintf("  %-10s %-12s %-12s %s", "RECEIVED", "FROM", "FOLDER", "SUBJECT"))
+	}
 	rows := make([]string, 0, len(m.messages))
 	for i, msg := range m.messages {
 		when := relativeWhen(msg.ReceivedAt)
@@ -860,7 +867,16 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 			}
 			attach = " " + ai
 		}
-		line := fmt.Sprintf("%s%s%s%-10s %-14s %s%s", marker, flag, invite, when, truncate(from, 14), msg.Subject, attach)
+		var line string
+		if m.folderNameByID != nil {
+			folder := m.folderNameByID[msg.FolderID]
+			if folder == "" {
+				folder = "???"
+			}
+			line = fmt.Sprintf("%s%s%s%-10s %-12s %-12s %s%s", marker, flag, invite, when, truncate(from, 12), truncate(folder, 12), msg.Subject, attach)
+		} else {
+			line = fmt.Sprintf("%s%s%s%-10s %-14s %s%s", marker, flag, invite, when, truncate(from, 14), msg.Subject, attach)
+		}
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
@@ -869,8 +885,16 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		}
 		rows = append(rows, styled)
 	}
-	visible := clipToCursorViewport(rows, m.cursor, height-1)
-	out := append([]string{header}, visible...)
+	reservedRows := 1 // pane header
+	if colHeader != "" {
+		reservedRows = 2
+	}
+	visible := clipToCursorViewport(rows, m.cursor, height-reservedRows)
+	out := []string{header}
+	if colHeader != "" {
+		out = append(out, colHeader)
+	}
+	out = append(out, visible...)
 	return t.List.Width(width).Height(height).Render(strings.Join(out, "\n"))
 }
 

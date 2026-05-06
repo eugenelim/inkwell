@@ -533,6 +533,7 @@ type Model struct {
 	paneWidths PaneWidths
 
 	folders         FoldersModel
+	foldersByID     map[string]store.Folder // populated in FoldersLoadedMsg; used for cross-folder filter display
 	list            ListModel
 	viewer          ViewerModel
 	cmd             CommandModel
@@ -598,12 +599,15 @@ type Model struct {
 	// Filter mode (spec 10): :filter <pattern> compiles via spec 08
 	// and narrows the list pane to matches. ; prefix + a triage key
 	// applies that action to all matched messages via BulkExecutor.
-	filterActive    bool
-	filterPattern   string
-	filterIDs       []string // matched message IDs (for bulk apply)
-	bulkPending     bool     // true after `;` is pressed; next d/a fires bulk
-	pendingBulkMove bool     // true while FolderPickerMode is active for ;m bulk-move
-	pendingBulk     string   // action key while in ConfirmMode (bulk ops)
+	filterActive      bool
+	filterPattern     string
+	filterIDs         []string // matched message IDs (for bulk apply)
+	filterAllFolders  bool     // set when --all / -a prefix used in :filter
+	filterFolderCount int      // distinct folders in current filter result (when filterAllFolders)
+	filterFolderName  string   // display name when filterFolderCount == 1
+	bulkPending       bool     // true after `;` is pressed; next d/a fires bulk
+	pendingBulkMove   bool     // true while FolderPickerMode is active for ;m bulk-move
+	pendingBulk       string   // action key while in ConfirmMode (bulk ops)
 	// pendingBulkCategory holds the category name for ;c / ;C bulk ops
 	// while ConfirmMode or CategoryInputMode is active. Cleared after dispatch.
 	pendingBulkCategory       string
@@ -897,6 +901,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case FoldersLoadedMsg:
 		m.folders.SetFolders(msg.Folders)
+		m.foldersByID = make(map[string]store.Folder, len(msg.Folders))
+		for _, f := range msg.Folders {
+			m.foldersByID[f.ID] = f
+		}
 		// Default to Inbox when no folder is selected. Three-step
 		// fallback: wellKnownName=inbox → display_name=Inbox (case-
 		// insensitive, in case the tenant doesn't return well-known
@@ -1295,6 +1303,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ids = append(ids, mm.ID)
 		}
 		m.filterIDs = ids
+		// Compute cross-folder metadata when --all was used.
+		if m.filterAllFolders {
+			seen := make(map[string]struct{}, len(msg.messages))
+			for _, mm := range msg.messages {
+				seen[mm.FolderID] = struct{}{}
+			}
+			m.filterFolderCount = len(seen)
+			if m.filterFolderCount == 1 {
+				for id := range seen {
+					if f, ok := m.foldersByID[id]; ok {
+						m.filterFolderName = f.DisplayName
+					} else {
+						m.filterFolderName = "???"
+					}
+				}
+			} else {
+				m.filterFolderName = ""
+			}
+			if m.filterFolderCount > 1 {
+				nameMap := make(map[string]string, len(seen))
+				for id := range seen {
+					if f, ok := m.foldersByID[id]; ok {
+						nameMap[id] = f.DisplayName
+					} else {
+						nameMap[id] = "???"
+					}
+				}
+				m.list.folderNameByID = nameMap
+			} else {
+				m.list.folderNameByID = nil
+			}
+		} else {
+			m.filterFolderCount = 0
+			m.filterFolderName = ""
+			m.list.folderNameByID = nil
+		}
 		// Render the filter results in the list pane via the existing
 		// SetMessages path; sentinel folder ID keeps load-more / triage
 		// keyed off the current filter, not the underlying folder.
@@ -2523,10 +2567,23 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "filter":
 		if len(args) < 2 {
-			m.lastError = fmt.Errorf("filter: usage `:filter <pattern>` (spec 08 operators or plain text)")
+			m.lastError = fmt.Errorf("filter: usage `:filter [--all] <pattern>` (spec 08 operators or plain text)")
 			return m, nil
 		}
 		patternSrc := strings.TrimSpace(strings.TrimPrefix(line, "filter"))
+		allFolders := false
+		if strings.HasPrefix(patternSrc, "--all") {
+			patternSrc = strings.TrimSpace(patternSrc[5:])
+			allFolders = true
+		} else if patternSrc == "-a" || strings.HasPrefix(patternSrc, "-a ") {
+			patternSrc = strings.TrimSpace(patternSrc[2:])
+			allFolders = true
+		}
+		if patternSrc == "" {
+			m.lastError = fmt.Errorf("filter: usage :filter [--all] <pattern>")
+			return m, nil
+		}
+		m.filterAllFolders = allFolders
 		return m, m.runFilterCmd(patternSrc)
 	case "save":
 		if len(args) < 2 {
@@ -2820,6 +2877,10 @@ func (m Model) clearFilter() Model {
 	m.filterActive = false
 	m.filterPattern = ""
 	m.filterIDs = nil
+	m.filterAllFolders = false
+	m.filterFolderCount = 0
+	m.filterFolderName = ""
+	m.list.folderNameByID = nil
 	m.bulkPending = false
 	if m.priorFolderID != "" {
 		m.list.FolderID = m.priorFolderID
@@ -3295,7 +3356,11 @@ func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 		}
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %d messages?", titleCase(verb), count))
+	firstLine := fmt.Sprintf("%s %d messages", titleCase(verb), count)
+	if m.filterAllFolders && m.filterFolderCount > 1 {
+		firstLine += fmt.Sprintf(" across %d folders", m.filterFolderCount)
+	}
+	sb.WriteString(firstLine + "?")
 	if m.filterPattern != "" {
 		sb.WriteString("\n\nFilter: " + m.filterPattern)
 	}
@@ -5507,7 +5572,15 @@ func (m Model) View() string {
 		}
 		cmdBar = m.theme.Dim.Render(hint)
 	} else if m.filterActive {
-		hint := fmt.Sprintf("filter: %s · matched %d · ;d delete · ;a archive · :unfilter", m.filterPattern, len(m.filterIDs))
+		folderHint := ""
+		if m.filterAllFolders {
+			if m.filterFolderCount > 1 {
+				folderHint = fmt.Sprintf(" (%d folders)", m.filterFolderCount)
+			} else if m.filterFolderName != "" {
+				folderHint = " (" + m.filterFolderName + ")"
+			}
+		}
+		hint := fmt.Sprintf("filter: %s · matched %d%s · ;d delete · ;a archive · :unfilter", m.filterPattern, len(m.filterIDs), folderHint)
 		if m.bulkPending {
 			hint = "bulk: press d (delete) or a (archive) — esc to cancel"
 		}
