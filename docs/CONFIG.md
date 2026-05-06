@@ -103,6 +103,7 @@ Controls the terminal UI.
 | `unread_indicator` | string | `"●"` | any string ≤ 2 chars | Glyph for unread messages. Use `"*"` if your terminal lacks the dot. |
 | `flag_indicator` | string | `"⚑"` | any string ≤ 2 chars | Glyph for flagged messages. |
 | `attachment_indicator` | string | `"📎"` | any string ≤ 2 chars | Suffix for messages with attachments. Use `"@"` for ASCII-only terminals. |
+| `mute_indicator` | string | `"🔕"` | any string ≤ 2 chars | Glyph for messages in muted threads. Use `"m"` for ASCII-only terminals. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
 | `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
 | `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
