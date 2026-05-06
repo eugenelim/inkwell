@@ -1,10 +1,10 @@
 # Spec 17 — Security testing and CASA evidence
 
 ## Status
-done. All deliverable DoD bullets shipped. §4.4 path traversal tests
-remain deferred (SaveAttachment not yet implemented); §4.5 TLS test
-now shipped (v0.39.0). Third-party pentest + real security@ mailbox
-are v1.0 release-gated and not tracked here.
+done. All deliverable DoD bullets closed. §4.4 path traversal tests
+shipped (v0.45.0) alongside `safeAttachmentDest` helper that guards the
+save-attachment command. Third-party pentest + real security@ mailbox are
+v1.0 release-gated and not tracked here.
 
 ## DoD checklist (mirrored from spec)
 ### Tooling (§3)
@@ -37,9 +37,12 @@ are v1.0 release-gated and not tracked here.
       this fully covered.
 - [x] §4.3 token storage tests — 4 tests already present in
       `internal/auth/privacy_test.go` (pre-existing).
-- [ ] §4.4 path traversal tests. Deferred — `SaveAttachment` is
-      not yet implemented (spec 05 §8). Tests land alongside the
-      attachment-download feature.
+- [x] §4.4 path traversal tests — `safeAttachmentDest` extracted from
+      `newMessageSaveAttachmentCmd`; rejects `".."` and `"."` names
+      (the real traversal vector); strips path separators from all
+      other inputs via `filepath.Base`. 3 new tests in
+      `cmd/inkwell/security_test.go` with SECURITY-MAP V12.1.1
+      annotations (v0.45.0).
 - [x] §4.5 `internal/graph/security_test.go::TestGraphClientTLSVerificationEnabled`
       — walks the transport chain (auth → throttle → logging →
       DefaultTransport) and asserts no layer has
@@ -169,6 +172,29 @@ include `gh run list` + `gh run view --log-failed`.
 - Critique: §4.4 (path traversal) remains deferred — SaveAttachment is not
   yet implemented; tests land with the attachment-download feature. All other
   deferred bullets now closed.
+
+### Iter 5 — 2026-05-05 (§4.4 path traversal, v0.45.0)
+- Slice: spec 17 §4.4 — attachment save path traversal guard.
+- Root cause: `filepath.Base("..")` returns `".."`, so the previous
+  `filepath.Join(toDir, filepath.Base(name))` resolved to the parent
+  directory when an attachment was named `".."`. All other traversal-
+  looking names (e.g. `"../../etc/passwd"`) are already safe because
+  `filepath.Base` strips directory components to just the leaf.
+- Files modified:
+  - `cmd/inkwell/cmd_messages.go`: extracted `safeAttachmentDest(toDir,
+    rawName)` with explicit rejection of `"."` / `".."` + `filepath.Rel`
+    containment belt-and-suspenders; wired into `newMessageSaveAttachmentCmd`.
+  - `cmd/inkwell/security_test.go`: added 3 tests:
+    `TestAttachmentSavePathRejectsTraversal` (rejects `".."` and `"."`),
+    `TestAttachmentSavePathStripsDirectoryComponents` (shows path-prefixed
+    names land safely as leaf-only), `TestAttachmentSavePathAcceptsSafeNames`.
+    All annotated `// SECURITY-MAP: V12.1.1`.
+  - `docs/plans/spec-17.md`: §4.4 bullet ticked; Iter 5 added.
+- Commands: `bash scripts/regress.sh` — all 6 gates green.
+- Critique: no new layering violations; `safeAttachmentDest` is a
+  pure function, easy to test; `filepath.Rel` check is redundant given
+  `filepath.Base` guarantees but gives a belt-and-suspenders for any
+  future caller that passes a pre-cleaned name.
 
 ## Cross-cutting checklist (CLAUDE.md §11)
 - [x] Scopes used: none new. This spec is hardening; no Graph

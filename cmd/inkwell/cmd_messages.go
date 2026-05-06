@@ -505,7 +505,10 @@ func newMessageSaveAttachmentCmd(rc *rootContext) *cobra.Command {
 			if toDir == "" {
 				toDir = "."
 			}
-			dest := filepath.Join(toDir, filepath.Base(name))
+			dest, err := safeAttachmentDest(toDir, name)
+			if err != nil {
+				return fmt.Errorf("attachment path: %w", err)
+			}
 			// #nosec G306 — attachment saved to user-controlled directory with standard permissions.
 			if err := os.WriteFile(dest, data, 0o644); err != nil {
 				return fmt.Errorf("write %s: %w", dest, err)
@@ -516,6 +519,30 @@ func newMessageSaveAttachmentCmd(rc *rootContext) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&toDir, "to", "", "destination directory (default: current directory)")
 	return cmd
+}
+
+// safeAttachmentDest returns the absolute path where rawName should be saved
+// inside toDir. It strips directory components and rejects names that resolve
+// to "." or ".." (path-traversal guard, spec 17 §4.4 / ASVS V12.1.1).
+func safeAttachmentDest(toDir, rawName string) (string, error) {
+	base := filepath.Base(rawName)
+	if base == "." || base == ".." {
+		return "", fmt.Errorf("attachment name %q is not a valid filename", rawName)
+	}
+	dest := filepath.Join(toDir, base)
+	absDir, err := filepath.Abs(toDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve target dir: %w", err)
+	}
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return "", fmt.Errorf("resolve attachment dest: %w", err)
+	}
+	rel, err := filepath.Rel(absDir, absDest)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("attachment %q would escape target directory", rawName)
+	}
+	return dest, nil
 }
 
 func newMessageReplyCmd(rc *rootContext) *cobra.Command {
