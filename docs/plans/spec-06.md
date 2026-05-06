@@ -1,10 +1,10 @@
 # Spec 06 — Hybrid Search
 
 ## Status
-done. All deferred bullets shipped in PR H-3: `--all` cross-folder
-search prefix for TUI `/` mode and `SearchService` folderID scoping.
-Earlier: streaming hybrid search + graph $search + field-prefix +
-UI streaming (v0.17.x, PR 8).
+done. All DoD bullets closed. Iter 5: `inkwell search` CLI subcommand
+(--all / --folder / --local-only / --sort-relevance / --limit / --output).
+Earlier: `--all` TUI prefix (Iter 3); `--sort=relevance` (Iter 4);
+streaming hybrid search + graph $search + field-prefix + UI streaming (Iter 2).
 
 ## DoD checklist (mirrored from spec)
 - [x] Local FTS5 query layer — store.Search() over messages_fts (already in spec 02).
@@ -19,10 +19,30 @@ UI streaming (v0.17.x, PR 8).
 - [x] Result merging (dedup + SourceBoth promotion + received-date-DESC sort) — **closed by PR 8** with table-driven tests covering overlap, sort, dedup.
 - [x] Saved searches — spec 11 (done separately).
 - [x] Cross-folder match — `--all` prefix clears `searchFolderID` (Iter 3 / PR H-3).
-- [ ] CLI `:search --all` flag — deferred (depends on spec 14 flag parser).
+- [x] CLI `inkwell search` subcommand with `--all`, `--folder`, `--local-only`, `--sort-relevance`, `--limit`, `--output` flags (Iter 5).
 - [x] `--sort=relevance` flag — BM25 ascending sort (Iter 4).
 
 ## Iteration log
+
+### Iter 5 — 2026-05-05 (`inkwell search` CLI subcommand)
+- Slice: spec 06 §5.2 / §5.3 — `inkwell search <query>` CLI subcommand
+  closes the last open DoD bullet (CLI `:search --all` flag, deferred since
+  spec 14 flag parser was needed).
+- Files added/modified:
+  - `cmd/inkwell/cmd_search.go` (new): `newSearchCmd` cobra command; builds
+    a `search.Searcher` with the production `graphServerSearcher`; drains
+    the stream to completion; renders text table or JSON. Flags: `--folder`,
+    `--all`, `--local-only`, `--sort-relevance`, `--limit`, `--output`.
+    `sourceName` + `searchSourceSummary` helpers.
+  - `cmd/inkwell/cmd_root.go`: registers `newSearchCmd`.
+  - `cmd/inkwell/cmd_search_test.go` (new): `TestSourceNameAllCases`,
+    `TestSearchSourceSummaryCountsByBucket`, `TestSearchCLILocalOnlyReturnsResults`,
+    `TestSearchCLIFolderScopeFilters`, `TestSearchCLIAllOverridesFolder`.
+  - `docs/plans/spec-06.md`: DoD bullet ticked; status updated.
+- Commands: `make regress` — all 6 gates green.
+- Critique: no layering violations; graphServerSearcher reuse avoids
+  duplication; `--all` default behaviour (empty folderID) matches TUI
+  intent for CLI where there is no "current folder".
 
 ### Iter 4 — 2026-05-05 (`--sort=relevance` BM25 sort)
 - Slice: spec 06 §4.3 — optional `--sort=relevance` prefix sorts results by

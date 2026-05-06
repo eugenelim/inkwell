@@ -539,6 +539,10 @@ JSON via `--output json`.
 | `inkwell messages --filter '~f bob' --limit 20`  | List by spec-08 pattern.                                  |
 | `inkwell message show <id>`                      | Print headers + body for one message.                     |
 | `inkwell message show <id> --headers`            | Include full To / Cc / Bcc.                               |
+| `inkwell search "q4 budget"`                     | Hybrid search (local FTS5 + Graph $search), all folders.  |
+| `inkwell search --folder Inbox "from:alice"`     | Scope search to a single folder.                          |
+| `inkwell search --local-only "draft notes"`      | FTS5 only; skip Graph $search (offline-safe).             |
+| `inkwell search --sort-relevance "annual review"`| BM25 relevance order instead of received-date DESC.       |
 | `inkwell filter '<pattern>'`                     | Print matched envelopes (dry-run).                        |
 | `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
 | `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |

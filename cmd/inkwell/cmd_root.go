@@ -54,6 +54,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMessagesCmd(rc))
 	cmd.AddCommand(newSyncCmd(rc))
 	cmd.AddCommand(newFilterCmd(rc))
+	cmd.AddCommand(newSearchCmd(rc))
 	cmd.AddCommand(newOOOCmd(rc))
 	cmd.AddCommand(newSettingsCmd(rc))
 	cmd.AddCommand(newRuleCmd(rc))
