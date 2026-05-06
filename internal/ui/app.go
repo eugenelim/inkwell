@@ -145,6 +145,14 @@ type BulkResult struct {
 	Err       error
 }
 
+// ThreadExecutor handles conversation-level batch operations (spec 20).
+// Verb must be a store.ActionType — use store.ActionMarkRead etc.
+// Implementations route through action.Executor.ThreadExecute / ThreadMove.
+type ThreadExecutor interface {
+	ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string) (int, []BulkResult, error)
+	ThreadMove(ctx context.Context, accID int64, focusedMsgID, destFolderID, destAlias string) (int, []BulkResult, error)
+}
+
 // BulkExecutor handles "apply this action to N messages" operations
 // (spec 09 / 10). Implementations route through Graph $batch.
 type BulkExecutor interface {
@@ -174,6 +182,9 @@ type Deps struct {
 	Triage TriageExecutor
 	// Bulk executes batch triage (spec 09/10). Optional like Triage.
 	Bulk BulkExecutor
+	// Thread executes conversation-level operations (spec 20). Optional —
+	// when nil, the T chord is a no-op.
+	Thread ThreadExecutor
 	// ThemeName is the [ui] theme key from config. Empty falls back to
 	// "default". Unknown values fall back with a logged warning.
 	ThemeName string
@@ -684,6 +695,17 @@ type Model struct {
 	// (Confirm=true → restore + open ComposeMode; Confirm=false →
 	// confirm the session so it never resurfaces).
 	pendingComposeResume *store.ComposeSession
+
+	// Thread chord (spec 20). threadChordPending is true while waiting
+	// for the second keypress of a T<verb> chord. threadChordToken is
+	// incremented on each new chord to detect stale timeout messages.
+	threadChordPending bool
+	threadChordToken   uint64
+	// pendingThreadMove is true while FolderPickerMode is active for T m.
+	pendingThreadMove bool
+	// pendingThreadIDs stores pre-fetched message IDs for T d / T D
+	// confirm flow, avoiding a double-fetch race.
+	pendingThreadIDs []string
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -1242,6 +1264,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "open cancelled"
 			return m, nil
 		}
+		// Thread soft-delete confirmation (spec 20): pendingThreadIDs holds
+		// the pre-fetched message IDs; y fires BulkSoftDelete on them.
+		if len(m.pendingThreadIDs) > 0 && msg.Topic == "thread:soft_delete" {
+			ids := m.pendingThreadIDs
+			m.pendingThreadIDs = nil
+			if !msg.Confirm {
+				m.engineActivity = "thread delete cancelled"
+				return m, nil
+			}
+			return m, m.runBulkWithIDsCmd("soft_delete", ids)
+		}
+		// Thread permanent-delete confirmation (spec 20): irreversible.
+		if len(m.pendingThreadIDs) > 0 && msg.Topic == "thread:permanent_delete" {
+			ids := m.pendingThreadIDs
+			m.pendingThreadIDs = nil
+			if !msg.Confirm {
+				m.engineActivity = "thread permanent delete cancelled"
+				return m, nil
+			}
+			return m, m.runBulkWithIDsCmd("permanent_delete", ids)
+		}
 		return m, nil
 
 	case filterAppliedMsg:
@@ -1462,6 +1505,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mutedCountUpdatedMsg:
 		m.folders.SetMutedCount(msg.count)
 		return m, nil
+
+	case threadChordTimeoutMsg:
+		if msg.token == m.threadChordToken {
+			m.threadChordPending = false
+			m.engineActivity = ""
+		}
+		return m, nil
+
+	case threadPreFetchDoneMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("thread: %w", msg.err)
+			m.pendingThreadIDs = nil
+			return m, nil
+		}
+		if len(msg.ids) == 0 {
+			m.engineActivity = "thread: 0 messages to act on"
+			return m, nil
+		}
+		m.pendingThreadIDs = msg.ids
+		n := len(msg.ids)
+		var prompt string
+		if msg.action == "permanent_delete" {
+			prompt = fmt.Sprintf("PERMANENT DELETE — irreversible.\n\nPermanently delete thread (%d messages)?\n\nThis cannot be undone. [y/N]", n)
+			m.confirm = m.confirm.Ask(prompt, "thread:permanent_delete")
+		} else {
+			prompt = fmt.Sprintf("Soft-delete thread (%d messages)? [y/N]", n)
+			m.confirm = m.confirm.Ask(prompt, "thread:soft_delete")
+		}
+		m.mode = ConfirmMode
+		return m, nil
+
+	case threadOpDoneMsg:
+		m.lastError = nil
+		if msg.total == 0 {
+			m.engineActivity = "thread: 0 messages to act on"
+			return m, m.clearTransientCmd()
+		}
+		if msg.failed == 0 {
+			m.engineActivity = fmt.Sprintf("✓ %s thread (%d messages)", msg.verb, msg.total)
+		} else {
+			m.engineActivity = fmt.Sprintf("⚠ %s thread: %d/%d succeeded — %d failed", msg.verb, msg.succeeded, msg.total, msg.failed)
+		}
+		if msg.firstErr != nil {
+			m.lastError = fmt.Errorf("%s thread: %w", msg.verb, msg.firstErr)
+		}
+		return m, tea.Batch(m.loadMessagesCmd(m.list.FolderID), m.clearTransientCmd())
 
 	case triageDoneMsg:
 		if msg.err != nil {
@@ -3494,6 +3583,62 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Unknown chord follow-up: clear pending, fall through.
 	}
+	// T chord: thread-level operations (spec 20).
+	if msg.Type == tea.KeyRunes && string(msg.Runes) == "T" && !m.threadChordPending {
+		if _, ok := m.list.Selected(); !ok {
+			m.lastError = fmt.Errorf("thread: no message selected")
+			return m, nil
+		}
+		m.threadChordToken++
+		m.threadChordPending = true
+		m.engineActivity = "thread: r/R/f/F/d/D/a/m  esc cancel"
+		return m, threadChordTimeout(m.threadChordToken)
+	}
+	if m.threadChordPending {
+		m.threadChordPending = false
+		m.engineActivity = ""
+		if msg.Type == tea.KeyEsc {
+			m.engineActivity = "thread chord cancelled"
+			return m, nil
+		}
+		sel, ok := m.list.Selected()
+		if !ok {
+			return m, nil
+		}
+		switch string(msg.Runes) {
+		case "r":
+			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, sel.ID)
+		case "R":
+			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, sel.ID)
+		case "f":
+			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, sel.ID)
+		case "F":
+			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, sel.ID)
+		case "a":
+			return m, m.runThreadMoveCmd("archive", sel.ID, "", "archive")
+		case "d":
+			return m, m.threadPreFetchCmd("soft_delete", sel.ID)
+		case "D":
+			return m, m.threadPreFetchCmd("permanent_delete", sel.ID)
+		case "m":
+			if m.deps.Thread == nil {
+				m.lastError = fmt.Errorf("thread move: not wired")
+				return m, nil
+			}
+			folders := m.folders.raw
+			if len(folders) == 0 {
+				m.lastError = fmt.Errorf("thread move: no folders synced yet")
+				return m, nil
+			}
+			m.pendingThreadMove = true
+			m.pendingMoveMsg = &sel
+			m.folderPicker.Reset(folders, m.recentFolderIDs)
+			m.mode = FolderPickerMode
+			return m, nil
+		}
+		// Unrecognised second key — cancel silently.
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, m.keymap.Up):
 		m.list.Up()
@@ -3894,6 +4039,7 @@ func (m Model) updateFolderPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = NormalMode
 		m.pendingMoveMsg = nil
 		m.pendingBulkMove = false
+		m.pendingThreadMove = false
 		m.engineActivity = "move cancelled"
 		return m, nil
 	case tea.KeyUp:
@@ -3918,7 +4064,21 @@ func (m Model) updateFolderPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingBulkMove = false
 			return m, m.runBulkMoveCmd(destID, destAlias, destLabel)
 		}
+		// Thread move (T m): move entire conversation to the chosen folder.
+		if m.pendingThreadMove {
+			m.pendingThreadMove = false
+			if m.pendingMoveMsg == nil {
+				m.engineActivity = "thread move: no message"
+				return m, nil
+			}
+			focusedID := m.pendingMoveMsg.ID
+			m.pendingMoveMsg = nil
+			return m, m.runThreadMoveCmd("move", focusedID, destID, destAlias)
+		}
 		// Single-message move (m key).
+		if m.pendingMoveMsg == nil {
+			return m, nil
+		}
 		src := *m.pendingMoveMsg
 		m.pendingMoveMsg = nil
 		return m.runTriage("move", src, ListPane, func(ctx context.Context, accID int64, s store.Message) error {
@@ -4186,6 +4346,181 @@ func (m Model) refreshMutedCountCmd() tea.Cmd {
 // mutedCountUpdatedMsg carries the fresh muted-conversation count for
 // the sidebar badge (spec 19 §5.4).
 type mutedCountUpdatedMsg struct{ count int }
+
+// threadChordTimeoutMsg cancels an in-progress T<verb> chord when
+// no second key arrives within the timeout window. The token field
+// allows stale timeout messages to be discarded.
+type threadChordTimeoutMsg struct{ token uint64 }
+
+// threadChordTimeout returns a Cmd that fires threadChordTimeoutMsg
+// after 3 seconds if no second key is pressed.
+func threadChordTimeout(token uint64) tea.Cmd {
+	return func() tea.Msg {
+		<-time.After(3 * time.Second)
+		return threadChordTimeoutMsg{token: token}
+	}
+}
+
+// threadOpDoneMsg is the result of a thread-level batch operation.
+type threadOpDoneMsg struct {
+	verb      string
+	total     int
+	succeeded int
+	failed    int
+	firstErr  error
+}
+
+// threadPreFetchDoneMsg carries the pre-fetched thread IDs for T d / T D.
+type threadPreFetchDoneMsg struct {
+	action string // "soft_delete" or "permanent_delete"
+	ids    []string
+	err    error
+}
+
+// runThreadExecuteCmd dispatches a verb over all messages in the
+// focused message's conversation via ThreadExecutor.ThreadExecute.
+func (m Model) runThreadExecuteCmd(verb string, actionType store.ActionType, focusedMsgID string) tea.Cmd {
+	if m.deps.Thread == nil {
+		return nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		total, results, err := m.deps.Thread.ThreadExecute(ctx, accountID, actionType, focusedMsgID)
+		var ok, fail int
+		var firstErr error
+		for _, r := range results {
+			if r.Err != nil {
+				fail++
+				if firstErr == nil {
+					firstErr = r.Err
+				}
+			} else {
+				ok++
+			}
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return threadOpDoneMsg{verb: verb, total: total, succeeded: ok, failed: fail, firstErr: firstErr}
+	}
+}
+
+// runThreadMoveCmd dispatches a bulk-move over all messages in the
+// focused message's conversation via ThreadExecutor.ThreadMove.
+func (m Model) runThreadMoveCmd(verb, focusedMsgID, destFolderID, destAlias string) tea.Cmd {
+	if m.deps.Thread == nil {
+		return nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		total, results, err := m.deps.Thread.ThreadMove(ctx, accountID, focusedMsgID, destFolderID, destAlias)
+		var ok, fail int
+		var firstErr error
+		for _, r := range results {
+			if r.Err != nil {
+				fail++
+				if firstErr == nil {
+					firstErr = r.Err
+				}
+			} else {
+				ok++
+			}
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return threadOpDoneMsg{verb: verb, total: total, succeeded: ok, failed: fail, firstErr: firstErr}
+	}
+}
+
+// threadPreFetchCmd fetches message IDs for a conversation so the
+// T d / T D confirm flow has the count before showing the modal.
+func (m Model) threadPreFetchCmd(action, focusedMsgID string) tea.Cmd {
+	if m.deps.Store == nil {
+		return nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		msg, err := m.deps.Store.GetMessage(ctx, focusedMsgID)
+		if err != nil {
+			return threadPreFetchDoneMsg{action: action, err: err}
+		}
+		if msg.ConversationID == "" {
+			return threadPreFetchDoneMsg{action: action, err: fmt.Errorf("thread: no conversation id")}
+		}
+		ids, err := m.deps.Store.MessageIDsInConversation(ctx, accountID, msg.ConversationID, false)
+		return threadPreFetchDoneMsg{action: action, ids: ids, err: err}
+	}
+}
+
+// focusedMessageID returns the ID of the currently focused message —
+// viewer.current when the viewer pane is active, list selection otherwise.
+func (m Model) focusedMessageID() string {
+	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
+		return cur.ID
+	}
+	if sel, ok := m.list.Selected(); ok {
+		return sel.ID
+	}
+	return ""
+}
+
+// runBulkWithIDsCmd executes BulkSoftDelete or BulkPermanentDelete on a
+// pre-fetched slice of message IDs. Used by the T d / T D confirm path.
+func (m Model) runBulkWithIDsCmd(action string, ids []string) tea.Cmd {
+	if m.deps.Bulk == nil {
+		return nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var results []BulkResult
+		var err error
+		switch action {
+		case "soft_delete":
+			results, err = m.deps.Bulk.BulkSoftDelete(ctx, accountID, ids)
+		case "permanent_delete":
+			results, err = m.deps.Bulk.BulkPermanentDelete(ctx, accountID, ids)
+		default:
+			return threadOpDoneMsg{verb: action, firstErr: fmt.Errorf("unknown action %q", action)}
+		}
+		var ok, fail int
+		var firstErr error
+		for _, r := range results {
+			if r.Err != nil {
+				fail++
+				if firstErr == nil {
+					firstErr = r.Err
+				}
+			} else {
+				ok++
+			}
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return threadOpDoneMsg{verb: action, total: len(ids), succeeded: ok, failed: fail, firstErr: firstErr}
+	}
+}
 
 // unsubKindLabel renders an UnsubscribeKind for the status bar.
 func unsubKindLabel(k UnsubscribeKind) string {
@@ -4583,6 +4918,62 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
 		// e also toggles quote expansion (alternative binding).
 		m.viewer.ToggleQuotes()
+		return m, nil
+	}
+	// T chord in viewer pane mirrors list pane (spec 20).
+	if msg.Type == tea.KeyRunes && string(msg.Runes) == "T" && !m.threadChordPending {
+		cur := m.viewer.current
+		if cur == nil {
+			m.lastError = fmt.Errorf("thread: no message open")
+			return m, nil
+		}
+		m.threadChordToken++
+		m.threadChordPending = true
+		m.engineActivity = "thread: r/R/f/F/d/D/a/m  esc cancel"
+		return m, threadChordTimeout(m.threadChordToken)
+	}
+	if m.threadChordPending {
+		m.threadChordPending = false
+		m.engineActivity = ""
+		if msg.Type == tea.KeyEsc {
+			m.engineActivity = "thread chord cancelled"
+			return m, nil
+		}
+		cur := m.viewer.current
+		if cur == nil {
+			return m, nil
+		}
+		switch string(msg.Runes) {
+		case "r":
+			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, cur.ID)
+		case "R":
+			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, cur.ID)
+		case "f":
+			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, cur.ID)
+		case "F":
+			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, cur.ID)
+		case "a":
+			return m, m.runThreadMoveCmd("archive", cur.ID, "", "archive")
+		case "d":
+			return m, m.threadPreFetchCmd("soft_delete", cur.ID)
+		case "D":
+			return m, m.threadPreFetchCmd("permanent_delete", cur.ID)
+		case "m":
+			if m.deps.Thread == nil {
+				m.lastError = fmt.Errorf("thread move: not wired")
+				return m, nil
+			}
+			folders := m.folders.raw
+			if len(folders) == 0 {
+				m.lastError = fmt.Errorf("thread move: no folders synced yet")
+				return m, nil
+			}
+			m.pendingThreadMove = true
+			m.pendingMoveMsg = cur
+			m.folderPicker.Reset(folders, m.recentFolderIDs)
+			m.mode = FolderPickerMode
+			return m, nil
+		}
 		return m, nil
 	}
 	return m, nil

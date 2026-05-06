@@ -202,6 +202,55 @@ func (e *Executor) Archive(ctx context.Context, accountID int64, messageID strin
 	})
 }
 
+// ThreadExecute collects the conversation's message IDs and applies a
+// batch action to all of them. Rejects ActionMove — use ThreadMove for
+// move/archive operations. Returns (count of IDs collected, per-message
+// results, error).
+func (e *Executor) ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string) (int, []BatchResult, error) {
+	if verb == store.ActionMove {
+		return 0, nil, fmt.Errorf("thread: use ThreadMove for move/archive operations")
+	}
+	msg, err := e.st.GetMessage(ctx, focusedMsgID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("thread: get message: %w", err)
+	}
+	if msg.ConversationID == "" {
+		return 0, nil, fmt.Errorf("thread: no conversation id on message %q", focusedMsgID)
+	}
+	ids, err := e.st.MessageIDsInConversation(ctx, accID, msg.ConversationID, false)
+	if err != nil {
+		return 0, nil, fmt.Errorf("thread: enumerate: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil, nil
+	}
+	results, err := e.BatchExecute(ctx, accID, verb, ids)
+	return len(ids), results, err
+}
+
+// ThreadMove collects the conversation's message IDs and bulk-moves them
+// to the user-specified folder via BulkMove. For archive, pass
+// destFolderID="" and destAlias="archive". Returns (count of IDs
+// collected, per-message results, error).
+func (e *Executor) ThreadMove(ctx context.Context, accID int64, focusedMsgID, destFolderID, destAlias string) (int, []BatchResult, error) {
+	msg, err := e.st.GetMessage(ctx, focusedMsgID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("thread: get message: %w", err)
+	}
+	if msg.ConversationID == "" {
+		return 0, nil, fmt.Errorf("thread: no conversation id on message %q", focusedMsgID)
+	}
+	ids, err := e.st.MessageIDsInConversation(ctx, accID, msg.ConversationID, false)
+	if err != nil {
+		return 0, nil, fmt.Errorf("thread: enumerate: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil, nil
+	}
+	results, err := e.BulkMove(ctx, accID, ids, destFolderID, destAlias)
+	return len(ids), results, err
+}
+
 // resolveWellKnownDestination looks up the actual folder ID for a
 // well-known name (e.g. "deleteditems") in the local store. Returns
 // (realID, alias, nil) on hit. If the folder isn't synced yet, returns

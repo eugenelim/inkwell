@@ -233,6 +233,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Account:                  acc,
 		Triage:                   triageAdapter{exec: exec},
 		Bulk:                     bulkAdapter{exec: exec},
+		Thread:                   &threadExecutorAdapter{exec: exec},
 		Calendar:                 calendarAdapter{gc: gc, st: st, accountID: acc.ID, showDeclined: cfg.Calendar.ShowDeclined},
 		Mailbox:                  mailboxAdapter{gc: gc},
 		Drafts:                   draftAdapter{exec: exec},
@@ -834,6 +835,8 @@ func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 		ClearFilter:     b.ClearFilter,
 		ApplyToFiltered: b.ApplyToFiltered,
 		Unsubscribe:     b.Unsubscribe,
+		MuteThread:      b.MuteThread,
+		ThreadChord:     b.ThreadChord,
 	}
 }
 
@@ -843,6 +846,20 @@ func convertBatchResults(in []action.BatchResult) []ui.BulkResult {
 		out[i] = ui.BulkResult{MessageID: r.MessageID, Err: r.Err}
 	}
 	return out
+}
+
+// threadExecutorAdapter adapts *action.Executor → ui.ThreadExecutor.
+// The UI uses []ui.BulkResult; the executor returns []action.BatchResult.
+type threadExecutorAdapter struct{ exec *action.Executor }
+
+func (a *threadExecutorAdapter) ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string) (int, []ui.BulkResult, error) {
+	total, results, err := a.exec.ThreadExecute(ctx, accID, verb, focusedMsgID)
+	return total, convertBatchResults(results), err
+}
+
+func (a *threadExecutorAdapter) ThreadMove(ctx context.Context, accID int64, focusedMsgID, destFolderID, destAlias string) (int, []ui.BulkResult, error) {
+	total, results, err := a.exec.ThreadMove(ctx, accID, focusedMsgID, destFolderID, destAlias)
+	return total, convertBatchResults(results), err
 }
 
 // unsubAdapter wires the spec 16 U flow. The Resolve method tries the

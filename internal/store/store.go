@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -129,6 +129,13 @@ type Store interface {
 	IsConversationMuted(ctx context.Context, accountID int64, conversationID string) (bool, error)
 	ListMutedMessages(ctx context.Context, accountID int64, limit int) ([]Message, error)
 	CountMutedConversations(ctx context.Context, accountID int64) (int, error)
+
+	// MessageIDsInConversation returns IDs of all messages in a conversation
+	// for the account. When includeAllFolders is false, messages in
+	// Drafts, Deleted Items, and Junk are excluded (TUI default). When
+	// includeAllFolders is true the folder exclusion is skipped (CLI path).
+	// Returns nil, nil when conversationID is empty.
+	MessageIDsInConversation(ctx context.Context, accountID int64, conversationID string, includeAllFolders bool) ([]string, error)
 
 	// Saved searches
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)

@@ -355,6 +355,7 @@ type BindingsConfig struct {
 	ApplyToFiltered string `toml:"apply_to_filtered"`
 	Unsubscribe     string `toml:"unsubscribe"`
 	MuteThread      string `toml:"mute_thread"`
+	ThreadChord     string `toml:"thread_chord"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

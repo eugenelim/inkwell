@@ -78,6 +78,15 @@ saved search.
 | `;m`      | Bulk move the filtered set to a folder (opens folder picker)  |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `M`       | Toggle mute on the focused message's conversation thread      |
+| `T`       | Begin thread chord — acts on the whole conversation (see below) |
+| `T r`     | Mark whole thread read                                        |
+| `T R`     | Mark whole thread unread                                      |
+| `T f`     | Flag every message in the thread                              |
+| `T F`     | Unflag every message in the thread                            |
+| `T d`     | Soft-delete the entire thread (confirm, default N)            |
+| `T D`     | Permanently delete the entire thread (confirm, irreversible)  |
+| `T a`     | Archive the entire thread                                     |
+| `T m`     | Move whole thread (opens folder picker)                       |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -130,6 +139,7 @@ disabled because of a real-tenant 400 regression on the bare
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `M`       | Toggle mute on the focused message's conversation thread      |
+| `T`       | Begin thread chord — acts on the whole conversation (see Messages pane table above) |
 | `u`       | Undo the most recent triage action                            |
 | `o`       | Open message in system browser (OWA deep-link / webLink)      |
 | `O`       | Open the URL picker (lists every URL the renderer extracted)  |

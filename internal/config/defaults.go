@@ -86,6 +86,7 @@ func Defaults() *Config {
 			ApplyToFiltered: ";",
 			Unsubscribe:     "U",
 			MuteThread:      "M",
+			ThreadChord:     "T",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders:          false,

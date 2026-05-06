@@ -372,6 +372,8 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `clear_filter` | `"esc"` | Clear active filter. |
 | `apply_to_filtered` | `";"` | Mutt-style tag-prefix. |
 | `unsubscribe` | `"U"` | RFC 8058 one-click / mailto / browser flow. Spec 16. |
+| `mute_thread` | `"M"` | Toggle mute on the focused message's conversation. Spec 19. |
+| `thread_chord` | `"T"` | Begin thread chord (T+r/R/f/F/d/D/a/m). Spec 20. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 
 **Pane-scoped bindings** (e.g., `r`, `R`, `f`) have different actions in list vs. viewer panes by design — see spec 04 §5 and spec 07 §12. Overriding them via this section changes the binding in BOTH panes; per-pane override is not supported in v1.

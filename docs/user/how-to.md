@@ -471,4 +471,71 @@ inkwell unmute <conversation-id>
 
 ---
 
-_Last reviewed against v0.8.0._
+## Triage an entire thread
+
+When you want to act on every message in a conversation at once, use the
+`T` chord in the messages pane or viewer pane. Press `T` — the status bar
+shows the available second keys:
+
+```
+thread: r/R/f/F/d/D/a/m  esc cancel
+```
+
+Then press a second key within 3 seconds:
+
+| Second key | What happens |
+| ---------- | ------------ |
+| `r`        | Mark all messages in the thread read |
+| `R`        | Mark all messages in the thread unread |
+| `f`        | Flag every message |
+| `F`        | Unflag every message |
+| `d`        | Soft-delete the thread (confirm required, default N) |
+| `D`        | Permanently delete the thread (confirm required, **irreversible**) |
+| `a`        | Archive the whole thread (no confirm) |
+| `m`        | Move the whole thread — opens the folder picker |
+| `Esc`      | Cancel the chord |
+
+The chord automatically cancels after 3 seconds with no second key.
+
+Messages in your **Drafts**, **Deleted Items**, and **Junk** folders are
+excluded from thread operations — acting on a draft or a trashed message
+is generally not what you intend. To include them, use the CLI with the
+conversation ID directly.
+
+**Partial failure:** if some messages fail server-side (e.g., Graph
+throttle), the status bar shows `⚠ archive thread: 11/12 succeeded — 1 failed`.
+The successfully acted-on messages are in their final state; the failed ones
+retain their previous state.
+
+**CLI equivalents:**
+
+```sh
+# Archive an entire thread by conversation ID
+inkwell thread archive <conversation-id>
+
+# Mark a thread read / unread
+inkwell thread mark-read <conversation-id>
+inkwell thread mark-unread <conversation-id>
+
+# Flag / unflag
+inkwell thread flag <conversation-id>
+inkwell thread unflag <conversation-id>
+
+# Soft-delete (dry-run without --yes)
+inkwell thread delete <conversation-id>
+inkwell thread delete <conversation-id> --yes
+
+# Permanent delete (irreversible, dry-run without --yes)
+inkwell thread permanent-delete <conversation-id>
+inkwell thread permanent-delete <conversation-id> --yes
+
+# Move to a folder (resolved by display name)
+inkwell thread move <conversation-id> --folder "Archive"
+
+# JSON output for scripting
+inkwell thread archive <conversation-id> --output json
+```
+
+---
+
+_Last reviewed against v0.9.0._
