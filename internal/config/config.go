@@ -313,6 +313,10 @@ type UIConfig struct {
 	TransientStatusTTL  time.Duration `toml:"transient_status_ttl"`
 	MinTerminalCols     int           `toml:"min_terminal_cols"`
 	MinTerminalRows     int           `toml:"min_terminal_rows"`
+	// MuteIndicator is the glyph shown in list rows for muted threads
+	// (spec 19). Default 🔕; ASCII fallback "m" for terminals without
+	// emoji support.
+	MuteIndicator string `toml:"mute_indicator"`
 }
 
 // BindingsConfig owns the [bindings] section (spec 04).
@@ -350,6 +354,7 @@ type BindingsConfig struct {
 	ClearFilter     string `toml:"clear_filter"`
 	ApplyToFiltered string `toml:"apply_to_filtered"`
 	Unsubscribe     string `toml:"unsubscribe"`
+	MuteThread      string `toml:"mute_thread"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

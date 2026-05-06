@@ -45,6 +45,7 @@ type BindingOverrides struct {
 	ClearFilter     string
 	ApplyToFiltered string
 	Unsubscribe     string
+	MuteThread      string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -125,6 +126,12 @@ type KeyMap struct {
 	// otherwise breaks (selection is rectangular and crosses pane
 	// borders). `z` is the typical "zoom" mnemonic in TUI tools.
 	FullscreenBody key.Binding
+
+	// MuteThread toggles mute on the focused message's conversation
+	// (spec 19). Capital M: affects more than a single message (same
+	// convention as D=permanent-delete, U=unsubscribe). Active in
+	// list pane and viewer pane only; not in the folders sidebar.
+	MuteThread key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -179,6 +186,7 @@ func DefaultKeyMap() KeyMap {
 		OpenURL:        key.NewBinding(key.WithKeys("O")),
 		Yank:           key.NewBinding(key.WithKeys("y")),
 		FullscreenBody: key.NewBinding(key.WithKeys("z")),
+		MuteThread:     key.NewBinding(key.WithKeys("M")),
 	}
 }
 
@@ -254,6 +262,7 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.ClearFilter, o.ClearFilter)
 	apply(&km.ApplyToFiltered, o.ApplyToFiltered)
 	apply(&km.Unsubscribe, o.Unsubscribe)
+	apply(&km.MuteThread, o.MuteThread)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -300,6 +309,7 @@ func findDuplicateBinding(km KeyMap) string {
 		{"undo", km.Undo},
 		{"filter", km.Filter}, {"apply_to_filtered", km.ApplyToFiltered},
 		{"unsubscribe", km.Unsubscribe},
+		{"mute_thread", km.MuteThread},
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

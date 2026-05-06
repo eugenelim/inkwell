@@ -42,6 +42,7 @@ func Defaults() *Config {
 			UnreadIndicator:     "●",
 			FlagIndicator:       "⚑",
 			AttachmentIndicator: "📎",
+			MuteIndicator:       "🔕",
 			TransientStatusTTL:  5 * time.Second,
 			MinTerminalCols:     80,
 			MinTerminalRows:     24,
@@ -84,6 +85,7 @@ func Defaults() *Config {
 			ClearFilter:     "esc",
 			ApplyToFiltered: ";",
 			Unsubscribe:     "U",
+			MuteThread:      "M",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders:          false,

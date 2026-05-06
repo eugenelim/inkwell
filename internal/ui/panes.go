@@ -47,7 +47,16 @@ type displayedFolder struct {
 	calDayLabel string // e.g. "Today · Mon 27" or "Tue 28"
 	isCalEvent  bool
 	calEvent    CalendarEvent
+	// isMuted marks the "Muted Threads" virtual sidebar entry (spec 19).
+	// Selectable; selecting it loads ListMutedMessages into the list pane.
+	isMuted    bool
+	mutedCount int // distinct muted-conversation count for the badge
 }
+
+// mutedSentinelID is the virtual folder ID used for the "Muted Threads"
+// sidebar entry (spec 19). Prefixed with double-underscores to avoid
+// collision with Graph folder IDs, which are base64url strings.
+const mutedSentinelID = "__muted__"
 
 // FoldersModel is the sidebar pane. It stores the raw folders + per-id
 // expansion state, then computes the displayed tree on demand. The
@@ -62,6 +71,9 @@ type FoldersModel struct {
 	calendarEvents  []CalendarEvent
 	sidebarShowDays int
 	calendarTZ      *time.Location
+	// mutedConvCount is the count of distinct muted conversations (spec 19).
+	// When > 0, the "Muted Threads" virtual entry is shown in the sidebar.
+	mutedConvCount int
 }
 
 // NewFolders returns an empty folders pane. The default expansion
@@ -105,6 +117,14 @@ func (m *FoldersModel) SetSavedSearches(s []SavedSearch) {
 	m.rebuild()
 }
 
+// SetMutedCount updates the muted-conversation count and rebuilds the
+// sidebar. When count > 0 the "Muted Threads" virtual entry appears;
+// when 0 it is hidden. Called after every mute/unmute operation.
+func (m *FoldersModel) SetMutedCount(count int) {
+	m.mutedConvCount = count
+	m.rebuild()
+}
+
 // SetCalendarEvents replaces the sidebar calendar section (spec 12).
 func (m *FoldersModel) SetCalendarEvents(events []CalendarEvent, showDays int, tz *time.Location) {
 	m.calendarEvents = append([]CalendarEvent(nil), events...)
@@ -142,6 +162,13 @@ func (m *FoldersModel) rebuild() {
 				savedCount:   s.Count,
 			})
 		}
+	}
+	// Muted Threads virtual entry — spec 19 §5.4.
+	if m.mutedConvCount > 0 {
+		items = append(items, displayedFolder{
+			isMuted:    true,
+			mutedCount: m.mutedConvCount,
+		})
 	}
 	// Calendar section — spec 12 §6 sidebar pane.
 	if len(m.calendarEvents) > 0 {
@@ -306,21 +333,25 @@ func folderRank(f store.Folder) int {
 	}
 }
 
-// Up moves the cursor toward the top, skipping non-selectable
-// section-header rows (saved-search headers and calendar day headers).
+// isSelectableRow reports whether a sidebar row can receive cursor focus.
+func isSelectableRow(it displayedFolder) bool {
+	return !it.isSavedHeader && !it.isCalHeader
+}
+
+// Up moves the cursor toward the top, skipping non-selectable rows.
 func (m *FoldersModel) Up() {
 	for i := m.cursor - 1; i >= 0; i-- {
-		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
+		if isSelectableRow(m.items[i]) {
 			m.cursor = i
 			return
 		}
 	}
 }
 
-// Down moves the cursor toward the bottom, skipping headers.
+// Down moves the cursor toward the bottom, skipping non-selectable rows.
 func (m *FoldersModel) Down() {
 	for i := m.cursor + 1; i < len(m.items); i++ {
-		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
+		if isSelectableRow(m.items[i]) {
 			m.cursor = i
 			return
 		}
@@ -354,7 +385,7 @@ func (m *FoldersModel) PageDown() {
 
 func (m *FoldersModel) JumpTop() {
 	for i := 0; i < len(m.items); i++ {
-		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
+		if isSelectableRow(m.items[i]) {
 			m.cursor = i
 			return
 		}
@@ -363,7 +394,7 @@ func (m *FoldersModel) JumpTop() {
 
 func (m *FoldersModel) JumpBottom() {
 	for i := len(m.items) - 1; i >= 0; i-- {
-		if !m.items[i].isSavedHeader && !m.items[i].isCalHeader {
+		if isSelectableRow(m.items[i]) {
 			m.cursor = i
 			return
 		}
@@ -371,17 +402,27 @@ func (m *FoldersModel) JumpBottom() {
 }
 
 // Selected returns the highlighted folder, if any. Returns ok=false
-// when the cursor is on a saved-search row, a section header, or a
-// calendar event row.
+// when the cursor is on a saved-search row, a section header, a
+// calendar event row, or the virtual muted-threads entry.
 func (m FoldersModel) Selected() (store.Folder, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return store.Folder{}, false
 	}
 	it := m.items[m.cursor]
-	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent {
+	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent || it.isMuted {
 		return store.Folder{}, false
 	}
 	return it.f, true
+}
+
+// SelectedMuted returns true when the cursor is on the virtual
+// "Muted Threads" entry (spec 19 §5.4). The caller dispatches
+// loadMutedMessagesCmd when this returns true.
+func (m FoldersModel) SelectedMuted() bool {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.items[m.cursor].isMuted
 }
 
 // SelectedSavedSearch returns the highlighted saved search, if the
@@ -435,6 +476,22 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	}
 	rows := make([]string, 0, len(m.items))
 	for i, it := range m.items {
+		// Muted Threads virtual folder (spec 19 §5.4).
+		if it.isMuted {
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			line := fmt.Sprintf("%s🔕 Muted  %d", marker, it.mutedCount)
+			styled := truncate(line, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
+			continue
+		}
 		// Saved-searches section header — non-selectable divider.
 		if it.isSavedHeader {
 			rows = append(rows, t.Dim.Render("  Saved Searches"))
@@ -771,15 +828,21 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		// Meeting-invite indicator: a leading 📅 glyph. Prefer Graph's
-		// meetingMessageType (canonical signal — set after spec 02 v2
-		// migration); fall back to subject-prefix heuristic for rows
-		// synced before the migration. Real-tenant bug: invites whose
-		// subject didn't start with "Accepted:" / "Meeting:" / etc.
-		// silently lost the indicator.
+		// Meeting-invite / mute indicator. Calendar takes priority:
+		// if the message is a meeting invite, show 📅 regardless of mute
+		// state. Otherwise, if we're in the muted virtual view, show the
+		// mute glyph. Normal folder views exclude muted messages
+		// (ExcludeMuted: true) so 🔕 only ever appears in __muted__ view.
+		// Spec 19 §5.2.
 		invite := "  "
 		if isMeetingMessage(msg) {
 			invite = "📅 "
+		} else if m.FolderID == mutedSentinelID {
+			mi := t.MuteIndicator
+			if mi == "" {
+				mi = "🔕"
+			}
+			invite = mi + " "
 		}
 		flag := "  "
 		if msg.FlagStatus == "flagged" {

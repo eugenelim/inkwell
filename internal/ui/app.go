@@ -229,12 +229,13 @@ type Deps struct {
 	// downloading files larger than this many MB. 0 disables.
 	LargeAttachmentWarnMB int
 
-	// UnreadIndicator / FlagIndicator / AttachmentIndicator override
-	// the default theme glyphs for their respective row decorations.
+	// UnreadIndicator / FlagIndicator / AttachmentIndicator / MuteIndicator
+	// override the default theme glyphs for their respective row decorations.
 	// Empty strings leave the theme default in place.
 	UnreadIndicator     string
 	FlagIndicator       string
 	AttachmentIndicator string
+	MuteIndicator       string
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -721,6 +722,9 @@ func New(deps Deps) (Model, error) {
 	if deps.AttachmentIndicator != "" {
 		theme.AttachmentIndicator = deps.AttachmentIndicator
 	}
+	if deps.MuteIndicator != "" {
+		theme.MuteIndicator = deps.MuteIndicator
+	}
 	folders := NewFolders()
 	savedSearches := append([]SavedSearch(nil), deps.SavedSearches...)
 	if len(savedSearches) > 0 {
@@ -893,9 +897,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.FolderID = pick.ID
 			m.folders.SelectByID(pick.ID)
-			return m, m.loadMessagesCmd(pick.ID)
+			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd())
 		}
-		return m, nil
+		return m, m.refreshMutedCountCmd()
 
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
@@ -1432,6 +1436,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case UnsubscribeMailto:
 			m.engineActivity = "opened unsubscribe mail in default handler"
 		}
+		return m, nil
+
+	case mutedToastMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("mute failed: %w", msg.err)
+			return m, nil
+		}
+		m.lastError = nil
+		if msg.nowMuted {
+			m.engineActivity = fmt.Sprintf("🔕 muted thread (subject: %s)", msg.subject)
+		} else {
+			m.engineActivity = fmt.Sprintf("🔔 unmuted thread (subject: %s)", msg.subject)
+		}
+		// Reload current folder to hide/show the newly muted/unmuted thread
+		// and refresh the sidebar muted count badge.
+		var reloadCmd tea.Cmd
+		if m.list.FolderID == mutedSentinelID {
+			reloadCmd = m.loadMutedMessagesCmd()
+		} else {
+			reloadCmd = m.loadMessagesCmd(m.list.FolderID)
+		}
+		return m, tea.Batch(reloadCmd, m.refreshMutedCountCmd(), m.clearTransientCmd())
+
+	case mutedCountUpdatedMsg:
+		m.folders.SetMutedCount(msg.count)
 		return m, nil
 
 	case triageDoneMsg:
@@ -3361,6 +3390,15 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// Muted Threads virtual folder (spec 19 §5.4).
+		if m.folders.SelectedMuted() {
+			m.list.FolderID = mutedSentinelID
+			m.list.ResetLimit()
+			m.focused = ListPane
+			m.searchActive = false
+			m.searchQuery = ""
+			return m, m.loadMutedMessagesCmd()
+		}
 		// Saved-search row: run its pattern via the existing filter
 		// machinery. Selection auto-focuses the list pane (parity
 		// with regular folder navigation).
@@ -3574,6 +3612,8 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startUnsubscribe(sel.ID)
+	case key.Matches(msg, m.keymap.MuteThread):
+		return m.startMute()
 	case key.Matches(msg, m.keymap.AddCategory):
 		sel, ok := m.list.Selected()
 		if !ok {
@@ -3984,6 +4024,32 @@ func (m Model) startUnsubscribe(messageID string) (tea.Model, tea.Cmd) {
 	return m, m.resolveUnsubCmd(messageID)
 }
 
+// startMute dispatches muteCmd for the focused message. Works from
+// both the list pane and the viewer pane (spec 19 §5.1). Surfaces a
+// status-bar error when no message is focused or the message has no
+// conversation_id.
+func (m Model) startMute() (tea.Model, tea.Cmd) {
+	var msg *store.Message
+	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
+		msg = cur
+	} else if sel, ok := m.list.Selected(); ok {
+		msg = &sel
+	}
+	if msg == nil {
+		m.lastError = fmt.Errorf("mute: no message focused")
+		return m, nil
+	}
+	if msg.ConversationID == "" {
+		m.lastError = fmt.Errorf("mute: message has no conversation ID")
+		return m, nil
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	return m, muteCmd(m.deps.Store, accountID, msg.ConversationID, msg.Subject)
+}
+
 // runTriage is the shared dispatch boilerplate. The caller supplies
 // the source message (from list selection or viewer.current) and a
 // post-action focus hint (where to put focus after Graph confirms).
@@ -4045,6 +4111,81 @@ type unsubDoneMsg struct {
 	url  string
 	err  error
 }
+
+// mutedToastMsg is the result of muteCmd. nowMuted=true on mute, false on
+// unmute. The subject is used for the status-bar toast (not logged).
+type mutedToastMsg struct {
+	subject  string
+	nowMuted bool
+	err      error
+}
+
+// muteCmd toggles mute on a conversation. It checks the current mute
+// state and applies the inverse, then returns a mutedToastMsg.
+// ctx must be the background context threaded via model's cancel field —
+// Bubble Tea Cmd goroutines must not capture a context from Update.
+func muteCmd(st store.Store, accountID int64, conversationID, subject string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		muted, err := st.IsConversationMuted(ctx, accountID, conversationID)
+		if err != nil {
+			return mutedToastMsg{err: err}
+		}
+		if muted {
+			if err := st.UnmuteConversation(ctx, accountID, conversationID); err != nil {
+				return mutedToastMsg{err: err}
+			}
+			return mutedToastMsg{subject: subject, nowMuted: false}
+		}
+		if err := st.MuteConversation(ctx, accountID, conversationID); err != nil {
+			return mutedToastMsg{err: err}
+		}
+		return mutedToastMsg{subject: subject, nowMuted: true}
+	}
+}
+
+// loadMutedMessagesCmd loads messages for the "Muted Threads" virtual
+// folder (spec 19 §5.4). Returns a MessagesLoadedMsg with FolderID
+// set to mutedSentinelID so the list pane can identify the view.
+func (m Model) loadMutedMessagesCmd() tea.Cmd {
+	limit := m.list.LoadLimit()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var accountID int64
+		if m.deps.Account != nil {
+			accountID = m.deps.Account.ID
+		}
+		msgs, err := m.deps.Store.ListMutedMessages(ctx, accountID, limit)
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+		return MessagesLoadedMsg{FolderID: mutedSentinelID, Messages: msgs}
+	}
+}
+
+// refreshMutedCountCmd queries the muted-conversation count and returns
+// a mutedCountUpdatedMsg so the sidebar badge stays accurate.
+func (m Model) refreshMutedCountCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var accountID int64
+		if m.deps.Account != nil {
+			accountID = m.deps.Account.ID
+		}
+		n, err := m.deps.Store.CountMutedConversations(ctx, accountID)
+		if err != nil {
+			return nil // non-fatal; badge just won't refresh
+		}
+		return mutedCountUpdatedMsg{count: n}
+	}
+}
+
+// mutedCountUpdatedMsg carries the fresh muted-conversation count for
+// the sidebar badge (spec 19 §5.4).
+type mutedCountUpdatedMsg struct{ count int }
 
 // unsubKindLabel renders an UnsubscribeKind for the status bar.
 func unsubKindLabel(k UnsubscribeKind) string {
@@ -4359,6 +4500,8 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.viewer.current; cur != nil {
 			return m.startUnsubscribe(cur.ID)
 		}
+	case key.Matches(msg, m.keymap.MuteThread):
+		return m.startMute()
 	case key.Matches(msg, m.keymap.AddCategory):
 		if cur := m.viewer.current; cur != nil {
 			return m.startCategoryInput("add", *cur)
@@ -4693,9 +4836,10 @@ func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
 			accountID = m.deps.Account.ID
 		}
 		msgs, err := m.deps.Store.ListMessages(ctx, store.MessageQuery{
-			AccountID: accountID,
-			FolderID:  folderID,
-			Limit:     limit,
+			AccountID:    accountID,
+			FolderID:     folderID,
+			Limit:        limit,
+			ExcludeMuted: true, // spec 19 §5.3: normal folder views hide muted threads
 		})
 		if err != nil {
 			return ErrorMsg{Err: err}

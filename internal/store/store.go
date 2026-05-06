@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -121,6 +121,14 @@ type Store interface {
 	// ListEventAttendees returns the cached attendees for eventID.
 	// Returns nil (not an error) when none are cached yet.
 	ListEventAttendees(ctx context.Context, eventID string) ([]EventAttendee, error)
+
+	// Muted conversations (spec 19 — local only, no Graph call).
+	// MuteConversation is idempotent; UnmuteConversation is a no-op if not muted.
+	MuteConversation(ctx context.Context, accountID int64, conversationID string) error
+	UnmuteConversation(ctx context.Context, accountID int64, conversationID string) error
+	IsConversationMuted(ctx context.Context, accountID int64, conversationID string) (bool, error)
+	ListMutedMessages(ctx context.Context, accountID int64, limit int) ([]Message, error)
+	CountMutedConversations(ctx context.Context, accountID int64) (int, error)
 
 	// Saved searches
 	ListSavedSearches(ctx context.Context, accountID int64) ([]SavedSearch, error)

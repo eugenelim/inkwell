@@ -440,6 +440,35 @@ The webLink is populated when the message is synced from Graph. If the
 message was just synced and the link hasn't arrived yet, the status bar
 shows `open: no webLink for this message` — `Ctrl+R` and try again.
 
+## Mute a noisy thread
+
+When a thread is sending too many notifications but you don't want to
+delete it, press `M` (Shift+m) in the list pane or viewer pane.
+
+- The thread disappears from your normal folder view immediately.
+- All future messages in that conversation still arrive and are cached
+  locally — they just won't surface in the regular list.
+- To un-mute, navigate to **🔕 Muted** in the sidebar, open one of
+  the messages, and press `M` again. The thread returns to its folder.
+- The `🔕 Muted` sidebar entry appears only when at least one
+  conversation is muted; it shows the count of distinct muted threads.
+
+**Find all muted threads:** navigate to `🔕 Muted` in the sidebar.
+inkwell loads all muted messages ordered by when they were muted
+(newest mute first).
+
+**Intentional search includes muted:** pressing `/` and searching
+always includes muted threads — if you explicitly searched, you want
+to see the result.
+
+**CLI:**
+
+```sh
+inkwell mute <conversation-id>
+inkwell mute --message <message-id>   # resolves via local store
+inkwell unmute <conversation-id>
+```
+
 ---
 
 _Last reviewed against v0.8.0._

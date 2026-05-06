@@ -12,7 +12,7 @@ import (
 )
 
 // OpenTestStore opens a fresh DB in t.TempDir() and returns it.
-func OpenTestStore(t *testing.T) Store {
+func OpenTestStore(t testing.TB) Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "mail.db")
 	s, err := Open(path, DefaultOptions())
@@ -22,7 +22,7 @@ func OpenTestStore(t *testing.T) Store {
 }
 
 // SeedAccount inserts a minimal account and returns its id.
-func SeedAccount(t *testing.T, s Store) int64 {
+func SeedAccount(t testing.TB, s Store) int64 {
 	t.Helper()
 	id, err := s.PutAccount(context.Background(), Account{
 		TenantID: "tenant-1",
@@ -34,7 +34,7 @@ func SeedAccount(t *testing.T, s Store) int64 {
 }
 
 // SeedFolder inserts an inbox folder for accountID.
-func SeedFolder(t *testing.T, s Store, accountID int64) Folder {
+func SeedFolder(t testing.TB, s Store, accountID int64) Folder {
 	t.Helper()
 	f := Folder{
 		ID:            "folder-inbox",

@@ -286,6 +286,11 @@ type MessageQuery struct {
 	OrderBy        OrderField
 	Limit          int
 	Offset         int
+	// ExcludeMuted suppresses messages whose conversation_id appears in
+	// muted_conversations for AccountID. Default false. Normal folder
+	// views pass true; explicit search / filter paths pass false so the
+	// user can still find muted threads when they intentionally look.
+	ExcludeMuted bool
 }
 
 // OrderField names the sort key of [MessageQuery].

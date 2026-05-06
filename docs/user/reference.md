@@ -77,6 +77,7 @@ saved search.
 | `;a`      | Bulk archive the filtered set (with confirm)                  |
 | `;m`      | Bulk move the filtered set to a folder (opens folder picker)  |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
+| `M`       | Toggle mute on the focused message's conversation thread      |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -128,6 +129,7 @@ disabled because of a real-tenant 400 regression on the bare
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
+| `M`       | Toggle mute on the focused message's conversation thread      |
 | `u`       | Undo the most recent triage action                            |
 | `o`       | Open message in system browser (OWA deep-link / webLink)      |
 | `O`       | Open the URL picker (lists every URL the renderer extracted)  |

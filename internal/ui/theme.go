@@ -36,6 +36,7 @@ type Theme struct {
 	UnreadIndicator     string
 	FlagIndicator       string
 	AttachmentIndicator string
+	MuteIndicator       string
 }
 
 // palette is the small set of semantic colors a theme builder picks
@@ -148,5 +149,6 @@ func paletteToTheme(p palette) Theme {
 		UnreadIndicator:     "●",
 		FlagIndicator:       "⚑",
 		AttachmentIndicator: "📎",
+		MuteIndicator:       "🔕",
 	}
 }

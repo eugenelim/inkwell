@@ -62,6 +62,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newDaemonCmd(rc))
 	cmd.AddCommand(newExportCmd(rc))
 	cmd.AddCommand(newBackfillCmd(rc))
+	cmd.AddCommand(newMuteCmd(rc))
+	cmd.AddCommand(newUnmuteCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd

@@ -251,6 +251,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		UnreadIndicator:          cfg.UI.UnreadIndicator,
 		FlagIndicator:            cfg.UI.FlagIndicator,
 		AttachmentIndicator:      cfg.UI.AttachmentIndicator,
+		MuteIndicator:            cfg.UI.MuteIndicator,
 		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
 		MinTerminalCols:          cfg.UI.MinTerminalCols,
 		MinTerminalRows:          cfg.UI.MinTerminalRows,

@@ -414,6 +414,23 @@ func buildListSQL(q MessageQuery) (string, []any) {
 			args = append(args, c)
 		}
 	}
+	if q.ExcludeMuted {
+		// NOT EXISTS anti-join: messages with NULL/empty conversation_id
+		// are never in muted_conversations and must not be suppressed.
+		// Uses NOT EXISTS rather than NOT IN to avoid NULL-hazard: NOT IN
+		// with a NULL-producing subquery returns UNKNOWN (excluded) for
+		// all outer rows, which would hide un-muted messages incorrectly.
+		where = append(where, `(
+			conversation_id IS NULL
+			OR conversation_id = ''
+			OR NOT EXISTS (
+				SELECT 1 FROM muted_conversations mc
+				WHERE mc.conversation_id = messages.conversation_id
+				  AND mc.account_id = ?
+			)
+		)`)
+		args = append(args, q.AccountID)
+	}
 
 	order := "received_at DESC"
 	switch q.OrderBy {
