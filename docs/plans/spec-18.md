@@ -1,9 +1,10 @@
 # Spec 18 — Folder management (create / rename / delete)
 
 ## Status
-shipped (v0.15.x). All §8 DoD bullets ticked except CLI tests
-(deferred — covered indirectly by the action-layer tests; CLI
-plumbing is straightforward cobra wiring).
+done. All §8 DoD bullets closed. CLI tests shipped v0.46.0 alongside
+spec-17 §4.4 path traversal work. Action-layer coverage was
+complemented by 9 direct CLI unit tests for create/rename/delete +
+path-resolution helpers.
 
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/folders.go` adds CreateFolder /
@@ -35,13 +36,33 @@ plumbing is straightforward cobra wiring).
         + Enter shows "✓ created folder" status.
 - [x] User docs: reference (`N`/`R`/`X` rows), how-to
       ("Reorganise your mailbox" recipe).
-- [ ] CLI tests deferred — `cmd_messages_test.go` is the only
-      CLI unit test pattern in the repo; a folder-CLI test
-      would mostly exercise cobra's argument parsing. The
-      action-layer tests cover the call shapes; integration
-      with real Graph is manual smoke (CLAUDE.md §5.5).
+- [x] CLI tests — `cmd/inkwell/cmd_folder_test.go` (new, v0.46.0):
+      9 tests covering `resolveFolderByNameCtx` path-resolution,
+      create top-level + nested (URL shape verified), empty-name
+      rejection, rename with local store verification, delete with
+      204 + local row removal, and delete-without-yes noop guard.
+      Uses `newCLITestAppWithGraph` helper that wires a real
+      SQLite store + httptest.Server-backed graph client (same
+      pattern as `internal/action/executor_test.go`).
 
 ## Iteration log
+
+### Iter 2 — 2026-05-06 (CLI tests, v0.46.0)
+- Slice: close the last open DoD bullet — `cmd/inkwell/cmd_folder_test.go`.
+- Files added:
+  - `cmd/inkwell/cmd_folder_test.go`: 9 tests. `newCLITestAppWithGraph`
+    helper wires `store.Open` + `httptest.NewServer` + `graph.NewClient`
+    into a `headlessApp` (matching the action package's `newTestExec`
+    pattern). Tests: `TestResolveFolderByNameCtxByDisplayName`,
+    `TestResolveFolderByNameCtxUnknownReturnsError`,
+    `TestFolderCLINewCreatesTopLevel`, `TestFolderCLINewCreatesNested`,
+    `TestFolderCLINewRejectsEmptyName`, `TestFolderCLIRenameUpdatesDisplayName`,
+    `TestFolderCLIDeleteRemovesFolder`, `TestFolderCLIDeleteWithoutYesIsNoop`.
+- Commands: `bash scripts/regress.sh` — all 6 gates green.
+- Critique: no layering violations; httptest approach gives genuine
+  URL-shape coverage (verified child-folder POST path contains
+  `f-parent/childFolders`); no cobra-wiring-only tests — each test
+  exercises the action layer end-to-end through store verification.
 
 ### Iter 1 — 2026-04-30 (full ship)
 - Slice: graph helpers + executor methods + sidebar dispatch +
