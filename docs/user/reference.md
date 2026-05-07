@@ -509,6 +509,7 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Normal      | (default)            | —                                                |
 | Command     | `:`                  | `Enter` (run) or `Esc`                           |
 | Search      | `/`                  | `Enter` (run) or `Esc`                           |
+| Palette     | `Ctrl+K`             | `Esc` (cancel) or `Enter` (run highlighted) — see "Command palette" below |
 | SignIn      | auth flow            | `Esc`                                            |
 | Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
 | Calendar    | `:cal` / `:calendar` / `c` (Folders pane) | `Esc` or `q` (`j`/`k` nav, `w` week-grid, `Enter` opens detail) |
@@ -516,6 +517,45 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | Settings    | `:settings`                      | `Esc` or `q` (`o` to edit OOF)        |
 | OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`Space` cycles status, `Enter` saves) |
 | FolderPicker | `m` (list / viewer)              | `Esc` (cancel) or `Enter` (move)      |
+
+## Command palette (`Ctrl+K`)
+
+A fuzzy-find modal that exposes every action — keybinding, `:`
+command verb, saved search, sidebar folder — in one overlay. The
+right-hand column shows the live binding for each row, so the
+palette doubles as a passive cheatsheet: every time you open it,
+you can glance at the shortcut next to the action you just used and
+learn the muscle-memory key.
+
+| Key                | What it does                                          |
+| ------------------ | ----------------------------------------------------- |
+| `Ctrl+K`           | Open the palette (from Normal mode)                   |
+| `↑` / `↓`          | Move cursor                                            |
+| `Ctrl+P` / `Ctrl+N` | Same as `↑` / `↓` (readline / fzf parity)             |
+| `Enter`            | Run the highlighted row                                |
+| `Tab`              | For rows that need an argument (Move, Filter, Add category, Jump to folder, Saved search edit/delete), open the existing argument flow (folder picker, command-bar pre-fill, etc.) |
+| `Esc`              | Close without acting                                   |
+| `Backspace`        | Delete one rune from the buffer (no-op at empty)       |
+
+Sigils scope the result list:
+
+| Sigil | Scope                                                              |
+| ----- | ------------------------------------------------------------------ |
+| (none) | Mixed — commands + folders + saved searches                        |
+| `#`    | Folders only                                                       |
+| `@`    | Saved searches only                                                |
+| `>`    | Commands only (rules out accidental folder/saved-search matches)   |
+
+`/` is **not** a sigil — typing `/` after `Ctrl+K` inserts a literal
+slash. The `/` global search key stays bound to spec 06's full-text
+search, reachable from Normal mode.
+
+When the buffer is empty, the palette surfaces recently-used
+commands first (in-process MRU, capped at 8). Recents reset every
+time you restart inkwell.
+
+To disable the palette, set `palette = ""` in `[bindings]`. The
+`:` cmd-bar and `?` help overlay are independent and stay available.
 
 ## Indicators
 

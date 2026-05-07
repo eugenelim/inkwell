@@ -87,6 +87,7 @@ func Defaults() *Config {
 			Unsubscribe:     "U",
 			MuteThread:      "M",
 			ThreadChord:     "T",
+			Palette:         "ctrl+k",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders:          false,

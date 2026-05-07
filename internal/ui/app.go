@@ -547,6 +547,7 @@ type Model struct {
 	help            HelpModel
 	urlPicker       URLPickerModel
 	folderPicker    FolderPickerModel
+	palette         PaletteModel
 	calendarDetail  CalendarDetailModel
 	compose         ComposeModel
 	attachPickInput textinput.Model
@@ -782,6 +783,7 @@ func New(deps Deps) (Model, error) {
 		help:                NewHelp(),
 		urlPicker:           NewURLPicker(),
 		folderPicker:        NewFolderPicker(),
+		palette:             NewPalette(),
 		calendarDetail:      NewCalendarDetail(),
 		compose:             NewCompose(),
 		attachPickInput:     newAttachPickInput(),
@@ -1678,6 +1680,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateRuleEdit(msg)
 	case AttachPickMode:
 		return m.updateAttachPick(msg)
+	case PaletteMode:
+		return m.updatePalette(msg)
 	default:
 		return m.updateNormal(msg)
 	}
@@ -2245,6 +2249,10 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case key.Matches(keyMsg, m.keymap.Cmd):
 		m.mode = CommandMode
 		m.cmd.Activate()
+		return m, nil
+	case key.Matches(keyMsg, m.keymap.Palette):
+		m.palette.Open(&m)
+		m.mode = PaletteMode
 		return m, nil
 	case key.Matches(keyMsg, m.keymap.Help):
 		// Spec 04 §12 full overlay. Esc/q/? close.
@@ -4091,6 +4099,83 @@ func (m Model) startMove(src store.Message) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updatePalette handles input while the spec 22 Ctrl+K command
+// palette overlay is open. Esc closes; Enter dispatches the
+// highlighted row's RunFn (or ArgFn for NeedsArg rows); Tab always
+// defers to ArgFn; ↑/↓/Ctrl+P/Ctrl+N navigate; Backspace narrows
+// (no-op at empty buffer per spec); typed runes append to the
+// buffer and refilter.
+func (m Model) updatePalette(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch {
+	case keyMsg.Type == tea.KeyEsc:
+		m.mode = NormalMode
+		return m, nil
+
+	case keyMsg.Type == tea.KeyEnter:
+		sel := m.palette.Selected()
+		m.mode = NormalMode
+		if sel == nil {
+			return m, nil
+		}
+		m.palette.recordRecent(sel.ID)
+		if !sel.Available.OK {
+			m.lastError = fmt.Errorf("%s", sel.Available.Why)
+			return m, nil
+		}
+		if sel.NeedsArg && sel.ArgFn != nil {
+			return sel.ArgFn(m)
+		}
+		if sel.RunFn == nil {
+			return m, nil
+		}
+		return sel.RunFn(m)
+
+	case keyMsg.Type == tea.KeyTab:
+		sel := m.palette.Selected()
+		m.mode = NormalMode
+		if sel == nil {
+			return m, nil
+		}
+		m.palette.recordRecent(sel.ID)
+		if sel.ArgFn != nil {
+			return sel.ArgFn(m)
+		}
+		if !sel.Available.OK {
+			m.lastError = fmt.Errorf("%s", sel.Available.Why)
+			return m, nil
+		}
+		if sel.RunFn == nil {
+			return m, nil
+		}
+		return sel.RunFn(m)
+
+	case keyMsg.Type == tea.KeyUp, keyMsg.String() == "ctrl+p":
+		m.palette.Up()
+		return m, nil
+
+	case keyMsg.Type == tea.KeyDown, keyMsg.String() == "ctrl+n":
+		m.palette.Down()
+		return m, nil
+
+	case keyMsg.Type == tea.KeyBackspace:
+		m.palette.Backspace()
+		return m, nil
+
+	case keyMsg.Type == tea.KeyRunes:
+		m.palette.AppendRunes(keyMsg.Runes)
+		return m, nil
+
+	case keyMsg.Type == tea.KeySpace:
+		m.palette.AppendRunes([]rune{' '})
+		return m, nil
+	}
+	return m, nil
+}
+
 // updateFolderPicker handles input while the move-picker overlay
 // is open. Up/Down navigate (arrows only — letters flow into the
 // filter buffer); Enter dispatches the move; Esc cancels.
@@ -5470,6 +5555,9 @@ func (m Model) View() string {
 	}
 	if m.mode == FolderPickerMode {
 		return m.folderPicker.View(m.theme, m.width, m.height)
+	}
+	if m.mode == PaletteMode {
+		return m.palette.View(m.theme, m.keymap, m.width, m.height)
 	}
 	if m.mode == FullscreenBodyMode {
 		// Render the viewer at full terminal width with no

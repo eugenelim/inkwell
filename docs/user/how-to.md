@@ -579,4 +579,35 @@ inkwell thread archive <conversation-id> --output json
 
 ---
 
+## Discover and learn keybindings using the palette
+
+The TUI has a lot of bindings. The fastest way to find one is the
+**command palette** (`Ctrl+K`).
+
+```
+Ctrl+K           # opens the palette anywhere in Normal mode
+arch             # type to fuzzy-match — first match auto-selected
+Enter            # run the highlighted action
+
+# Sigils scope the search:
+#inbox           # `#` → folders only; selecting jumps the list pane
+@receipts        # `@` → saved searches only; selecting runs the filter
+>archive         # `>` → commands only; rules out folder name matches
+```
+
+The right-hand column on every row shows the live keybinding for
+that action — glance at it once, use the shortcut next time. The
+palette itself doubles as a cheatsheet. Recently-used commands
+surface first when the buffer is empty (`Ctrl+K` → `Enter`), so
+your common actions are always one keystroke away.
+
+For commands that take an argument (move to folder, set a category,
+type a filter pattern, jump to a folder by name), press `Tab`
+instead of `Enter` — the palette closes and hands off to the
+existing argument flow (folder picker / category input /
+command-bar pre-fill), so you finish the command in the same way
+you would by typing it directly.
+
+---
+
 _Last reviewed against v0.9.0._

@@ -54,7 +54,7 @@ Workflow patterns built on the primitives. Users feel these.
 
 | Order | Item                                | Notes                                          |
 | ----- | ----------------------------------- | ---------------------------------------------- |
-| 1     | Command palette (1.6)               | Discoverability for everything else.            |
+| 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
 | 2     | Routing destinations (1.9)          | `sender_routing` table reused by B3.           |
 | 3     | Split inbox tabs (1.7)              | Depends on saved searches + conversation ops. |
 | 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
@@ -168,9 +168,11 @@ The list view filters out new messages from muted conversations. `M` (capital) o
 
 ### 1.6 Command palette — P1
 
+**Owner: spec 22.**
+
 **The concept.** A fuzzy-find palette listing every action with its keybinding, opened by a chord (commonly Ctrl+K). Solves the "I forgot the shortcut" problem that vim-style TUIs have.
 
-**TUI translation.** We already have `:` command mode. Add `Ctrl+K` to open a modal that lists all commands, filterable by typing, with the current keybinding shown next to each. Custom actions (§2) and saved searches surface here too.
+**TUI translation.** We already have `:` command mode. `Ctrl+K` opens a modal that lists all commands, filterable by typing, with the current keybinding shown right-aligned next to each row (passive cheatsheet). Sigils scope the search: `#` for folders, `@` for saved searches, `>` for commands-only. Custom actions (§2) and routing destinations (§1.9) will register into the same row index without re-architecting.
 
 **Take.** Easy to implement, big UX win. Ships in v1.1.
 

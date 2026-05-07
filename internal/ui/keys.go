@@ -47,6 +47,7 @@ type BindingOverrides struct {
 	Unsubscribe     string
 	MuteThread      string
 	ThreadChord     string
+	Palette         string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -138,6 +139,12 @@ type KeyMap struct {
 	// operations (spec 20). Pressing T puts the UI into chord-pending
 	// state; the next keypress selects the action.
 	ThreadChord key.Binding
+
+	// Palette opens the spec 22 Ctrl+K command palette overlay — a
+	// fuzzy-find modal exposing every action (verbs, folders, saved
+	// searches) in one ranked list with the live binding rendered in
+	// the right-hand column.
+	Palette key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -194,6 +201,7 @@ func DefaultKeyMap() KeyMap {
 		FullscreenBody: key.NewBinding(key.WithKeys("z")),
 		MuteThread:     key.NewBinding(key.WithKeys("M")),
 		ThreadChord:    key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "thread chord")),
+		Palette:        key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "command palette")),
 	}
 }
 
@@ -271,6 +279,7 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.Unsubscribe, o.Unsubscribe)
 	apply(&km.MuteThread, o.MuteThread)
 	apply(&km.ThreadChord, o.ThreadChord)
+	apply(&km.Palette, o.Palette)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -319,6 +328,7 @@ func findDuplicateBinding(km KeyMap) string {
 		{"unsubscribe", km.Unsubscribe},
 		{"mute_thread", km.MuteThread},
 		{"thread_chord", km.ThreadChord},
+		{"palette", km.Palette},
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

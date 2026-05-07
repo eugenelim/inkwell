@@ -356,6 +356,7 @@ type BindingsConfig struct {
 	Unsubscribe     string `toml:"unsubscribe"`
 	MuteThread      string `toml:"mute_thread"`
 	ThreadChord     string `toml:"thread_chord"`
+	Palette         string `toml:"palette"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

@@ -837,6 +837,7 @@ func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 		Unsubscribe:     b.Unsubscribe,
 		MuteThread:      b.MuteThread,
 		ThreadChord:     b.ThreadChord,
+		Palette:         b.Palette,
 	}
 }
 

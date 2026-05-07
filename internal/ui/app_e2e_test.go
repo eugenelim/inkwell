@@ -648,7 +648,10 @@ func TestPermanentDeleteOpensConfirmModalWithIrreversibleWarning(t *testing.T) {
 // see nothing — exactly the v0.2.6 regression class.
 func TestHelpOverlayShowsAllSections(t *testing.T) {
 	m, _ := newE2EModel(t)
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
+	// 50 rows: the help modal adds rows over time (palette spec 22
+	// added the "ctrl+k command palette" row); keep headroom for
+	// future sections so this test doesn't gate on modal height.
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 50))
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		return contains(string(out), "Inbox")
@@ -1508,6 +1511,79 @@ func TestFoldersPaneCKeyOpensCal(t *testing.T) {
 	// The CalendarMode modal header must appear.
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
 		return strings.Contains(string(out), "Today")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestPaletteOpensFromNormalMode is the spec 22 §5 visible-delta
+// test: pressing Ctrl+K from NormalMode paints the palette modal
+// (header "Command palette" appears in the rendered final frame).
+func TestPaletteOpensFromNormalMode(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlK})
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Command palette")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestPaletteEscClosesPaletteE2E confirms Esc closes the palette and
+// the prior pane chrome is back.
+func TestPaletteEscClosesPaletteE2E(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlK})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Command palette")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		// "▌ Messages" focus marker confirms the three-pane layout
+		// returned (the marker is a NormalMode-only render).
+		return strings.Contains(string(out), "▌ Messages")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestPaletteSigilHashShowsFoldersScopeE2E confirms typing `#` swaps
+// the header glyph to "(folders)".
+func TestPaletteSigilHashShowsFoldersScopeE2E(t *testing.T) {
+	m, _ := newE2EModel(t)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Inbox")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlK})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "Command palette")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("#")})
+	teatest.WaitFor(t, tm.Output(), func(out []byte) bool {
+		return strings.Contains(string(out), "(folders)")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})

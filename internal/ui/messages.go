@@ -48,6 +48,8 @@ const (
 	// AttachPickMode is the file-path prompt for staging a local
 	// attachment in the compose pane (spec 15 §5 / plan item 27).
 	AttachPickMode
+	// PaletteMode is the spec 22 Ctrl+K command palette overlay.
+	PaletteMode
 )
 
 // composeEditorDoneMsg is returned by tea.ExecProcess when the user's
