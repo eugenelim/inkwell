@@ -586,6 +586,9 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				return mm.dispatchCommand("settings")
 			},
 		},
+	}
+	rows = append(rows, buildRoutingPaletteRows(m, msg)...)
+	rows = append(rows, []PaletteRow{
 		{
 			ID: "rule_save", Title: "Saved search: save current filter…",
 			Binding: ":save", Section: sectionCommands,
@@ -660,8 +663,100 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				return mm, tea.Quit
 			},
 		},
-	}
+	}...)
 	return rows
+}
+
+// buildRoutingPaletteRows returns the spec 23 §13 routing rows
+// (route_imbox / route_feed / route_paper_trail / route_screener /
+// route_clear / route_show). Each routing row's Available is OK only
+// when a message is focused with a non-empty from_address —
+// mirroring the chord's `S` precondition. route_show is the only
+// NeedsArg row; it defers to the cmd-bar.
+func buildRoutingPaletteRows(m *Model, msg *store.Message) []PaletteRow {
+	hasFrom := availTrue
+	addr := ""
+	if msg != nil {
+		addr = strings.TrimSpace(msg.FromAddress)
+	}
+	if addr == "" {
+		hasFrom = notWired("route: focused message has no from-address")
+	}
+	storeAvail := availTrue
+	if m.deps.Store == nil {
+		storeAvail = notWired("route: not wired (CLI mode or unsigned)")
+	}
+	combined := hasFrom
+	if storeAvail.OK == false {
+		combined = storeAvail
+	}
+	var accountID int64
+	if m.deps.Account != nil {
+		accountID = m.deps.Account.ID
+	}
+	st := m.deps.Store
+	mkRow := func(id, title, dest string) PaletteRow {
+		return PaletteRow{
+			ID: id, Title: title,
+			Binding:   "S " + chordKeyForDestination(dest),
+			Section:   sectionCommands,
+			Available: combined,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				if addr == "" || st == nil {
+					return mm, nil
+				}
+				return mm, routeCmd(st, accountID, addr, dest)
+			},
+		}
+	}
+	return []PaletteRow{
+		mkRow("route_imbox", "Route sender → Imbox", "imbox"),
+		mkRow("route_feed", "Route sender → Feed", "feed"),
+		mkRow("route_paper_trail", "Route sender → Paper Trail", "paper_trail"),
+		mkRow("route_screener", "Route sender → Screener", "screener"),
+		{
+			ID: "route_clear", Title: "Clear sender routing",
+			Binding:   "S c",
+			Section:   sectionCommands,
+			Available: combined,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				if addr == "" || st == nil {
+					return mm, nil
+				}
+				return mm, routeCmd(st, accountID, addr, "")
+			},
+		},
+		{
+			ID: "route_show", Title: "Show routing for sender…",
+			Binding:   ":route show",
+			Section:   sectionCommands,
+			NeedsArg:  true,
+			Available: storeAvail,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return prefillCmdBar(mm, "route show ")
+			},
+			ArgFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return prefillCmdBar(mm, "route show ")
+			},
+		},
+	}
+}
+
+// chordKeyForDestination maps a destination to its `S <letter>`
+// chord second key. Mnemonic: i = imbox, f = feed, p = paper trail,
+// k = screener (spec 23 §5.1).
+func chordKeyForDestination(dest string) string {
+	switch dest {
+	case "imbox":
+		return "i"
+	case "feed":
+		return "f"
+	case "paper_trail":
+		return "p"
+	case "screener":
+		return "k"
+	}
+	return ""
 }
 
 // muteRowTitle resolves the mute_thread row title based on the

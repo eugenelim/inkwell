@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 10
+const SchemaVersion = 11
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -129,6 +129,21 @@ type Store interface {
 	IsConversationMuted(ctx context.Context, accountID int64, conversationID string) (bool, error)
 	ListMutedMessages(ctx context.Context, accountID int64, limit int) ([]Message, error)
 	CountMutedConversations(ctx context.Context, accountID int64) (int, error)
+
+	// Sender routing (spec 23 — local only, no Graph call). Per-sender
+	// assignment to one of imbox / feed / paper_trail / screener.
+	// SetSenderRouting is read-then-write internally — same destination
+	// short-circuits with no SQL write and no added_at bump (§5.7).
+	// Both SetSenderRouting and ClearSenderRouting return the prior
+	// destination ("" when unrouted) so the caller can distinguish
+	// new / reassigned / no-op.
+	SetSenderRouting(ctx context.Context, accountID int64, emailAddress, destination string) (string, error)
+	ClearSenderRouting(ctx context.Context, accountID int64, emailAddress string) (string, error)
+	GetSenderRouting(ctx context.Context, accountID int64, emailAddress string) (string, error)
+	ListSenderRoutings(ctx context.Context, accountID int64, destination string) ([]SenderRouting, error)
+	ListMessagesByRouting(ctx context.Context, accountID int64, destination string, limit int, excludeMuted bool) ([]Message, error)
+	CountMessagesByRouting(ctx context.Context, accountID int64, destination string, excludeMuted bool) (int, error)
+	CountMessagesByRoutingAll(ctx context.Context, accountID int64, excludeMuted bool) (map[string]int, error)
 
 	// MessageIDsInConversation returns IDs of all messages in a conversation
 	// for the account. When includeAllFolders is false, messages in

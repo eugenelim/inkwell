@@ -87,6 +87,12 @@ saved search.
 | `T D`     | Permanently delete the entire thread (confirm, irreversible)  |
 | `T a`     | Archive the entire thread                                     |
 | `T m`     | Move whole thread (opens folder picker)                       |
+| `S`       | Begin stream chord — route the focused message's sender (see below) |
+| `S i`     | Route sender to **Imbox**                                     |
+| `S f`     | Route sender to **Feed**                                      |
+| `S p`     | Route sender to **Paper Trail**                               |
+| `S k`     | Route sender to **Screener** (mnemonic: s**k**reener)         |
+| `S c`     | **Clear** routing for the focused sender                      |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -140,6 +146,7 @@ disabled because of a real-tenant 400 regression on the bare
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `M`       | Toggle mute on the focused message's conversation thread      |
 | `T`       | Begin thread chord — acts on the whole conversation (see Messages pane table above) |
+| `S`       | Begin stream chord — route the focused sender (see Messages pane table above) |
 | `u`       | Undo the most recent triage action                            |
 | `o`       | Open message in system browser (OWA deep-link / webLink)      |
 | `O`       | Open the URL picker (lists every URL the renderer extracted)  |
@@ -330,6 +337,10 @@ sessions older than 24h get garbage-collected on launch.
 | `:rule show <name>`           | Show a saved search's pattern in the status bar                 |
 | `:rule edit <name>`           | Open the edit modal (rename, change pattern/pinned)             |
 | `:rule delete <name>`         | Delete a saved search (with confirm)                            |
+| `:route assign <addr> <dest>` | Spec 23. Route a sender to imbox / feed / paper_trail / screener. Reassigns retroactively (past mail follows). |
+| `:route clear <addr>`         | Clear routing for a sender (returns them to unrouted). |
+| `:route show <addr>`          | Print the current routing for a sender in the status bar. |
+| `:route list`                 | Print a summary count of all four routing destinations in the status bar. |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
@@ -455,6 +466,7 @@ Argument-bearing:
 | `~y <class>`     | inference class  | `~y focused`                         |
 | `~v <conv-id>`   | conversation     | `~v <id>`                            |
 | `~m <folder>`    | folder           | `~m Inbox`                           |
+| `~o <dest>`      | routing destination (spec 23) | `~o feed`, `~o paper_trail`, `~o none` for unrouted senders |
 
 Argument-less:
 
@@ -603,6 +615,11 @@ JSON via `--output json`.
 | `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
 | `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |
 | `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                      |
+| `inkwell route assign <addr> <dest>`             | Spec 23. Route a sender to imbox/feed/paper_trail/screener. |
+| `inkwell route clear <addr>`                     | Clear routing for a sender.                              |
+| `inkwell route list`                             | List all routings.                                       |
+| `inkwell route list --destination feed`          | Filter by destination.                                   |
+| `inkwell route show <addr>`                      | Print the current routing for one sender.                |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:

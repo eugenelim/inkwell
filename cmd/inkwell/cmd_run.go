@@ -253,6 +253,12 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		FlagIndicator:            cfg.UI.FlagIndicator,
 		AttachmentIndicator:      cfg.UI.AttachmentIndicator,
 		MuteIndicator:            cfg.UI.MuteIndicator,
+		ImboxIndicator:           cfg.UI.StreamIndicators.Imbox,
+		FeedIndicator:            cfg.UI.StreamIndicators.Feed,
+		PaperTrailIndicator:      cfg.UI.StreamIndicators.PaperTrail,
+		ScreenerIndicator:        cfg.UI.StreamIndicators.Screener,
+		StreamASCIIFallback:      cfg.UI.StreamASCIIFallback,
+		ShowRoutingIndicator:     cfg.UI.ShowRoutingIndicator,
 		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
 		MinTerminalCols:          cfg.UI.MinTerminalCols,
 		MinTerminalRows:          cfg.UI.MinTerminalRows,
@@ -838,6 +844,7 @@ func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 		MuteThread:      b.MuteThread,
 		ThreadChord:     b.ThreadChord,
 		Palette:         b.Palette,
+		StreamChord:     b.StreamChord,
 	}
 }
 

@@ -247,6 +247,18 @@ type Deps struct {
 	FlagIndicator       string
 	AttachmentIndicator string
 	MuteIndicator       string
+	// Stream indicators (spec 23 §5.4 / §5.5). Empty fields leave the
+	// theme default in place; when StreamASCIIFallback is true, the
+	// four stream indicators are forced to single ASCII letters
+	// regardless of these strings.
+	ImboxIndicator      string
+	FeedIndicator       string
+	PaperTrailIndicator string
+	ScreenerIndicator   string
+	StreamASCIIFallback bool
+	// ShowRoutingIndicator controls the per-row routing glyph in
+	// regular folder views (spec 23 §5.5). Default false.
+	ShowRoutingIndicator bool
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -706,6 +718,10 @@ type Model struct {
 	// incremented on each new chord to detect stale timeout messages.
 	threadChordPending bool
 	threadChordToken   uint64
+	// Stream chord (spec 23). Symmetric with thread chord — pending
+	// while waiting for the second keypress of an S<dest> chord.
+	streamChordPending bool
+	streamChordToken   uint64
 	// pendingThreadMove is true while FolderPickerMode is active for T m.
 	pendingThreadMove bool
 	// pendingThreadIDs stores pre-fetched message IDs for T d / T D
@@ -751,6 +767,25 @@ func New(deps Deps) (Model, error) {
 	}
 	if deps.MuteIndicator != "" {
 		theme.MuteIndicator = deps.MuteIndicator
+	}
+	if deps.StreamASCIIFallback {
+		theme.ImboxIndicator = "i"
+		theme.FeedIndicator = "f"
+		theme.PaperTrailIndicator = "p"
+		theme.ScreenerIndicator = "k"
+	} else {
+		if deps.ImboxIndicator != "" {
+			theme.ImboxIndicator = deps.ImboxIndicator
+		}
+		if deps.FeedIndicator != "" {
+			theme.FeedIndicator = deps.FeedIndicator
+		}
+		if deps.PaperTrailIndicator != "" {
+			theme.PaperTrailIndicator = deps.PaperTrailIndicator
+		}
+		if deps.ScreenerIndicator != "" {
+			theme.ScreenerIndicator = deps.ScreenerIndicator
+		}
 	}
 	folders := NewFolders()
 	savedSearches := append([]SavedSearch(nil), deps.SavedSearches...)
@@ -929,9 +964,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.FolderID = pick.ID
 			m.folders.SelectByID(pick.ID)
-			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd())
+			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd())
 		}
-		return m, m.refreshMutedCountCmd()
+		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd())
 
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
@@ -1395,7 +1430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case savedSearchBgRefreshMsg:
-		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.backgroundRefreshTimerCmd())
+		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.refreshStreamCountsCmd(), m.backgroundRefreshTimerCmd())
 
 	case ruleEditDoneMsg:
 		m.mode = NormalMode
@@ -1546,7 +1581,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			reloadCmd = m.loadMessagesCmd(m.list.FolderID)
 		}
-		return m, tea.Batch(reloadCmd, m.refreshMutedCountCmd(), m.clearTransientCmd())
+		return m, tea.Batch(reloadCmd, m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.clearTransientCmd())
 
 	case mutedCountUpdatedMsg:
 		m.folders.SetMutedCount(msg.count)
@@ -1558,6 +1593,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.engineActivity = ""
 		}
 		return m, nil
+
+	case streamChordTimeoutMsg:
+		if msg.token == m.streamChordToken {
+			m.streamChordPending = false
+			m.engineActivity = ""
+		}
+		return m, nil
+
+	case routedMsg:
+		m.engineActivity = formatRoutedToast(m.theme, msg.address, msg.dest, msg.priorDest)
+		// Reload list when inside a routing virtual folder (the row
+		// likely vanished from the current view) or in any folder
+		// (counts changed). Always refresh sidebar bucket counts.
+		var reload tea.Cmd
+		switch {
+		case m.list.FolderID == mutedSentinelID:
+			reload = m.loadMutedMessagesCmd()
+		case IsStreamSentinelID(m.list.FolderID):
+			reload = m.loadByRoutingCmd(streamDestinationFromID(m.list.FolderID))
+		case m.filterActive:
+			reload = m.runFilterCmd(m.filterPattern)
+		default:
+			if m.list.FolderID != "" {
+				reload = m.loadMessagesCmd(m.list.FolderID)
+			}
+		}
+		return m, tea.Batch(reload, m.refreshStreamCountsCmd(), m.clearTransientCmd())
+
+	case routeNoopMsg:
+		m.engineActivity = formatRouteNoopToast(msg.address, msg.kind, msg.dest)
+		// No list reload — spec 23 §5.7 explicitly skips the reload
+		// to avoid visible flicker on a no-op.
+		return m, m.clearTransientCmd()
+
+	case routeErrMsg:
+		m.lastError = fmt.Errorf("route failed: database error (see logs)")
+		if m.deps.Logger != nil {
+			m.deps.Logger.Error("route failed", "err", msg.err)
+		}
+		return m, nil
+
+	case streamCountsUpdatedMsg:
+		m.folders.SetStreamCounts(msg.counts)
+		return m, nil
+
+	case routeShowToastMsg:
+		if msg.dest == "" {
+			m.engineActivity = "route: " + msg.address + " is not routed"
+		} else {
+			m.engineActivity = "route: " + msg.address + " → " + streamDisplayLabelForDestination(msg.dest)
+		}
+		return m, m.clearTransientCmd()
+
+	case routeListSummaryMsg:
+		var parts []string
+		for _, dest := range []string{"imbox", "feed", "paper_trail", "screener"} {
+			parts = append(parts, fmt.Sprintf("%s=%d", streamDisplayLabelForDestination(dest), msg.counts[dest]))
+		}
+		m.engineActivity = "routings: " + strings.Join(parts, "  ")
+		return m, m.clearTransientCmd()
 
 	case threadPreFetchDoneMsg:
 		if msg.err != nil {
@@ -2623,6 +2718,8 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m, m.ruleSaveCmd(name, m.filterPattern)
 	case "rule":
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
+	case "route":
+		return m.dispatchRoute(args[1:])
 	case "unfilter":
 		prior := m.priorFolderID
 		m = m.clearFilter()
@@ -3561,6 +3658,18 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			return m, m.loadMutedMessagesCmd()
 		}
+		// Routing virtual folders — Imbox / Feed / Paper Trail /
+		// Screener (spec 23 §5.4). Same shape as muted: select the
+		// sentinel ID, reset limit, focus the list pane, dispatch
+		// the routing-scoped load.
+		if dest := m.folders.SelectedStream(); dest != "" {
+			m.list.FolderID = streamSentinelIDForDestination(dest)
+			m.list.ResetLimit()
+			m.focused = ListPane
+			m.searchActive = false
+			m.searchQuery = ""
+			return m, m.loadByRoutingCmd(dest)
+		}
 		// Saved-search row: run its pattern via the existing filter
 		// machinery. Selection auto-focuses the list pane (parity
 		// with regular folder navigation).
@@ -3656,8 +3765,40 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Unknown chord follow-up: clear pending, fall through.
 	}
+	// S chord: routing destination assignment (spec 23 §5.1). Active
+	// in the list pane only here; viewer pane has its own dispatch.
+	// Cross-chord cancel: an S press while threadChordPending cancels
+	// the thread chord without starting the stream chord (§5.1).
+	if key.Matches(msg, m.keymap.StreamChord) && !m.streamChordPending {
+		if m.threadChordPending {
+			m.threadChordPending = false
+			m.engineActivity = "thread chord cancelled"
+			return m, nil
+		}
+		if _, ok := m.list.Selected(); !ok {
+			m.lastError = fmt.Errorf("stream: no message selected")
+			return m, nil
+		}
+		mm, cmd := m.startStreamChord()
+		return mm, cmd
+	}
+	if m.streamChordPending {
+		sel, ok := m.list.Selected()
+		var focused *store.Message
+		if ok {
+			s := sel
+			focused = &s
+		}
+		mm, cmd := m.dispatchStreamChord(msg, focused)
+		return mm, cmd
+	}
 	// T chord: thread-level operations (spec 20).
 	if msg.Type == tea.KeyRunes && string(msg.Runes) == "T" && !m.threadChordPending {
+		// Cross-chord cancel: T while stream-pending cancels stream
+		// chord without entering thread chord (handled above by
+		// streamChordPending dispatching to dispatchStreamChord
+		// which catches 'T' as a cancel — this branch only fires
+		// when streamChordPending is false, so it's safe).
 		if _, ok := m.list.Selected(); !ok {
 			m.lastError = fmt.Errorf("thread: no message selected")
 			return m, nil
@@ -5070,6 +5211,24 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer.ToggleQuotes()
 		return m, nil
 	}
+	// S chord in viewer pane (spec 23 §5.1).
+	if key.Matches(msg, m.keymap.StreamChord) && !m.streamChordPending {
+		if m.threadChordPending {
+			m.threadChordPending = false
+			m.engineActivity = "thread chord cancelled"
+			return m, nil
+		}
+		if m.viewer.current == nil {
+			m.lastError = fmt.Errorf("stream: no message open")
+			return m, nil
+		}
+		mm, cmd := m.startStreamChord()
+		return mm, cmd
+	}
+	if m.streamChordPending {
+		mm, cmd := m.dispatchStreamChord(msg, m.viewer.current)
+		return mm, cmd
+	}
 	// T chord in viewer pane mirrors list pane (spec 20).
 	if msg.Type == tea.KeyRunes && string(msg.Runes) == "T" && !m.threadChordPending {
 		cur := m.viewer.current
@@ -5462,6 +5621,12 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		// after a sync delivers new messages. The counts Cmd is cheap
 		// because the Manager's cache absorbs repeat calls within TTL.
 		if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
+			cmds = append(cmds, refreshCmd)
+		}
+		// Refresh routing-bucket counts — a sync that delivered new
+		// messages from already-routed senders shifts the badges
+		// (spec 23 §5.4).
+		if refreshCmd := m.refreshStreamCountsCmd(); refreshCmd != nil {
 			cmds = append(cmds, refreshCmd)
 		}
 		return m, tea.Batch(cmds...)

@@ -579,6 +579,85 @@ inkwell thread archive <conversation-id> --output json
 
 ---
 
+## Set up Imbox / Feed / Paper Trail (sender routing)
+
+inkwell can divide your inbox into intent-based streams (HEY-style):
+real correspondence in **Imbox**, newsletters in **Feed**, receipts
+in **Paper Trail**, and "review later" senders in **Screener**.
+Routing is per-sender; once you route `news@example.com` to Feed,
+every past and future message from that address shows up in Feed
+(retroactive). The actual Inbox folder is unchanged.
+
+In the TUI, focus a message and press the chord:
+
+```
+S i     # route this sender → Imbox
+S f     # route this sender → Feed
+S p     # route this sender → Paper Trail
+S k     # route this sender → s(k)reener
+S c     # clear routing for this sender (returns them to unrouted)
+```
+
+The four streams appear under a "Streams" section in the sidebar:
+
+```
+▾ Mail
+  Inbox        47
+  Sent
+  Archive
+  …
+▾ Streams
+  📥 Imbox        12
+  📰 Feed         84
+  🧾 Paper Trail  31
+  🚪 Screener      3
+```
+
+`Enter` on any stream loads the routed messages into the list pane.
+The buckets are always visible — even at zero — so you can see "I
+haven't routed anyone yet" rather than wondering where they went.
+
+Reassign is a one-keystroke operation: `S f` on a sender already
+routed to Imbox flips them to Feed and the toast shows
+`(was Imbox)` so you spot accidents.
+
+From the cmd-bar:
+
+```
+:route assign news@example.com feed
+:route clear news@example.com
+:route show news@example.com
+:route list
+```
+
+From the shell, for batch flows or scripted seeding:
+
+```sh
+# One-off
+inkwell route assign news@example.com feed
+inkwell route assign aws-billing@amazon.com paper_trail
+
+# Walk a list of likely-Feed senders from your existing patterns
+inkwell filter '~f *@vendor.com' --output json \
+  | jq -r '.[] | .from_address' \
+  | sort -u \
+  | xargs -I{} inkwell route assign {} feed
+```
+
+The pattern operator `~o <dest>` lets you slice routing into other
+queries:
+
+```
+:filter ~o feed                  # all routed-to-feed messages
+:filter ~o none                  # everything from unrouted senders
+:filter ~o feed & ~A             # Feed messages with attachments
+:filter ! ~o feed                # everything NOT in Feed (unrouted + Imbox + ...)
+```
+
+`~o none` matches only senders with no routing row at all (truly
+unrouted). `! ~o feed` matches anything not in Feed — including
+Imbox, Paper Trail, Screener, and unrouted. The two are different.
+
 ## Discover and learn keybindings using the palette
 
 The TUI has a lot of bindings. The fastest way to find one is the

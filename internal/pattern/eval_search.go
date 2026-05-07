@@ -73,6 +73,9 @@ func emitSearchPredicate(p Predicate) (string, error) {
 		return emitSearchString(p.Field, v)
 	case DateValue:
 		return emitSearchDate(p.Field, v)
+	case RoutingValue:
+		// ~o is local-only — no Graph equivalent. Spec 23 §4.3.
+		return "", fmt.Errorf("%w: ~o routing is local-only (no Graph equivalent)", ErrUnsupported)
 	}
 	return "", fmt.Errorf("%w: unsupported value type %T for field %v", ErrUnsupported, p.Value, p.Field)
 }

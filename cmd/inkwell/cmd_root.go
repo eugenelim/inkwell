@@ -65,6 +65,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMuteCmd(rc))
 	cmd.AddCommand(newUnmuteCmd(rc))
 	cmd.AddCommand(newThreadCmd(rc))
+	cmd.AddCommand(newRouteCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd

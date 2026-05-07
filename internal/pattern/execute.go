@@ -3,6 +3,7 @@ package pattern
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -14,6 +15,17 @@ import (
 type LocalSearcher interface {
 	SearchByPredicate(ctx context.Context, accountID int64, where string, args []any, limit int) ([]store.Message, error)
 	GetMessage(ctx context.Context, id string) (*store.Message, error)
+}
+
+// RoutingLookup is the optional surface a LocalSearcher may
+// implement so the TwoStage refinement path can satisfy `~o`
+// (routing) predicates against the in-memory candidate set.
+// store.Store satisfies this; test stubs that don't implement it
+// silently degrade — `~o` evaluates to false during refinement
+// and the TwoStage result skips routing-matched messages, which
+// is acceptable for the tests that don't exercise routing.
+type RoutingLookup interface {
+	GetSenderRouting(ctx context.Context, accountID int64, emailAddress string) (string, error)
 }
 
 // GraphService is the consumer-side seam to the Graph backend
@@ -178,6 +190,34 @@ func executeTwoStage(ctx context.Context, c *Compiled, local LocalSearcher, grap
 		return nil, fmt.Errorf("two-stage: %d candidates exceeds limit %d; refine the pattern", len(candidates), opts.ServerCandidateLimit)
 	}
 
+	// Pre-load routing for every distinct sender in the candidate
+	// set when the AST contains a `~o` predicate (spec 23 §4.3) AND
+	// the LocalSearcher implements RoutingLookup. This keeps the
+	// refinement loop allocation-light and avoids one DB call per
+	// candidate. Stubs that don't implement RoutingLookup leave the
+	// map empty — `~o feed` predicates then evaluate to false and
+	// those rows drop from the refined set.
+	env := EvalEnv{}
+	if astHasRouting(c.AST) {
+		if rl, ok := local.(RoutingLookup); ok {
+			env.Routing = make(map[string]string, len(candidates))
+			for _, cand := range candidates {
+				addr := strings.ToLower(strings.TrimSpace(cand.FromAddress))
+				if addr == "" {
+					continue
+				}
+				if _, seen := env.Routing[addr]; seen {
+					continue
+				}
+				dest, err := rl.GetSenderRouting(ctx, opts.AccountID, addr)
+				if err != nil {
+					return nil, fmt.Errorf("two-stage routing lookup: %w", err)
+				}
+				env.Routing[addr] = dest
+			}
+		}
+	}
+
 	// Refine: pull each candidate from the local cache and
 	// evaluate the AST against the in-memory envelope. Misses
 	// (deep archive) are dropped silently per spec 08 §11.1.
@@ -187,11 +227,24 @@ func executeTwoStage(ctx context.Context, c *Compiled, local LocalSearcher, grap
 		if err != nil || m == nil {
 			continue
 		}
-		if EvaluateInMemory(c.AST, m) {
+		if EvaluateInMemoryEnv(c.AST, m, env) {
 			out = append(out, m.ID)
 		}
 	}
 	return out, nil
+}
+
+// astHasRouting reports whether the AST contains any FieldRouting
+// predicate. Used by executeTwoStage to skip the routing pre-load
+// when the pattern doesn't need it.
+func astHasRouting(n Node) bool {
+	found := false
+	walk(n, func(node Node) {
+		if p, ok := node.(Predicate); ok && p.Field == FieldRouting {
+			found = true
+		}
+	})
+	return found
 }
 
 func idsOf(ms []store.Message) []string {

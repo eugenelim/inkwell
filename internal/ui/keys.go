@@ -48,6 +48,7 @@ type BindingOverrides struct {
 	MuteThread      string
 	ThreadChord     string
 	Palette         string
+	StreamChord     string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -145,6 +146,13 @@ type KeyMap struct {
 	// searches) in one ranked list with the live binding rendered in
 	// the right-hand column.
 	Palette key.Binding
+
+	// StreamChord initiates the S<dest> chord for routing the focused
+	// message's sender to one of the four streams (Imbox / Feed /
+	// Paper Trail / Screener) or clearing routing (S c). Spec 23.
+	// Symmetric with ThreadChord (T): both prefix multi-target verbs
+	// in the list / viewer panes.
+	StreamChord key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -202,6 +210,7 @@ func DefaultKeyMap() KeyMap {
 		MuteThread:     key.NewBinding(key.WithKeys("M")),
 		ThreadChord:    key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "thread chord")),
 		Palette:        key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "command palette")),
+		StreamChord:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "stream chord")),
 	}
 }
 
@@ -280,6 +289,7 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.MuteThread, o.MuteThread)
 	apply(&km.ThreadChord, o.ThreadChord)
 	apply(&km.Palette, o.Palette)
+	apply(&km.StreamChord, o.StreamChord)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -329,6 +339,7 @@ func findDuplicateBinding(km KeyMap) string {
 		{"mute_thread", km.MuteThread},
 		{"thread_chord", km.ThreadChord},
 		{"palette", km.Palette},
+		{"stream_chord", km.StreamChord},
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

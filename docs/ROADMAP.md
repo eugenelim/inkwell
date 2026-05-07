@@ -55,7 +55,7 @@ Workflow patterns built on the primitives. Users feel these.
 | Order | Item                                | Notes                                          |
 | ----- | ----------------------------------- | ---------------------------------------------- |
 | 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
-| 2     | Routing destinations (1.9)          | `sender_routing` table reused by B3.           |
+| 2     | Routing destinations (1.9)          | Owner: spec 23. `sender_routing` table reused by B3. |
 | 3     | Split inbox tabs (1.7)              | Depends on saved searches + conversation ops. |
 | 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
 | 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
@@ -192,6 +192,8 @@ The list view filters out new messages from muted conversations. `M` (capital) o
 v1 operates on individual messages. "Archive entire thread," "delete entire conversation history" all require thread-aware actions. The data model has `conversation_id`; we just don't act on it as a unit yet.
 
 ### 1.9 Routing destinations (Imbox / Feed / Paper Trail) — P2
+
+**Owner: spec 23.**
 
 **The concept.** Divide incoming mail into intent-based streams rather than urgency-based: important mail in one stream, newsletters and digests in a "feed" stream, receipts and transactional in a "paper trail" stream. The user designates per-sender where their mail lands. Once a sender is assigned, all their future mail flows to the right place. Read mail in the primary stream drops off naturally — no archive ritual.
 

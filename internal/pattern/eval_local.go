@@ -80,8 +80,32 @@ func emitPredicate(p Predicate) (string, []any, error) {
 		return emitStringPredicate(p.Field, v)
 	case DateValue:
 		return emitDatePredicate(p.Field, v)
+	case RoutingValue:
+		return emitRoutingPredicate(v)
 	}
 	return "", nil, fmt.Errorf("emitPredicate: unsupported value type %T for field %v", p.Value, p.Field)
+}
+
+// emitRoutingPredicate renders the `~o <dest>` operator as an EXISTS
+// (or NOT EXISTS for `~o none`) sub-clause referencing unqualified
+// outer columns. Spec 23 §4.3. The outer query is account-scoped via
+// SearchByPredicate, so `account_id` is the messages-table column;
+// the JOIN's `lower(trim(from_address))` matches the
+// `idx_messages_from_lower` expression index.
+func emitRoutingPredicate(v RoutingValue) (string, []any, error) {
+	if v.Destination == "none" {
+		return `NOT EXISTS (
+			SELECT 1 FROM sender_routing sr
+			WHERE sr.account_id    = account_id
+			  AND sr.email_address = lower(trim(from_address))
+		)`, nil, nil
+	}
+	return `EXISTS (
+		SELECT 1 FROM sender_routing sr
+		WHERE sr.account_id    = account_id
+		  AND sr.email_address = lower(trim(from_address))
+		  AND sr.destination   = ?
+	)`, []any{v.Destination}, nil
 }
 
 func emitStringPredicate(f Field, v StringValue) (string, []any, error) {

@@ -37,6 +37,14 @@ type Theme struct {
 	FlagIndicator       string
 	AttachmentIndicator string
 	MuteIndicator       string
+	// Stream indicators are the per-destination glyphs shown both as
+	// the sidebar row icon (spec 23 §5.4) and the list-pane indicator
+	// (spec 23 §5.5). Defaults are emoji; ASCII fallback flips them
+	// to single ASCII characters via [ui].stream_ascii_fallback.
+	ImboxIndicator      string
+	FeedIndicator       string
+	PaperTrailIndicator string
+	ScreenerIndicator   string
 }
 
 // palette is the small set of semantic colors a theme builder picks
@@ -150,5 +158,9 @@ func paletteToTheme(p palette) Theme {
 		FlagIndicator:       "⚑",
 		AttachmentIndicator: "📎",
 		MuteIndicator:       "🔕",
+		ImboxIndicator:      "📥",
+		FeedIndicator:       "📰",
+		PaperTrailIndicator: "🧾",
+		ScreenerIndicator:   "🚪",
 	}
 }

@@ -146,7 +146,7 @@ func (p *parser) parsePredicate() (Node, error) {
 }
 
 // buildPredicateValue converts a raw argument string into the typed
-// PredicateValue for the field's family (string vs date).
+// PredicateValue for the field's family (string vs date vs routing).
 func buildPredicateValue(f Field, raw string) (PredicateValue, error) {
 	switch f {
 	case FieldDateReceived, FieldDateSent:
@@ -154,9 +154,24 @@ func buildPredicateValue(f Field, raw string) (PredicateValue, error) {
 	case FieldHasAttachments, FieldUnread, FieldFlagged, FieldRead:
 		// Should never reach here — opTakesArgument filters these out.
 		return EmptyValue{}, nil
+	case FieldRouting:
+		return parseRoutingValue(raw)
 	}
 	// String family — wildcard handling.
 	return parseStringValue(raw), nil
+}
+
+// parseRoutingValue validates a `~o <dest>` argument against the
+// fixed five-value set (spec 23 §4.4). The hyphenated form
+// `paper-trail` is rejected — only the underscore form
+// `paper_trail` is accepted. The literal `none` matches senders
+// with no row in sender_routing.
+func parseRoutingValue(raw string) (RoutingValue, error) {
+	switch raw {
+	case "imbox", "feed", "paper_trail", "screener", "none":
+		return RoutingValue{Destination: raw}, nil
+	}
+	return RoutingValue{}, fmt.Errorf("unknown routing destination %q; expected one of imbox, feed, paper_trail, screener, none", raw)
 }
 
 // parseStringValue extracts the wildcard kind and stripped raw value.

@@ -104,6 +104,12 @@ Controls the terminal UI.
 | `flag_indicator` | string | `"⚑"` | any string ≤ 2 chars | Glyph for flagged messages. |
 | `attachment_indicator` | string | `"📎"` | any string ≤ 2 chars | Suffix for messages with attachments. Use `"@"` for ASCII-only terminals. |
 | `mute_indicator` | string | `"🔕"` | any string ≤ 2 chars | Glyph for messages in muted threads. Use `"m"` for ASCII-only terminals. |
+| `show_routing_indicator` | bool | `false` | `true` / `false` | Spec 23 §5.5. Toggles the per-row routing glyph in regular folder views. Always on inside routing virtual folders regardless of this setting. |
+| `stream_indicators.imbox` | string | `"📥"` | any string ≤ 2 chars | Spec 23 §5.4. Per-destination glyph for the Imbox stream. Empty falls back to the theme default. |
+| `stream_indicators.feed` | string | `"📰"` | any string ≤ 2 chars | Per-destination glyph for the Feed stream. |
+| `stream_indicators.paper_trail` | string | `"🧾"` | any string ≤ 2 chars | Per-destination glyph for the Paper Trail stream. |
+| `stream_indicators.screener` | string | `"🚪"` | any string ≤ 2 chars | Per-destination glyph for the Screener stream. |
+| `stream_ascii_fallback` | bool | `false` | `true` / `false` | When `true`, the four stream indicators are forced to single ASCII letters (`i` / `f` / `p` / `k`) regardless of `stream_indicators.*`. For terminals without emoji support. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
 | `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
 | `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
@@ -374,6 +380,7 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `unsubscribe` | `"U"` | RFC 8058 one-click / mailto / browser flow. Spec 16. |
 | `mute_thread` | `"M"` | Toggle mute on the focused message's conversation. Spec 19. |
 | `thread_chord` | `"T"` | Begin thread chord (T+r/R/f/F/d/D/a/m). Spec 20. |
+| `stream_chord` | `"S"` | Begin stream chord (S+i/f/p/k/c) — route the focused sender to Imbox / Feed / Paper Trail / Screener, or clear routing. Spec 23. |
 | `palette` | `"ctrl+k"` | Open the spec 22 command palette (fuzzy-find every action; right-aligned binding column doubles as a passive cheatsheet). Set to `""` to disable. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 

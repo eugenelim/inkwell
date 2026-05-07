@@ -108,7 +108,7 @@ func lex(src string) ([]token, error) {
 
 func isOpLetter(c byte) bool {
 	switch c {
-	case 'f', 't', 'c', 'r', 's', 'b', 'B', 'd', 'D', 'A', 'N', 'F', 'U', 'G', 'i', 'y', 'v', 'm', 'h':
+	case 'f', 't', 'c', 'r', 's', 'b', 'B', 'd', 'D', 'A', 'N', 'F', 'U', 'G', 'i', 'y', 'v', 'm', 'h', 'o':
 		return true
 	}
 	return false
@@ -156,6 +156,8 @@ func fieldForOp(letter string) (Field, bool) {
 		return FieldFolder, true
 	case "h":
 		return FieldHeader, true
+	case "o":
+		return FieldRouting, true
 	}
 	return 0, false
 }

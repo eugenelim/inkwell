@@ -317,6 +317,28 @@ type UIConfig struct {
 	// (spec 19). Default 🔕; ASCII fallback "m" for terminals without
 	// emoji support.
 	MuteIndicator string `toml:"mute_indicator"`
+
+	// ShowRoutingIndicator (spec 23 §5.5) toggles the per-row routing
+	// glyph in regular folder views. Default false (clutter); always
+	// on inside routing virtual folders regardless of this setting.
+	ShowRoutingIndicator bool `toml:"show_routing_indicator"`
+	// StreamIndicators (spec 23 §5.4 / §5.5) is the per-destination
+	// glyph table. Empty values fall back to the theme defaults
+	// (📥 / 📰 / 🧾 / 🚪).
+	StreamIndicators StreamIndicatorsConfig `toml:"stream_indicators"`
+	// StreamASCIIFallback flips all four stream indicators to single-
+	// ASCII letters (i / f / p / k) regardless of any configured
+	// values. For terminals that cannot render emoji.
+	StreamASCIIFallback bool `toml:"stream_ascii_fallback"`
+}
+
+// StreamIndicatorsConfig is the inline table used by spec 23 §11 for
+// per-destination glyph overrides.
+type StreamIndicatorsConfig struct {
+	Imbox      string `toml:"imbox"`
+	Feed       string `toml:"feed"`
+	PaperTrail string `toml:"paper_trail"`
+	Screener   string `toml:"screener"`
 }
 
 // BindingsConfig owns the [bindings] section (spec 04).
@@ -357,6 +379,7 @@ type BindingsConfig struct {
 	MuteThread      string `toml:"mute_thread"`
 	ThreadChord     string `toml:"thread_chord"`
 	Palette         string `toml:"palette"`
+	StreamChord     string `toml:"stream_chord"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

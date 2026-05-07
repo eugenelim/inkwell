@@ -31,6 +31,7 @@ const (
 	FieldImportance    // ~i — low|normal|high
 	FieldInferenceCls  // ~y — focused|other
 	FieldConversation  // ~v
+	FieldRouting       // ~o — imbox|feed|paper_trail|screener|none (spec 23)
 
 	// Date fields.
 	FieldDateReceived // ~d
@@ -110,11 +111,21 @@ type DateValue struct {
 // EmptyValue is the argument shape for no-arg predicates (~A, ~N, ~F, ~U).
 type EmptyValue struct{}
 
+// RoutingValue is the typed argument carried by a `~o` predicate
+// (spec 23 §4.3). Destination is one of "imbox" / "feed" /
+// "paper_trail" / "screener" / "none". The "none" sentinel matches
+// senders with NO row in sender_routing (i.e., unrouted) and
+// compiles to a NOT EXISTS form.
+type RoutingValue struct {
+	Destination string
+}
+
 func (And) isNode()       {}
 func (Or) isNode()        {}
 func (Not) isNode()       {}
 func (Predicate) isNode() {}
 
-func (StringValue) isValue() {}
-func (DateValue) isValue()   {}
-func (EmptyValue) isValue()  {}
+func (StringValue) isValue()  {}
+func (DateValue) isValue()    {}
+func (EmptyValue) isValue()   {}
+func (RoutingValue) isValue() {}

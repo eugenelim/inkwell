@@ -335,6 +335,27 @@ Lifecycle:
 
 **Crash safety:** on app start, the executor scans `actions` for `Pending` or `InFlight` rows and resumes. `InFlight` is treated as `Pending` with a "may have already executed" flag — the next delta pull will reveal whether the server already processed it.
 
+**Local-only mutation surfaces.** Two features deliberately bypass the
+action queue because they have no Graph round-trip:
+
+- **Mute** (spec 19, table `muted_conversations`) — first explicit
+  local-only mutation surface added after the queue existed. The UI
+  dispatches `MuteConversation` / `UnmuteConversation` directly on
+  the store; the action queue's `dispatch()` switch is reserved for
+  Graph-bound verbs.
+- **Sender routing** (spec 23, table `sender_routing`) — second such
+  surface. `SetSenderRouting` / `ClearSenderRouting` are read-then-
+  write internally so a no-op (same destination) skips the SQL write
+  entirely. Microsoft's `inferenceClassificationOverride` is
+  intentionally unused (spec 23 §2.2): it's prospective-only and
+  binary, mismatched against routing's retroactive four-bucket model.
+
+Saved searches (spec 11) are also local-only state but predate the
+queue concept and are managed via `savedsearch.Manager`. Categorise
+mute + routing as the canonical local-only mutation surfaces; saved
+searches as the broader category of local-only state alongside undo
+bookkeeping.
+
 ## 9. Undo
 
 Session-scoped undo stack:
