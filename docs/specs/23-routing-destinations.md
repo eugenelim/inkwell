@@ -1399,6 +1399,16 @@ preferences. A future spec for the Screener (§1.16) will own
       `SearchByPredicate` is account-scoped and folder-agnostic by
       default, so the filter naturally spans folders. The folder
       column from spec 21 §3.4 renders correctly.
+- [ ] **Spec 24 consistency:** split inbox tabs (spec 24) index
+      `saved_searches` rows with a non-NULL `tab_order`. Routing
+      virtual folders (`__imbox__` etc.) are NOT `saved_searches`
+      rows — they are sentinel sidebar items (§5.4). A user who
+      wants a routing bucket as a list-pane tab must create a saved
+      search whose pattern is `~o feed` (or the matching
+      destination) and promote it via spec 24's `:tab add`. Spec 23
+      ships routing as a sidebar surface; promoting to a tab is an
+      explicit user step. Migration numbering: spec 23 owns 011
+      (sender_routing); spec 24 owns 012 (tab_order).
 - [ ] **Spec 22 consistency:** routing surfaces in the command
       palette via five dedicated static rows in
       `palette_commands.go` (`route_imbox`, `route_feed`,

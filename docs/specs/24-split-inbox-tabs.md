@@ -161,7 +161,12 @@ Follow Superhuman / aerc:
 
 ## 3. Storage
 
-### 3.1 Schema migration `011_tab_order.sql`
+### 3.1 Schema migration `012_tab_order.sql`
+
+Spec 23 (routing destinations, lower-numbered, ships first per
+ROADMAP §0 Bucket 2 ordering) claims migration **011**. Spec 24
+takes **012**. The two specs are independent at the schema level;
+no shared tables, no FK linkage.
 
 ```sql
 ALTER TABLE saved_searches
@@ -171,7 +176,7 @@ CREATE UNIQUE INDEX idx_saved_searches_tab_order
     ON saved_searches(account_id, tab_order)
     WHERE tab_order IS NOT NULL;
 
-UPDATE schema_meta SET value = '11' WHERE key = 'version';
+UPDATE schema_meta SET value = '12' WHERE key = 'version';
 ```
 
 `tab_order` is `NULL` (not a tab) by default. A non-NULL integer
@@ -193,7 +198,7 @@ and supported on every SQLite build the project compiles against
 
 The `schema_meta` UPDATE is the convention used by every prior
 migration (`002_meeting_message_type.sql` through
-`010_conv_account_idx.sql`).
+`011_sender_routing.sql` once spec 23 lands).
 
 ### 3.2 TOML mirror
 
@@ -763,7 +768,7 @@ test `TestDemoteDoesNotLogName` covers the demote path.
 
 ## 12. Definition of done
 
-- [ ] Migration `011_tab_order.sql` applies cleanly on a fresh DB and
+- [ ] Migration `012_tab_order.sql` applies cleanly on a fresh DB and
       on a v0.49.x DB (the spec-21 release line). `tab_order` is
       `NULL` for all pre-migration rows.
 - [ ] `store.SavedSearch.TabOrder *int` field exists; serialised as
@@ -915,7 +920,7 @@ test `TestDemoteDoesNotLogName` covers the demote path.
       Mail.Read scope reach via the underlying patterns); the tab
       strip itself never calls Graph.
 - [ ] **Store reads/writes:** new column `saved_searches.tab_order`
-      via migration 011; new helpers `ListTabs`, `SetTabOrder`,
+      via migration 012; new helpers `ListTabs`, `SetTabOrder`,
       `ReindexTabs`. No new mutations on the messages or actions
       tables.
 - [ ] **Graph endpoints:** none new. Tab strip is local. Pattern

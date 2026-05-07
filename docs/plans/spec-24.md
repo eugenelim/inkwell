@@ -11,10 +11,11 @@ implementation. No code lands yet.
 Copied from `docs/specs/24-split-inbox-tabs.md` §12. Tick during
 implementation iterations.
 
-- [ ] Migration `011_tab_order.sql` applies cleanly on a fresh DB
+- [ ] Migration `012_tab_order.sql` applies cleanly on a fresh DB
       and on a v0.49.x DB (the spec-21 release line). `tab_order`
       is `NULL` for all pre-migration rows. `schema_meta.value`
-      bumped to `'11'`.
+      bumped to `'12'`. Note: spec 23 (routing destinations,
+      lower-numbered, ships first) claims migration 011.
 - [ ] `store.SavedSearch.TabOrder *int` field exists; serialised as
       NULL/integer in SQLite. `PutSavedSearch` does NOT touch
       `tab_order`. `ListSavedSearches` includes the field.
@@ -122,6 +123,6 @@ implementation iterations.
     review surfaced. Implementation must NOT key strip visibility
     on `activeTab >= 0`.
 - Next: schedule iter 1 as the first implementation slice — the
-  `011_tab_order.sql` migration plus `store.ListTabs` /
+  `012_tab_order.sql` migration plus `store.ListTabs` /
   `SetTabOrder` / `ReindexTabs` / `ApplyTabOrder` with unit tests
   (CLAUDE.md §12.2 phase 2: smallest runnable slice). No UI yet.
