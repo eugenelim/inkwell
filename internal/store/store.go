@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 11
+const SchemaVersion = 12
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -157,6 +157,21 @@ type Store interface {
 	PutSavedSearch(ctx context.Context, s SavedSearch) error
 	DeleteSavedSearch(ctx context.Context, id int64) error
 	DeleteSavedSearchByName(ctx context.Context, accountID int64, name string) error
+
+	// Split-inbox tabs (spec 24 — saved_searches.tab_order column).
+	// ListTabs returns only rows promoted to the strip (non-NULL
+	// tab_order), ordered ASC. SetTabOrder writes one row's order
+	// (nil demotes). ApplyTabOrder writes a full ordered slice of
+	// IDs in one transaction; ReindexTabs renumbers the existing
+	// tabs to be dense (0..N-1), called after any deletion.
+	ListTabs(ctx context.Context, accountID int64) ([]SavedSearch, error)
+	SetTabOrder(ctx context.Context, id int64, order *int) error
+	ApplyTabOrder(ctx context.Context, accountID int64, ids []int64) error
+	ReindexTabs(ctx context.Context, accountID int64) error
+	// CountUnreadByIDs counts unread messages whose id is in the
+	// supplied set, scoped to accountID. Used by Manager.CountTabs
+	// for per-tab unread badges (spec 24 §4).
+	CountUnreadByIDs(ctx context.Context, accountID int64, ids []string) (int, error)
 
 	// Compose sessions (spec 15 §7 / PR 7-ii crash recovery).
 	// PutComposeSession upserts a session row keyed by SessionID;

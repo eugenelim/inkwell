@@ -225,40 +225,47 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// UI
 	model, err := ui.New(ui.Deps{
-		Auth:                     a,
-		Store:                    st,
-		Engine:                   engine,
-		Renderer:                 renderer,
-		Logger:                   logger,
-		Account:                  acc,
-		Triage:                   triageAdapter{exec: exec},
-		Bulk:                     bulkAdapter{exec: exec},
-		Thread:                   &threadExecutorAdapter{exec: exec},
-		Calendar:                 calendarAdapter{gc: gc, st: st, accountID: acc.ID, showDeclined: cfg.Calendar.ShowDeclined},
-		Mailbox:                  mailboxAdapter{gc: gc},
-		Drafts:                   draftAdapter{exec: exec},
-		Search:                   newSearchAdapter(st, gc, acc.ID, cfg.Search),
-		Unsubscribe:              newUnsubAdapter(st, gc, version),
-		SavedSearchSvc:           &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
-		ThemeName:                cfg.UI.Theme,
-		SavedSearches:            saved,
-		Bindings:                 bindingsToOverrides(cfg.Bindings),
-		RecentFoldersCount:       cfg.Triage.RecentFoldersCount,
-		WrapColumns:              cfg.Rendering.WrapColumns,
-		URLDisplayMaxWidth:       cfg.Rendering.URLDisplayMaxWidth,
-		Attachments:              gc,
-		AttachmentSaveDir:        expandHome(cfg.Rendering.AttachmentSaveDir),
-		LargeAttachmentWarnMB:    cfg.Rendering.LargeAttachmentWarnMB,
-		UnreadIndicator:          cfg.UI.UnreadIndicator,
-		FlagIndicator:            cfg.UI.FlagIndicator,
-		AttachmentIndicator:      cfg.UI.AttachmentIndicator,
-		MuteIndicator:            cfg.UI.MuteIndicator,
-		ImboxIndicator:           cfg.UI.StreamIndicators.Imbox,
-		FeedIndicator:            cfg.UI.StreamIndicators.Feed,
-		PaperTrailIndicator:      cfg.UI.StreamIndicators.PaperTrail,
-		ScreenerIndicator:        cfg.UI.StreamIndicators.Screener,
-		StreamASCIIFallback:      cfg.UI.StreamASCIIFallback,
-		ShowRoutingIndicator:     cfg.UI.ShowRoutingIndicator,
+		Auth:                  a,
+		Store:                 st,
+		Engine:                engine,
+		Renderer:              renderer,
+		Logger:                logger,
+		Account:               acc,
+		Triage:                triageAdapter{exec: exec},
+		Bulk:                  bulkAdapter{exec: exec},
+		Thread:                &threadExecutorAdapter{exec: exec},
+		Calendar:              calendarAdapter{gc: gc, st: st, accountID: acc.ID, showDeclined: cfg.Calendar.ShowDeclined},
+		Mailbox:               mailboxAdapter{gc: gc},
+		Drafts:                draftAdapter{exec: exec},
+		Search:                newSearchAdapter(st, gc, acc.ID, cfg.Search),
+		Unsubscribe:           newUnsubAdapter(st, gc, version),
+		SavedSearchSvc:        &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
+		ThemeName:             cfg.UI.Theme,
+		SavedSearches:         saved,
+		Bindings:              bindingsToOverrides(cfg.Bindings),
+		RecentFoldersCount:    cfg.Triage.RecentFoldersCount,
+		WrapColumns:           cfg.Rendering.WrapColumns,
+		URLDisplayMaxWidth:    cfg.Rendering.URLDisplayMaxWidth,
+		Attachments:           gc,
+		AttachmentSaveDir:     expandHome(cfg.Rendering.AttachmentSaveDir),
+		LargeAttachmentWarnMB: cfg.Rendering.LargeAttachmentWarnMB,
+		UnreadIndicator:       cfg.UI.UnreadIndicator,
+		FlagIndicator:         cfg.UI.FlagIndicator,
+		AttachmentIndicator:   cfg.UI.AttachmentIndicator,
+		MuteIndicator:         cfg.UI.MuteIndicator,
+		ImboxIndicator:        cfg.UI.StreamIndicators.Imbox,
+		FeedIndicator:         cfg.UI.StreamIndicators.Feed,
+		PaperTrailIndicator:   cfg.UI.StreamIndicators.PaperTrail,
+		ScreenerIndicator:     cfg.UI.StreamIndicators.Screener,
+		StreamASCIIFallback:   cfg.UI.StreamASCIIFallback,
+		ShowRoutingIndicator:  cfg.UI.ShowRoutingIndicator,
+		Tabs: ui.TabsConfig{
+			Enabled:       cfg.Tabs.Enabled,
+			ShowZeroCount: cfg.Tabs.ShowZeroCount,
+			MaxNameWidth:  cfg.Tabs.MaxNameWidth,
+			CycleWraps:    cfg.Tabs.CycleWraps,
+		},
+		SavedSearchCacheTTL:      cfg.SavedSearch.CacheTTL,
 		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
 		MinTerminalCols:          cfg.UI.MinTerminalCols,
 		MinTerminalRows:          cfg.UI.MinTerminalRows,
@@ -845,6 +852,8 @@ func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 		ThreadChord:     b.ThreadChord,
 		Palette:         b.Palette,
 		StreamChord:     b.StreamChord,
+		NextTab:         b.NextTab,
+		PrevTab:         b.PrevTab,
 	}
 }
 
@@ -1166,6 +1175,30 @@ func (a *savedSearchAdapter) EvaluatePattern(ctx context.Context, patternSrc str
 	return a.mgr.EvaluatePattern(ctx, patternSrc)
 }
 
+func (a *savedSearchAdapter) Tabs(ctx context.Context) ([]ui.SavedSearch, error) {
+	tabs, err := a.mgr.Tabs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return convertSavedSearchList(tabs), nil
+}
+
+func (a *savedSearchAdapter) PromoteTab(ctx context.Context, name string) (int, error) {
+	return a.mgr.Promote(ctx, name)
+}
+
+func (a *savedSearchAdapter) DemoteTab(ctx context.Context, name string) error {
+	return a.mgr.Demote(ctx, name)
+}
+
+func (a *savedSearchAdapter) ReorderTab(ctx context.Context, from, to int) error {
+	return a.mgr.Reorder(ctx, from, to)
+}
+
+func (a *savedSearchAdapter) RefreshTabCounts(ctx context.Context) (map[int64]int, error) {
+	return a.mgr.CountTabs(ctx)
+}
+
 // convertSavedSearchList maps store.SavedSearch → ui.SavedSearch with
 // Count=-1 (not yet evaluated). The Init() refreshSavedSearchCountsCmd
 // fires immediately to populate live counts for pinned searches.
@@ -1173,11 +1206,12 @@ func convertSavedSearchList(list []store.SavedSearch) []ui.SavedSearch {
 	out := make([]ui.SavedSearch, len(list))
 	for i, ss := range list {
 		out[i] = ui.SavedSearch{
-			ID:      ss.ID,
-			Name:    ss.Name,
-			Pattern: ss.Pattern,
-			Pinned:  ss.Pinned,
-			Count:   -1,
+			ID:       ss.ID,
+			Name:     ss.Name,
+			Pattern:  ss.Pattern,
+			Pinned:   ss.Pinned,
+			Count:    -1,
+			TabOrder: ss.TabOrder,
 		}
 	}
 	return out

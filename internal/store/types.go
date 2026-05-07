@@ -261,6 +261,11 @@ type ComposeSession struct {
 }
 
 // SavedSearch persists a named pattern for the sidebar virtual folder.
+//
+// TabOrder is `nil` when the saved search is NOT promoted to the spec
+// 24 tab strip; a non-nil pointer carries the dense 0-based strip
+// position. Pointer (rather than int) so "no tab" is unambiguously
+// distinct from "tab 0 (leftmost)".
 type SavedSearch struct {
 	ID        int64
 	AccountID int64
@@ -268,6 +273,7 @@ type SavedSearch struct {
 	Pattern   string
 	Pinned    bool
 	SortOrder int
+	TabOrder  *int
 	CreatedAt time.Time
 }
 

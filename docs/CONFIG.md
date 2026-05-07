@@ -310,6 +310,29 @@ Runtime knobs for the saved-search Manager (spec 11 §9).
 
 ---
 
+## `[tabs]`
+
+Controls the spec 24 split-inbox tab strip. Tabs are saved searches
+promoted to a one-row strip above the list pane; cycle with `]` /
+`[` when the list pane is focused.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | true / false | When `false`, the strip is hidden even if tabs are configured (escape hatch — the tabs themselves persist). |
+| `show_zero_count` | bool | `false` | true / false | When `true`, render `[Name 0]` for tabs with no unread; default hides the zero. |
+| `max_name_width` | int | `16` | ≥ 4 | Per-tab name truncation width (with `…`). |
+| `cycle_wraps` | bool | `true` | true / false | When `false`, `]` at the last tab and `[` at the first tab no-op instead of wrapping. |
+
+Promote a saved search via `:tab add <name>` (cmd-bar) or
+`inkwell tab add <name>` (CLI). The `[bindings].next_tab` /
+`[bindings].prev_tab` keys default to `]` / `[`; both are
+list-pane-scoped (the viewer pane keeps `]` / `[` for thread
+navigation, the calendar pane keeps them for day navigation).
+
+**Owner spec:** 24.
+
+---
+
 ## `[bulk]`
 
 Controls bulk-operation UX.
@@ -381,6 +404,8 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `mute_thread` | `"M"` | Toggle mute on the focused message's conversation. Spec 19. |
 | `thread_chord` | `"T"` | Begin thread chord (T+r/R/f/F/d/D/a/m). Spec 20. |
 | `stream_chord` | `"S"` | Begin stream chord (S+i/f/p/k/c) — route the focused sender to Imbox / Feed / Paper Trail / Screener, or clear routing. Spec 23. |
+| `next_tab` | `"]"` | Cycle to the next spec 24 tab when the list pane is focused. Pane-scoped — viewer pane keeps `]` for thread navigation, calendar pane keeps it for day navigation. |
+| `prev_tab` | `"["` | Cycle to the previous spec 24 tab when the list pane is focused. Same pane-scoping as `next_tab`. |
 | `palette` | `"ctrl+k"` | Open the spec 22 command palette (fuzzy-find every action; right-aligned binding column doubles as a passive cheatsheet). Set to `""` to disable. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 

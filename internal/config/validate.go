@@ -37,6 +37,9 @@ func (c *Config) Validate() error {
 	if c.UI.ListWidth < 10 {
 		errs = append(errs, "ui.list_width must be ≥ 10")
 	}
+	if c.Tabs.MaxNameWidth < 4 {
+		errs = append(errs, "tabs.max_name_width must be ≥ 4")
+	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":
 	default:

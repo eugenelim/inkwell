@@ -312,7 +312,13 @@ func TestMigration011AppliesCleanly(t *testing.T) {
 	var version string
 	require.NoError(t, st.db.QueryRowContext(ctx,
 		`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&version))
-	require.Equal(t, "11", strings.TrimSpace(version))
+	// Migrations run cumulatively; SchemaVersion increments with each
+	// new migration. As of spec 24 the version is 12; this test
+	// guards that migration 011 still applies cleanly (its objects
+	// are present, see below).
+	v := strings.TrimSpace(version)
+	require.True(t, v == "11" || v == "12",
+		"schema_meta.version should be at the spec 23 level or above; got %q", v)
 
 	// sender_routing table exists.
 	var name string

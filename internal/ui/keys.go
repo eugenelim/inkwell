@@ -49,6 +49,8 @@ type BindingOverrides struct {
 	ThreadChord     string
 	Palette         string
 	StreamChord     string
+	NextTab         string
+	PrevTab         string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -153,6 +155,14 @@ type KeyMap struct {
 	// Symmetric with ThreadChord (T): both prefix multi-target verbs
 	// in the list / viewer panes.
 	StreamChord key.Binding
+
+	// NextTab / PrevTab cycle the spec 24 list-pane tab strip. They
+	// are pane-scoped: only fire when the list pane is focused.
+	// `]` / `[` retain their viewer-pane (NavPrev/NextInThread, spec
+	// 05) and calendar-pane (day nav, spec 12) meanings; this is a
+	// third pane-scoped meaning, not a global binding (spec 24 §5.2).
+	NextTab key.Binding
+	PrevTab key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -211,6 +221,8 @@ func DefaultKeyMap() KeyMap {
 		ThreadChord:    key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "thread chord")),
 		Palette:        key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "command palette")),
 		StreamChord:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "stream chord")),
+		NextTab:        key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		PrevTab:        key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
 	}
 }
 
@@ -290,6 +302,8 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.ThreadChord, o.ThreadChord)
 	apply(&km.Palette, o.Palette)
 	apply(&km.StreamChord, o.StreamChord)
+	apply(&km.NextTab, o.NextTab)
+	apply(&km.PrevTab, o.PrevTab)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.

@@ -4643,6 +4643,32 @@ func (s *stubSavedSearchService) EvaluatePattern(_ context.Context, _ string) (i
 	return 0, nil
 }
 
+func (s *stubSavedSearchService) Tabs(_ context.Context) ([]SavedSearch, error) {
+	out := make([]SavedSearch, 0)
+	for _, ss := range s.saved {
+		if ss.TabOrder != nil {
+			out = append(out, ss)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubSavedSearchService) PromoteTab(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (s *stubSavedSearchService) DemoteTab(_ context.Context, _ string) error {
+	return nil
+}
+
+func (s *stubSavedSearchService) ReorderTab(_ context.Context, _, _ int) error {
+	return nil
+}
+
+func (s *stubSavedSearchService) RefreshTabCounts(_ context.Context) (map[int64]int, error) {
+	return map[int64]int{}, nil
+}
+
 // TestRuleSaveWithActiveFilterCallsService drives `:rule save Newsletters`
 // while a filter is active and confirms the SavedSearchService.Save method is
 // called with the active filter pattern.

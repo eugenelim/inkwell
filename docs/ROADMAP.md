@@ -56,7 +56,7 @@ Workflow patterns built on the primitives. Users feel these.
 | ----- | ----------------------------------- | ---------------------------------------------- |
 | 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
 | 2     | Routing destinations (1.9)          | Owner: spec 23. `sender_routing` table reused by B3. |
-| 3     | Split inbox tabs (1.7)              | Depends on saved searches + conversation ops. |
+| 3     | Split inbox tabs (1.7)              | Owner: spec 24. Saved searches promoted to a list-pane tab strip. |
 | 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
 | 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
 
@@ -178,14 +178,16 @@ The list view filters out new messages from muted conversations. `M` (capital) o
 
 ### 1.7 Split inbox tabs — P1
 
+**Owner: spec 24 (shipped).**
+
 **The concept.** Divide the inbox into multiple focus areas (e.g., "VIP", "Notifications", "Calendar", "Team") defined by user-supplied queries. Each becomes a tab so the user can process one focus area at a time, reducing context-switching.
 
 **TUI translation.** We already have saved searches as virtual folders. The upgrade:
 
-- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`Tab`/`Shift+Tab` cycles). Each tab maintains its own scroll position and selection.
-- **Auto-archive coupling.** When a message arrives in a split, it's already implicitly "filed." When the user marks it done (`E`), it disappears from all splits. Effectively a rebrand of "archive" as the default state.
+- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`]` / `[` cycle when the list pane is focused; `Tab` / `Shift+Tab` remain pane-focus). Each tab maintains its own scroll position and selection.
+- **Auto-archive coupling.** When the message no longer matches the tab pattern (e.g. archive moves a `~m Inbox`-scoped row out of Inbox), the next refresh drops it from the tab. Emergent property — no new verb. The "rebrand archive as done" item (§1.23) is a separate, deferred follow-up.
 
-**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Spec 17 candidate.
+**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Shipped as spec 24.
 
 ### 1.8 Conversation-level operations — P2
 

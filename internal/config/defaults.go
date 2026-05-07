@@ -97,6 +97,8 @@ func Defaults() *Config {
 			ThreadChord:     "T",
 			Palette:         "ctrl+k",
 			StreamChord:     "S",
+			NextTab:         "]",
+			PrevTab:         "[",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders:          false,
@@ -163,6 +165,12 @@ func Defaults() *Config {
 			LocalMatchLimit:        5000,
 			ServerCandidateLimit:   1000,
 			PreferLocalWhenOffline: true,
+		},
+		Tabs: TabsConfig{
+			Enabled:       true,
+			ShowZeroCount: false,
+			MaxNameWidth:  16,
+			CycleWraps:    true,
 		},
 		SavedSearch: SavedSearchSettings{
 			CacheTTL:                  60 * time.Second,

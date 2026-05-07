@@ -78,6 +78,7 @@ models maintained by their authors.
 | Accidental secret commits | Planned: gitleaks workflow + pre-commit hook (spec 17 §3.6). | TBD |
 | One-click unsubscribe POST sent to attacker URL | URL is extracted only from the message's own `List-Unsubscribe` header — sender-asserted. Generic `User-Agent`, no cookies, no referer. 5s timeout; 3-hop redirect cap; HTTPS-only. | `internal/unsub/parse_test.go`; `internal/unsub/execute_test.go` |
 | Cached unsubscribe action stale after sender rotates URL | Accepted residual risk (cache hint only). User can clear the column to re-fetch. | Documented in `docs/plans/spec-16.md` |
+| Tab name as PII vector (spec 24) | A user-chosen tab name (e.g. `Boss emails`, `Health stuff`, recruiter outreach about a named person) is PII-adjacent. Mitigated by call-site DEBUG-only logging policy: `Manager.Promote` / `Demote` log the saved-search **ID + position** at `INFO`; the **name** is logged at `DEBUG` only. | `internal/savedsearch/tabs_test.go::TestPromoteDoesNotLogName`, `TestDemoteDoesNotLogName` |
 
 ## Things we do NOT defend against
 

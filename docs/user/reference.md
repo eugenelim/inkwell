@@ -93,6 +93,8 @@ saved search.
 | `S p`     | Route sender to **Paper Trail**                               |
 | `S k`     | Route sender to **Screener** (mnemonic: s**k**reener)         |
 | `S c`     | **Clear** routing for the focused sender                      |
+| `]`       | Cycle to the **next** spec 24 tab (list pane only)            |
+| `[`       | Cycle to the **previous** spec 24 tab (list pane only)        |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -341,6 +343,12 @@ sessions older than 24h get garbage-collected on launch.
 | `:route clear <addr>`         | Clear routing for a sender (returns them to unrouted). |
 | `:route show <addr>`          | Print the current routing for a sender in the status bar. |
 | `:route list`                 | Print a summary count of all four routing destinations in the status bar. |
+| `:tab list`                   | Spec 24. List configured tabs in the status bar. |
+| `:tab add <name>`             | Promote saved search `<name>` to the tab strip (appends at end). |
+| `:tab remove <name>`          | Demote a saved search from the tab strip. |
+| `:tab move <name> <pos>`      | Reorder. `<pos>` is 0-based. |
+| `:tab close`                  | Demote the active tab. |
+| `:tab <name>`                 | Jump to the tab named `<name>`. |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
@@ -620,6 +628,10 @@ JSON via `--output json`.
 | `inkwell route list`                             | List all routings.                                       |
 | `inkwell route list --destination feed`          | Filter by destination.                                   |
 | `inkwell route show <addr>`                      | Print the current routing for one sender.                |
+| `inkwell tab list`                               | Spec 24. List the configured split-inbox tabs (with matched + unread counts). |
+| `inkwell tab add <name>`                         | Promote a saved search to the tab strip.                |
+| `inkwell tab remove <name>`                      | Demote a saved search from the tab strip.               |
+| `inkwell tab move <name> <pos>`                  | Reorder (0-based).                                       |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:

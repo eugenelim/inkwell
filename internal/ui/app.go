@@ -259,6 +259,12 @@ type Deps struct {
 	// ShowRoutingIndicator controls the per-row routing glyph in
 	// regular folder views (spec 23 §5.5). Default false.
 	ShowRoutingIndicator bool
+
+	// Spec 24 — split inbox tabs. Tabs is the consumer-side mirror
+	// of [config.TabsConfig] threaded through cmd_run. Empty = use
+	// in-package defaults (enabled, max_name_width=16, wraps).
+	Tabs                TabsConfig
+	SavedSearchCacheTTL time.Duration
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -338,12 +344,16 @@ type AttachmentFetcher interface {
 
 // SavedSearch is a named pattern that surfaces in the sidebar. Defined
 // at the consumer site so the UI doesn't import internal/savedsearch.
+//
+// TabOrder is non-nil when the saved search is promoted to the spec
+// 24 tab strip; the value is the 0-based strip position.
 type SavedSearch struct {
-	ID      int64
-	Name    string
-	Pattern string
-	Pinned  bool
-	Count   int // -1 = not yet evaluated; ≥0 = match count from last refresh
+	ID       int64
+	Name     string
+	Pattern  string
+	Pinned   bool
+	Count    int // -1 = not yet evaluated; ≥0 = match count from last refresh
+	TabOrder *int
 }
 
 // SavedSearchService is the CRUD + count-refresh surface the UI consumes.
@@ -364,6 +374,16 @@ type SavedSearchService interface {
 	// EvaluatePattern compiles and runs patternSrc against the local store,
 	// returning the match count. Used by the edit modal's ctrl+t test key.
 	EvaluatePattern(ctx context.Context, patternSrc string) (int, error)
+
+	// Spec 24 tab strip API. Tabs returns saved searches promoted to
+	// the strip (in display order). PromoteTab/DemoteTab/ReorderTab
+	// mutate the strip; RefreshTabCounts returns per-tab unread
+	// counts for the badges.
+	Tabs(ctx context.Context) ([]SavedSearch, error)
+	PromoteTab(ctx context.Context, name string) (int, error)
+	DemoteTab(ctx context.Context, name string) error
+	ReorderTab(ctx context.Context, from, to int) error
+	RefreshTabCounts(ctx context.Context) (map[int64]int, error)
 }
 
 // CalendarFetcher is the read-only calendar surface the UI consumes
@@ -722,6 +742,20 @@ type Model struct {
 	// while waiting for the second keypress of an S<dest> chord.
 	streamChordPending bool
 	streamChordToken   uint64
+
+	// Spec 24 split-inbox tabs. tabs is the ordered list from
+	// Manager.Tabs; activeTab is -1 when no tab is focused (cold
+	// start, or a regular folder is selected). tabState parallels
+	// tabs with per-tab cursor + scroll snapshots for cycle parity.
+	// tabUnread maps saved-search ID → unread count for the badges.
+	// tabLastFocused powers the • new-mail glyph (§5.5).
+	tabs             []SavedSearch
+	activeTab        int
+	tabState         []listSnapshot
+	tabUnread        map[int64]int
+	tabLastFocused   map[int64]time.Time
+	tabsCfg          TabsConfig
+	lastTabRefreshAt time.Time
 	// pendingThreadMove is true while FolderPickerMode is active for T m.
 	pendingThreadMove bool
 	// pendingThreadIDs stores pre-fetched message IDs for T d / T D
@@ -823,7 +857,28 @@ func New(deps Deps) (Model, error) {
 		compose:             NewCompose(),
 		attachPickInput:     newAttachPickInput(),
 		yanker:              newYanker(stdoutOSC52Writer),
+		activeTab:           -1,
+		tabsCfg:             tabsConfigOrDefault(deps.Tabs),
+		tabUnread:           make(map[int64]int),
+		tabLastFocused:      make(map[int64]time.Time),
 	}, nil
+}
+
+// tabsConfigOrDefault fills in zero-valued fields with the spec 24
+// defaults so callers (notably tests) that construct Deps without
+// reading config still get sane behaviour. MaxNameWidth==0 is the
+// sentinel for "no config supplied" — production wiring always
+// passes a non-zero value through cmd_run.
+func tabsConfigOrDefault(cfg TabsConfig) TabsConfig {
+	if cfg.MaxNameWidth == 0 {
+		return TabsConfig{
+			Enabled:       true,
+			ShowZeroCount: false,
+			MaxNameWidth:  16,
+			CycleWraps:    true,
+		}
+	}
+	return cfg
 }
 
 // newAttachPickInput builds the textinput used by the attachment picker
@@ -858,6 +913,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if refreshCmd := m.refreshSavedSearchCountsCmd(); refreshCmd != nil {
 		cmds = append(cmds, refreshCmd)
+	}
+	if loadTabsCmd := m.loadTabsCmd(); loadTabsCmd != nil {
+		cmds = append(cmds, loadTabsCmd)
 	}
 	if m.deps.SavedSearchBgRefresh > 0 && m.deps.SavedSearchSvc != nil {
 		cmds = append(cmds, m.backgroundRefreshTimerCmd())
@@ -1637,6 +1695,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamCountsUpdatedMsg:
 		m.folders.SetStreamCounts(msg.counts)
 		return m, nil
+
+	case tabsLoadedMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("tabs: %w", msg.err)
+			return m, nil
+		}
+		m = m.applyTabsLoaded(msg.tabs)
+		return m, m.refreshTabCountsCmd()
+
+	case tabCountsUpdatedMsg:
+		m.tabUnread = msg.counts
+		m.lastTabRefreshAt = time.Now()
+		return m, nil
+
+	case tabMutationDoneMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("tab %s: %w", msg.verb, msg.err)
+			return m, nil
+		}
+		// Reload the tab list (it may have changed shape) and refresh
+		// counts. The user-facing toast is the verb confirmation.
+		m.engineActivity = "tab " + msg.verb + " ok"
+		return m, tea.Batch(m.loadTabsCmd(), m.clearTransientCmd())
 
 	case routeShowToastMsg:
 		if msg.dest == "" {
@@ -2720,6 +2801,8 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "route":
 		return m.dispatchRoute(args[1:])
+	case "tab":
+		return m.dispatchTabCmd(args[1:])
 	case "unfilter":
 		prior := m.priorFolderID
 		m = m.clearFilter()
@@ -3854,6 +3937,12 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch {
+	case key.Matches(msg, m.keymap.NextTab):
+		mm, cmd := m.cycleTab(+1)
+		return mm, cmd
+	case key.Matches(msg, m.keymap.PrevTab):
+		mm, cmd := m.cycleTab(-1)
+		return mm, cmd
 	case key.Matches(msg, m.keymap.Up):
 		m.list.Up()
 	case key.Matches(msg, m.keymap.PageUp):
@@ -5629,6 +5718,11 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		if refreshCmd := m.refreshStreamCountsCmd(); refreshCmd != nil {
 			cmds = append(cmds, refreshCmd)
 		}
+		// Refresh tab badges — same sync may have shifted unread
+		// counts inside any tab pattern (spec 24 §4 / §5.5).
+		if refreshCmd := m.refreshTabCountsCmd(); refreshCmd != nil {
+			cmds = append(cmds, refreshCmd)
+		}
 		return m, tea.Batch(cmds...)
 	}
 	return m, nil
@@ -5852,7 +5946,18 @@ func (m Model) View() string {
 	}
 
 	folders := m.folders.View(m.theme, m.paneWidths.Folders, bodyHeight, m.focused == FoldersPane)
-	list := m.list.View(m.theme, m.paneWidths.List, bodyHeight, m.focused == ListPane)
+	listHeight := bodyHeight
+	tabStrip := m.renderTabStrip(m.theme, m.paneWidths.List)
+	if tabStrip != "" {
+		listHeight = bodyHeight - 1
+		if listHeight < 1 {
+			listHeight = 1
+		}
+	}
+	list := m.list.View(m.theme, m.paneWidths.List, listHeight, m.focused == ListPane)
+	if tabStrip != "" {
+		list = tabStrip + "\n" + list
+	}
 	viewer := m.viewer.View(m.theme, viewerWidth, bodyHeight, m.focused == ViewerPane)
 
 	// Clip the body region to EXACTLY bodyHeight rows. Each pane's

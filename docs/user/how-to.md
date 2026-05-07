@@ -658,6 +658,72 @@ queries:
 unrouted). `! ~o feed` matches anything not in Feed — including
 Imbox, Paper Trail, Screener, and unrouted. The two are different.
 
+## Set up split inbox tabs
+
+Tabs (spec 24) are saved searches surfaced as a one-row strip above
+the list pane. Cycle with `]` / `[` when the list pane is focused —
+each tab keeps its own cursor and scroll position across cycles.
+
+A starter set:
+
+```
+# 1. Save the searches you want to surface as tabs:
+:filter ~f newsletter@* | ~f noreply@*
+:save Newsletters
+
+:filter ~f boss@example.invalid | ~f spouse@
+:save VIP
+
+:filter ~G receipt | ~f *@receipts.*
+:save Receipts
+
+# 2. Promote each one to the tab strip:
+:tab add Newsletters
+:tab add VIP
+:tab add Receipts
+```
+
+The strip now reads `[Newsletters 12] [VIP 3] [Receipts 47]`. From
+the list pane, `]` jumps to the next tab. The `•` glyph appears
+when a tab has new mail since you last focused it.
+
+**Make archive remove the message from a tab.** Add `~m Inbox` to
+the tab pattern:
+
+```
+:filter ~m Inbox & ~f boss@example.invalid
+:save VIP
+:tab add VIP
+```
+
+Now archiving (`a`) a VIP message moves it out of Inbox; the next
+tab refresh drops it from the VIP view automatically. (A pattern
+like `~f boss@` without `~m Inbox` keeps the message visible after
+archive — that's a deliberate choice the user makes.)
+
+From the cmd-bar:
+
+```
+:tab list                      # show the names
+:tab Newsletters               # jump by name
+:tab move VIP 0                # move VIP to leftmost
+:tab close                     # demote the active tab
+```
+
+From the shell:
+
+```sh
+inkwell tab list
+inkwell tab list --output json
+inkwell tab add VIP
+inkwell tab move Newsletters 0
+inkwell tab remove Receipts
+```
+
+The pattern operator `~o` from spec 23 composes naturally with
+tabs: a tab with pattern `~o feed` shows every message from a
+sender routed to Feed.
+
 ## Discover and learn keybindings using the palette
 
 The TUI has a lot of bindings. The fastest way to find one is the

@@ -38,6 +38,7 @@ type Config struct {
 	Pattern         PatternConfig         `toml:"pattern"`
 	SavedSearch     SavedSearchSettings   `toml:"saved_search"`
 	SavedSearches   []SavedSearchConfig   `toml:"saved_searches"`
+	Tabs            TabsConfig            `toml:"tabs"`
 	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
 	Compose         ComposeConfig         `toml:"compose"`
 	CLI             CLIConfig             `toml:"cli"`
@@ -264,6 +265,23 @@ type SavedSearchSettings struct {
 	SuggestSaveAfterNUses int `toml:"suggest_save_after_n_uses"`
 }
 
+// TabsConfig owns the [tabs] section (spec 24). Tabs are saved
+// searches promoted to a strip above the list pane.
+type TabsConfig struct {
+	// Enabled, when false, forcibly hides the tab strip even if
+	// promoted tabs exist in the database. Tabs themselves persist;
+	// this is rendering-only. Default true.
+	Enabled bool `toml:"enabled"`
+	// ShowZeroCount renders `[Name 0]` instead of `[Name]` for tabs
+	// with no unread. Default false (zero-counts are hidden).
+	ShowZeroCount bool `toml:"show_zero_count"`
+	// MaxNameWidth is the per-tab name truncation width. Min 4.
+	MaxNameWidth int `toml:"max_name_width"`
+	// CycleWraps controls whether `]` at the last tab and `[` at
+	// the first tab wrap (true) or no-op (false). Default true.
+	CycleWraps bool `toml:"cycle_wraps"`
+}
+
 // AccountConfig owns the [account] section (spec 01).
 type AccountConfig struct {
 	TenantID             string `toml:"tenant_id"`
@@ -380,6 +398,8 @@ type BindingsConfig struct {
 	ThreadChord     string `toml:"thread_chord"`
 	Palette         string `toml:"palette"`
 	StreamChord     string `toml:"stream_chord"`
+	NextTab         string `toml:"next_tab"`
+	PrevTab         string `toml:"prev_tab"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).
