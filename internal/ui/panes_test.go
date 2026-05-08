@@ -244,27 +244,58 @@ func TestHasInviteBodyPreviewLongTimezoneWindowExtended(t *testing.T) {
 
 func TestExtractMeetingInfoBothPresent(t *testing.T) {
 	preview := "When: Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC)\nWhere: Building 5\n"
-	when, where := extractMeetingInfo(preview)
+	when, where := extractMeetingInfo(preview, "")
 	require.Equal(t, "Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC)", when)
 	require.Equal(t, "Building 5", where)
 }
 
 func TestExtractMeetingInfoWhenOnly(t *testing.T) {
 	preview := "When: 5/8/2026 2:00 PM\nNo location info here.\n"
-	when, where := extractMeetingInfo(preview)
+	when, where := extractMeetingInfo(preview, "")
 	require.Equal(t, "5/8/2026 2:00 PM", when)
 	require.Empty(t, where)
 }
 
 func TestExtractMeetingInfoEmpty(t *testing.T) {
-	when, where := extractMeetingInfo("")
+	when, where := extractMeetingInfo("", "")
 	require.Empty(t, when)
 	require.Empty(t, where)
 }
 
 func TestExtractMeetingInfoCaseInsensitive(t *testing.T) {
 	preview := "WHEN: Monday, Jun 1, 2026\nWHERE: Room 42\n"
-	when, where := extractMeetingInfo(preview)
+	when, where := extractMeetingInfo(preview, "")
 	require.Equal(t, "Monday, Jun 1, 2026", when)
 	require.Equal(t, "Room 42", where)
+}
+
+// Teams-invite signature handling (spec 05 follow-up).
+
+func TestExtractMeetingInfoTeamsInviteFallsBackToTeamsLabel(t *testing.T) {
+	preview := "Hi team — quick sync this afternoon.\n"
+	body := preview + "________________________________________________________________________________\nMicrosoft Teams meeting\nJoin on your computer or mobile app\nClick here to join the meeting\nMeeting ID: 123 456 789\nPasscode: abc\n"
+	when, where := extractMeetingInfo(preview, body)
+	require.Empty(t, when, "Teams invite without a When: label leaves When unset")
+	require.Equal(t, "Microsoft Teams Meeting", where, "Teams invite signature populates Where")
+}
+
+func TestExtractMeetingInfoBodyOverridesPreviewWhenLabelsAreOnlyInBody(t *testing.T) {
+	// BodyPreview holds the user's intro text; the When/Where labels
+	// are only present in the rendered body further down.
+	preview := "Hey Eugene, blocking time for the Q4 review.\n"
+	body := preview +
+		"\n________________________________________________________________________________\n" +
+		"When: Tuesday, May 13, 2025 2:00 PM-3:00 PM (UTC-08:00) Pacific Time\n" +
+		"Where: Microsoft Teams Meeting\n"
+	when, where := extractMeetingInfo(preview, body)
+	require.Contains(t, when, "Tuesday, May 13, 2025")
+	require.Equal(t, "Microsoft Teams Meeting", where)
+}
+
+func TestIsMeetingMessageTeamsInviteWithoutLabels(t *testing.T) {
+	msg := store.Message{
+		Subject:     "Q4 review",
+		BodyPreview: "Hi team — quick sync. Microsoft Teams meeting Click here to join the meeting Meeting ID: 123 456",
+	}
+	require.True(t, isMeetingMessage(msg), "Teams-invite signature in BodyPreview must trigger 📅 indicator")
 }

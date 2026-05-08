@@ -1745,11 +1745,18 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	// header modes immediately after Subject so the reader sees
 	// the meeting time without scrolling or pressing H.
 	if isMeetingMessage(*m.current) {
-		if when, where := extractMeetingInfo(m.current.BodyPreview); when != "" {
+		// Pass m.body so When/Where labels in the rendered body
+		// surface even when they're truncated out of BodyPreview.
+		// Teams invites that carry the datetime only in their
+		// iCalendar attachment fall back to a "Microsoft Teams
+		// Meeting" Where: hint with no When: line — the user
+		// knows it's a Teams meeting and where to look.
+		when, where := extractMeetingInfo(m.current.BodyPreview, m.body)
+		if when != "" {
 			hdrs = append(hdrs, "When:    "+when)
-			if where != "" {
-				hdrs = append(hdrs, "Where:   "+where)
-			}
+		}
+		if where != "" {
+			hdrs = append(hdrs, "Where:   "+where)
 		}
 	}
 	if m.showFullHdr {
@@ -2239,7 +2246,14 @@ func isMeetingMessage(msg store.Message) bool {
 	if isLikelyMeeting(msg.Subject) {
 		return true
 	}
-	return hasInviteBodyPreview(msg.BodyPreview)
+	if hasInviteBodyPreview(msg.BodyPreview) {
+		return true
+	}
+	// Teams-invite signature in the BodyPreview: covers the
+	// common case where a Teams-direct invite reaches the inbox
+	// without the Outlook-style "When:" / "Where:" header block
+	// (the datetime lives only in the iCalendar attachment).
+	return isTeamsInviteBody(msg.BodyPreview)
 }
 
 // hasInviteBodyPreview detects Outlook's auto-generated meeting-
@@ -2309,11 +2323,42 @@ var meetingDatePrefixes = []string{
 	"today", "tomorrow",
 }
 
-// extractMeetingInfo scans a body preview for Outlook's "When:" and
-// "Where:" labels and returns their trimmed values. Either may be
-// empty when the corresponding label is absent from the preview.
-func extractMeetingInfo(preview string) (when, where string) {
-	for _, line := range strings.Split(preview, "\n") {
+// extractMeetingInfo scans preview AND the full rendered body for
+// Outlook-generated "When:"/"Where:" labels and Teams-invite
+// signatures. Returns the resolved (when, where) — either may be
+// empty when the corresponding signal is absent.
+//
+// Three layers, in order:
+//  1. Line-by-line scan for "When:"/"Where:" labels (Outlook web's
+//     auto-generated invite header block).
+//  2. Same scan against the full rendered body (BodyPreview is
+//     truncated; long sender intros push the labels past it).
+//  3. Teams-invite signature ("Microsoft Teams Meeting" /
+//     "Microsoft Teams meeting" / "Click here to join the meeting"):
+//     when the body is a Teams invite but no When/Where labels were
+//     found, fall back to "Microsoft Teams Meeting" for `where`.
+//     `when` stays empty — Teams invites carry the datetime in the
+//     iCalendar attachment, which we don't yet parse.
+func extractMeetingInfo(preview, body string) (when, where string) {
+	when, where = scanLabels(preview)
+	if when == "" || where == "" {
+		bw, br := scanLabels(body)
+		if when == "" {
+			when = bw
+		}
+		if where == "" {
+			where = br
+		}
+	}
+	if where == "" && isTeamsInviteBody(body+"\n"+preview) {
+		where = "Microsoft Teams Meeting"
+	}
+	return
+}
+
+// scanLabels walks s line-by-line for "When:" / "Where:" headers.
+func scanLabels(s string) (when, where string) {
+	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		lower := strings.ToLower(line)
 		if when == "" && strings.HasPrefix(lower, "when:") {
@@ -2327,6 +2372,33 @@ func extractMeetingInfo(preview string) (when, where string) {
 		}
 	}
 	return
+}
+
+// teamsInviteMarkers are body-content fingerprints for a Microsoft
+// Teams meeting invite. The Outlook-generated HTML for a Teams
+// meeting always carries one of these strings somewhere in its
+// rendered text.
+var teamsInviteMarkers = []string{
+	"microsoft teams meeting",
+	"microsoft teams need help",
+	"join the meeting now",
+	"click here to join the meeting",
+	"join on your computer or mobile app",
+}
+
+// isTeamsInviteBody reports whether s contains a Microsoft Teams
+// meeting-invite signature.
+func isTeamsInviteBody(s string) bool {
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(s)
+	for _, m := range teamsInviteMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncate cuts s to fit `width` terminal cells. Width is measured
