@@ -383,17 +383,15 @@ Copy from ARCH §16 into every PR description:
 - [ ] **Spec 17 CI gates green** — gosec, Semgrep, govulncheck.
       New `// #nosec` annotations carry a one-line WHY comment
       (no blanket suppression). Local `make sec` clean.
-- [ ] **Docs consistency sweep.** Every PR is a chance to keep
-      user-facing docs (`docs/user/reference.md`, `how-to.md`,
-      `tutorial.md`, `explanation.md`) and project docs
-      (`docs/PRD.md`, `docs/ARCH.md`, `docs/CONFIG.md`,
-      `docs/ROADMAP.md`, the relevant `docs/specs/NN-*.md`, the
-      relevant `docs/plans/spec-NN.md`) in sync with the code
-      that just shipped. If the PR adds a keybinding the
-      reference must list it; if it changes a config default the
-      CONFIG.md row must reflect it; if it ticks a DoD bullet
-      the spec's status line must reflect it. Don't ship a
-      drift — fix it in the same PR.
+- [ ] **Doc sweep (§12.6).** Run the §12.6 ship-time checklist in
+      full. Every file in that table must be updated in the same PR
+      (or the immediately-following commit). The files are:
+      `docs/plans/spec-NN.md` (status=done), `docs/specs/NN-*.md`
+      (Shipped line), `docs/PRD.md` §10, `docs/ROADMAP.md` (bucket
+      + backlog heading), `docs/user/reference.md` (all surfaces —
+      use the §12.6 trigger list), `docs/user/how-to.md`,
+      `docs/CONFIG.md`, and `README.md` (status table + download
+      version). Don't ship a drift — fix it in the same PR.
 
 ---
 
@@ -471,6 +469,10 @@ For the spec under work, run these phases in order. Do not skip.
    The check: would a user reading the reference be surprised that
    this thing exists? If yes, the docs change is mandatory.
 
+   **When this is the final iteration (spec shipping):** run the full
+   §12.6 doc sweep. Every file in that table must be updated before
+   the tag is pushed, not after.
+
 7. **Decide.** Are all DoD bullets ticked, all five mandatory commands (§5.6)
    green, all perf budgets measured and met, all redaction tests passing?
    - **Yes:** loop exits. Open a PR with the spec's DoD copy-pasted, all
@@ -491,17 +493,18 @@ The loop exits **only when all** are true:
 - [ ] Every perf budget in the spec has a benchmark, and the benchmark
       passes within budget on the dev machine.
 - [ ] Redaction tests cover every new log site that could see secrets.
-- [ ] `docs/CONFIG.md` updated for every new key.
-- [ ] **`docs/user/reference.md` updated** for every new keybinding,
-      command, mode, or pane glyph the user touches.
-- [ ] **`docs/user/how-to.md` updated** when the spec adds a new task
-      flow worth a recipe (e.g. "delete all newsletters older than N
-      days"). Skip if the spec is purely a primitive used by other
-      flows already documented.
-- [ ] **`docs/user/tutorial.md` updated** if the spec changes the
-      first-30-minutes path (rare). Otherwise skip.
-- [ ] **`docs/user/explanation.md` updated** if the spec changes a
-      design invariant the explanation file currently asserts (rarer).
+- [ ] **Doc sweep complete** — every file in the §12.6 table has been
+      updated. Specifically verify:
+  - `docs/CONFIG.md` has rows for every new config key.
+  - `docs/user/reference.md` covers every new keybinding, CLI subcommand,
+    pattern operator, mode, chord, sidebar section, indicator, and
+    command-bar verb (use the §12.6 trigger list as the checklist).
+  - `docs/user/how-to.md` has a recipe for every new task flow.
+  - `docs/ROADMAP.md` bucket table and §1 backlog heading updated.
+  - `README.md` status table has a row for the new capability;
+    download example version is current.
+  - `docs/specs/NN-*.md` has a `**Shipped:** vX.Y.Z` line.
+  - `docs/plans/spec-NN.md` status is `done` with final iteration entry.
 - [ ] No CHANGELOG-style or planning markdown added unless the user asked.
 - [ ] PR checklist (§11) fully ticked.
 
@@ -532,6 +535,41 @@ If after **8** iterations exit criteria are still not met, the loop must
 
 When pausing, write the question concretely with the smallest reproducible
 example, then `ScheduleWakeup` is **not** called. The user resumes the loop.
+
+### 12.6 Doc sweep at ship time
+
+When the spec's tag is pushed and all gates are green, update **every**
+applicable file below in the same commit (or the immediately-following
+one if the tag went out first). This is the authoritative checklist;
+§12.3 and §11 both reference it.
+
+| File | What to update |
+| ---- | -------------- |
+| `docs/plans/spec-NN.md` | Set `Status: done`. Add a final iteration entry with the tag, measured perf numbers, and any noted deviations from spec. |
+| `docs/specs/NN-*.md` | Add a `**Shipped:** vX.Y.Z` line at the top of the spec (inside the opening metadata block or just below the title). |
+| `docs/PRD.md` §10 | Mark the spec's inventory row as shipped with version. |
+| `docs/ROADMAP.md` | In the relevant **bucket table**: change the status cell to `Shipped vX.Y.Z`. In the **§1 backlog heading**: change `— P1/P2` to `— Shipped vX.Y.Z (spec NN)`. |
+| `docs/user/reference.md` | Add every new surface (see trigger list below). Update the `_Last reviewed against vX.Y.Z._` footer. |
+| `docs/user/how-to.md` | Add a recipe if the spec introduces a task flow a user would look up. Skip only if no new task flow exists. |
+| `docs/user/tutorial.md` | Update only if the first-30-minutes path changed (rare). |
+| `docs/user/explanation.md` | Update only if a design invariant changed (rarer). |
+| `docs/CONFIG.md` | Rows for every new config key (should already be done per §9 — verify). |
+| `README.md` | In the **Status table**: add a row for the new capability with `✅ vX.Y.Z`. Update the get-started download example to the new version if this is the latest release. |
+
+**Trigger list for `reference.md`** — if ANY of these are new or changed, the
+reference is incomplete and the spec is not done:
+
+- A key binding in any pane or mode (check `internal/ui/keys.go` `DefaultKeyMap`)
+- A `:command` bar verb (check `internal/ui/palette_commands.go` and `app.go`)
+- A CLI subcommand or flag (check `cmd/inkwell/`)
+- A pattern operator (check `internal/pattern/`)
+- A new mode or chord (check `internal/ui/messages.go` mode constants)
+- A new sidebar section, indicator glyph, or status-bar element
+- A viewer header line
+
+The mechanical check: diff `internal/ui/keys.go`, `internal/ui/palette_commands.go`,
+`cmd/inkwell/`, `internal/pattern/` against the previous spec's merge-base and
+confirm every new symbol appears in `reference.md`.
 
 ---
 
