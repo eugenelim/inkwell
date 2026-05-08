@@ -1,7 +1,7 @@
 # Roadmap
 
 **Document status:** Living document. Captures post-v1 ideas.
-**Last reorganized:** 2026-04-29
+**Last reorganized:** 2026-05-07
 
 This roadmap tracks features, improvements, and ideas that didn't make v1.
 
@@ -31,13 +31,13 @@ This roadmap tracks features, improvements, and ideas that didn't make v1.
 
 The atomic verbs every other bucket depends on. These ship first.
 
-| Order | Item                            | Spec | Why this slot                                        |
+| Order | Item                            | Spec | Status                                               |
 | ----- | ------------------------------- | ---- | ---------------------------------------------------- |
-| 1     | First-class unsubscribe (1.4)   | 16   | Shipped v0.12.0. Highest ROI in the backlog.         |
-| 2     | Folder management (1.1)         | 18   | Table-stakes capability; needed by routing in B2.    |
-| 3     | Mute thread (1.5)               | 19   | Cheap; new `muted_conversations` table reused later. |
-| 4     | Conversation-level ops (1.8)    | 20   | Promotes thread as a first-class unit (B2 needs it). |
-| 5     | Cross-folder bulk (1.3)         | 21   | Small extension to the existing filter path.         |
+| 1     | First-class unsubscribe (1.4)   | 16   | Shipped v0.12.0.                                     |
+| 2     | Folder management (1.1)         | 18   | Shipped v0.46.0.                                     |
+| 3     | Mute thread (1.5)               | 19   | Shipped v0.47.0.                                     |
+| 4     | Conversation-level ops (1.8)    | 20   | Shipped v0.48.0.                                     |
+| 5     | Cross-folder bulk (1.3)         | 21   | Shipped v0.49.0.                                     |
 
 ### Bucket 1.5 — Pre-public-distribution hardening
 
@@ -46,19 +46,19 @@ gates the first signed/notarized public binary.
 
 | Order | Item                                          | Spec | Status                                                 |
 | ----- | --------------------------------------------- | ---- | ------------------------------------------------------ |
-| 1     | Security testing + CASA evidence              | 17   | CI shipped v0.12.0; tests + threat model + privacy doc pending. Required before public v1 distribution. |
+| 1     | Security testing + CASA evidence              | 17   | Shipped v0.39.0 / v0.45.0. CI gates, threat model, privacy doc, path traversal guard all landed. |
 
 ### Bucket 2 — Inbox philosophy
 
 Workflow patterns built on the primitives. Users feel these.
 
-| Order | Item                                | Notes                                          |
-| ----- | ----------------------------------- | ---------------------------------------------- |
-| 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
-| 2     | Routing destinations (1.9)          | Owner: spec 23. `sender_routing` table reused by B3. |
-| 3     | Split inbox tabs (1.7)              | Owner: spec 24. Saved searches promoted to a list-pane tab strip. |
-| 4     | Reply Later / Set Aside (1.10)      | Owner: spec 25. Graph categories — independent. |
-| 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
+| Order | Item                                | Spec | Status                                         |
+| ----- | ----------------------------------- | ---- | ---------------------------------------------- |
+| 1     | Command palette (1.6)               | 22   | Shipped v0.50.0.                               |
+| 2     | Routing destinations (1.9)          | 23   | Shipped v0.51.0.                               |
+| 3     | Split inbox tabs (1.7)              | 24   | Shipped v0.52.0.                               |
+| 4     | Reply Later / Set Aside (1.10)      | 25   | Shipped v0.53.0.                               |
+| 5     | Bundle senders (1.11)               | 26   | In progress.                                   |
 
 ### Bucket 3 — Power-user automation
 
@@ -125,7 +125,7 @@ opt-in per spec 19+. Tier 3 stays in the backlog as research only.
 
 ## 1. Backlog
 
-### 1.1 Folder management — P1
+### 1.1 Folder management — Shipped v0.46.0 (spec 18)
 
 Currently you can't create, rename, or delete mail folders from the TUI. Microsoft Graph supports it; we just didn't ship it. Half-day spec. `:folder new`, `:folder rename`, `:folder delete`, plus a contextual action in the sidebar. Owner: new spec 15.
 
@@ -133,11 +133,11 @@ Currently you can't create, rename, or delete mail folders from the TUI. Microso
 
 The schema and architecture support multiple accounts; the auth and UI layers assume one. Adding multi-account requires: account picker in the sidebar, per-account sync engines, isolation in the SQLite cache (already present via `account_id` foreign keys), and routing rules ("messages from this domain to this account"). Estimated 3–4 days. Common request from consultants who manage personal + work + multiple client tenants.
 
-### 1.3 Cross-folder bulk operations — P1
+### 1.3 Cross-folder bulk operations — Shipped v0.49.0 (spec 21)
 
 v1 scopes filters to the current folder. A filter like `~f newsletter@*` ought to match across all subscribed folders. Requires a schema-level decision about per-folder vs. mailbox-wide pattern execution and a new `:filter --all-folders` flag. Estimated 1–2 days.
 
-### 1.4 First-class unsubscribe — P1
+### 1.4 First-class unsubscribe — Shipped v0.12.0 (spec 16)
 
 **The concept.** Treat `unsubscribe` as a single-key command that handles List-Unsubscribe headers automatically. Press a binding, the client extracts the header, and either drafts the unsubscribe mail or opens the URL.
 
@@ -150,7 +150,7 @@ v1 scopes filters to the current folder. A filter like `~f newsletter@*` ought t
 
 **Take.** Massive value-per-effort. Probably the single highest-ROI item in this entire roadmap. Half-day spec.
 
-### 1.5 Mute thread — P1
+### 1.5 Mute thread — Shipped v0.47.0 (spec 19)
 
 **The concept.** Silence a thread without leaving it. Future replies still arrive in the cache; they just don't surface as new in the list view.
 
@@ -166,36 +166,30 @@ The list view filters out new messages from muted conversations. `M` (capital) o
 
 **Take.** Cheap to implement. Genuinely useful. Should ship in v1.1.
 
-### 1.6 Command palette — P1
-
-**Owner: spec 22.**
+### 1.6 Command palette — Shipped v0.50.0 (spec 22)
 
 **The concept.** A fuzzy-find palette listing every action with its keybinding, opened by a chord (commonly Ctrl+K). Solves the "I forgot the shortcut" problem that vim-style TUIs have.
 
-**TUI translation.** We already have `:` command mode. `Ctrl+K` opens a modal that lists all commands, filterable by typing, with the current keybinding shown right-aligned next to each row (passive cheatsheet). Sigils scope the search: `#` for folders, `@` for saved searches, `>` for commands-only. Custom actions (§2) and routing destinations (§1.9) will register into the same row index without re-architecting.
+**TUI translation.** We already have `:` command mode. Add `Ctrl+K` to open a modal that lists all commands, filterable by typing, with the current keybinding shown next to each. Custom actions (§2) and saved searches surface here too.
 
 **Take.** Easy to implement, big UX win. Ships in v1.1.
 
-### 1.7 Split inbox tabs — P1
-
-**Owner: spec 24 (shipped).**
+### 1.7 Split inbox tabs — Shipped v0.52.0 (spec 24)
 
 **The concept.** Divide the inbox into multiple focus areas (e.g., "VIP", "Notifications", "Calendar", "Team") defined by user-supplied queries. Each becomes a tab so the user can process one focus area at a time, reducing context-switching.
 
 **TUI translation.** We already have saved searches as virtual folders. The upgrade:
 
-- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`]` / `[` cycle when the list pane is focused; `Tab` / `Shift+Tab` remain pane-focus). Each tab maintains its own scroll position and selection.
-- **Auto-archive coupling.** When the message no longer matches the tab pattern (e.g. archive moves a `~m Inbox`-scoped row out of Inbox), the next refresh drops it from the tab. Emergent property — no new verb. The "rebrand archive as done" item (§1.23) is a separate, deferred follow-up.
+- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`Tab`/`Shift+Tab` cycles). Each tab maintains its own scroll position and selection.
+- **Auto-archive coupling.** When a message arrives in a split, it's already implicitly "filed." When the user marks it done (`E`), it disappears from all splits. Effectively a rebrand of "archive" as the default state.
 
-**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Shipped as spec 24.
+**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Spec 17 candidate.
 
-### 1.8 Conversation-level operations — P2
+### 1.8 Conversation-level operations — Shipped v0.48.0 (spec 20)
 
 v1 operates on individual messages. "Archive entire thread," "delete entire conversation history" all require thread-aware actions. The data model has `conversation_id`; we just don't act on it as a unit yet.
 
-### 1.9 Routing destinations (Imbox / Feed / Paper Trail) — P2
-
-**Owner: spec 23.**
+### 1.9 Routing destinations (Imbox / Feed / Paper Trail / Screener) — Shipped v0.51.0 (spec 23)
 
 **The concept.** Divide incoming mail into intent-based streams rather than urgency-based: important mail in one stream, newsletters and digests in a "feed" stream, receipts and transactional in a "paper trail" stream. The user designates per-sender where their mail lands. Once a sender is assigned, all their future mail flows to the right place. Read mail in the primary stream drops off naturally — no archive ritual.
 
@@ -224,17 +218,20 @@ When the user marks a sender as "this goes to Feed," all future mail from that s
 
 **Take.** Genuinely useful pattern. The "no archive" mindset is liberating. Ships as new spec 16 or as part of an "Inbox Philosophy" pack post-v1.
 
-### 1.10 Reply Later / Set Aside stacks — P2
-
-**Owner: spec 25 (shipped).**
+### 1.10 Reply Later / Set Aside stacks — Shipped v0.53.0 (spec 25)
 
 **The concept.** Two adjacent ideas: messages I'll reply to later, and messages I want to keep handy without replying. Each is a stack you can fan out at will.
 
-**TUI translation.** Two reserved Graph categories — `Inkwell/ReplyLater` and `Inkwell/SetAside` — surfaced as sidebar virtual entries and toggled by a single keypress. `L` adds/removes the focused message from Reply Later; `P` (mnemonic: Pin, matches the 📌 indicator) toggles Set Aside (the spec suggested `S`; deviated because spec 23's stream chord already claimed it). Thread chord verbs `T l` / `T L` / `T s` / `T S` apply over a whole conversation. `:focus [N]` walks the Reply Later queue, opening compose-reply for each message.
+**TUI translation.** Add two flag-like fields backed by Graph categories:
 
-**Take.** Genuinely improves workflow for senior pros with a backlog. Stacks round-trip via Graph categories so state syncs across devices.
+- A built-in `_reply_later` category — used as a stack. Capital `R` on the focused message adds it; `:replies` opens a modal with the queue.
+- A built-in `_set_aside` category — same pattern, key `S`.
 
-### 1.11 Bundle senders — P2
+These differ from regular flags because they have a dedicated overlay rather than just being an indicator.
+
+**Take.** Genuinely improves workflow for senior pros with a backlog. The "Reply Later" pattern in particular hits something the native client handles poorly. Ships as part of the Inbox Philosophy pack.
+
+### 1.11 Bundle senders — P2 (spec 26, in progress)
 
 **The concept.** For senders who send a deluge (newsletters, recruiter spam), collapse consecutive messages from the same sender in the list view into a single row. Expanding shows the bundle.
 
