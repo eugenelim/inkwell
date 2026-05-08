@@ -292,7 +292,7 @@ Content-Transfer-Encoding: 8bit
                align="center" bgcolor="#ffe6a7" role="presentation" style="border:none;border-radius:12px;cursor:auto;mso-padding-alt:10px 25px;background:#ffe6a7;" valign="middle"
             >
               <a
-                 href="https://yourreviewlink.com" style="display:inline-block;background:#ffe6a7;color:#3e2723;font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:10px 25px;mso-padding-alt:0px;border-radius:12px;" target="_blank"
+                 href="https://example.invalid" style="display:inline-block;background:#ffe6a7;color:#3e2723;font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:10px 25px;mso-padding-alt:0px;border-radius:12px;" target="_blank"
               >
                 Share Your Feedback
               </a>
@@ -863,7 +863,7 @@ Content-Transfer-Encoding: 8bit
       <div
          style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:12px;line-height:1;text-align:center;color:#4d342e;"
       >You are receiving this email because you recently shopped with us.<br>
-          Need help? Reach us at <a href="mailto:support@yourskincare.com" style="color:#4d342e;text-decoration:underline;">support@yourskincare.com</a></div>
+          Need help? Reach us at <a href="mailto:support@example.invalid" style="color:#4d342e;text-decoration:underline;">support@example.invalid</a></div>
     
                 </td>
               </tr>

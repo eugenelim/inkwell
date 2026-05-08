@@ -360,7 +360,7 @@ func TestUnwrapBrokenURLsLeavesNonURLContinuationsAlone(t *testing.T) {
 
 func TestHTMLToTextStripsTrackingPixels(t *testing.T) {
 	html := `<html><body>Hello <img src="https://t.example.invalid/p.gif" width=1 height=1>world<a href="https://example.invalid/x">link</a></body></html>`
-	text, links, err := htmlToText(html, 80, 0, Theme{})
+	text, links, err := htmlToText(html, 80, 0, Theme{}, false, 50)
 	require.NoError(t, err)
 	require.Contains(t, text, "Hello")
 	require.Contains(t, text, "world")

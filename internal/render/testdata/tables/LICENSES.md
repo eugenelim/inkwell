@@ -7,6 +7,13 @@ license text is reproduced below per its terms. The RFC 5322 envelopes (`From`,
 `To`, `Subject`, `Date`, `Message-ID`, etc.) wrapped around each HTML body were
 written for this repository and are covered by inkwell's own license.
 
+**Modifications.** Brand-placeholder domains the upstream templates ship with
+(`postable.com`, `yourskincare.com`, `yourreviewlink.com`) were replaced with
+`example.invalid` to comply with CLAUDE.md §7's privacy rule that test fixtures
+use only the synthetic IANA-reserved domain. Public CDN references in `href`
+attributes (Google Fonts, image hosts, social-media profile URLs) are
+technical infrastructure pointers, not PII, and were left intact.
+
 The hand-crafted `min_*.eml` fixtures in this directory are original to this
 repository.
 

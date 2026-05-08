@@ -453,7 +453,7 @@ Content-Transfer-Encoding: 8bit
                align="center" bgcolor="#FFF7D6" role="presentation" style="border:1.5px solid #005E80;border-radius:32px;cursor:auto;mso-padding-alt:10px 25px;background:#FFF7D6;" valign="middle"
             >
               <a
-                 href="mailto:info@postable.com" style="display:inline-block;background:#FFF7D6;color:#005E80;font-family:Poppins, Arial, sans-serif;font-size:15px;font-weight:normal;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:10px 25px;mso-padding-alt:0px;border-radius:32px;" target="_blank"
+                 href="mailto:info@example.invalid" style="display:inline-block;background:#FFF7D6;color:#005E80;font-family:Poppins, Arial, sans-serif;font-size:15px;font-weight:normal;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:10px 25px;mso-padding-alt:0px;border-radius:32px;" target="_blank"
               >
                 Contact support
               </a>
@@ -565,7 +565,7 @@ Content-Transfer-Encoding: 8bit
       <div
          style="font-family:Poppins, Arial, sans-serif;font-size:15px;line-height:1.8;text-align:center;color:#222222;"
       >If you need any help or just want to chat, email us anytime at<br>
-          <a href="mailto:info@postable.com" style="color:#005E80;text-decoration:underline;font-weight:bold;">info@postable.com</a></div>
+          <a href="mailto:info@example.invalid" style="color:#005E80;text-decoration:underline;font-weight:bold;">info@example.invalid</a></div>
     
                 </td>
               </tr>

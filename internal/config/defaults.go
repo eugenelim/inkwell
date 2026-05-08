@@ -118,6 +118,8 @@ func Defaults() *Config {
 			HTMLConverter:            "internal",
 			HTMLConverterCmd:         "",
 			ExternalConverterTimeout: 5 * time.Second,
+			PrettyTables:             true,
+			PrettyTableMaxRows:       50,
 		},
 		Logging: LoggingConfig{
 			Level:   "info",

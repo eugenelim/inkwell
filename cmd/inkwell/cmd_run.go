@@ -172,6 +172,8 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		HTMLConverter:            cfg.Rendering.HTMLConverter,
 		HTMLConverterCmd:         cfg.Rendering.HTMLConverterCmd,
 		ExternalConverterTimeout: cfg.Rendering.ExternalConverterTimeout,
+		PrettyTables:             cfg.Rendering.PrettyTables,
+		PrettyTableMaxRows:       cfg.Rendering.PrettyTableMaxRows,
 		Logger:                   logger,
 	})
 

@@ -32,6 +32,14 @@ type Options struct {
 	HTMLConverterCmd string
 	// ExternalConverterTimeout caps the external subprocess. 0 → 5s.
 	ExternalConverterTimeout time.Duration
+	// PrettyTables toggles the spec 05 §6.1.1 data-vs-layout
+	// classifier. When true (default), real data tables render as
+	// ASCII grids and layout tables flatten to flowing text. When
+	// false, every <table> flattens (the v0.17.x behavior).
+	PrettyTables bool
+	// PrettyTableMaxRows is the row-count ceiling above which a data
+	// table is downgraded to a placeholder line. 0 → 50.
+	PrettyTableMaxRows int
 	// Logger receives fallback / error log messages from the renderer.
 	// nil disables logging.
 	Logger *slog.Logger
@@ -155,6 +163,10 @@ func NewWithOptions(st store.Store, fetcher BodyFetcher, opts Options) Renderer 
 	if extTimeout == 0 {
 		extTimeout = 5 * time.Second
 	}
+	maxRows := opts.PrettyTableMaxRows
+	if maxRows <= 0 {
+		maxRows = 50
+	}
 	return &renderer{
 		store:                    st,
 		fetcher:                  fetcher,
@@ -164,6 +176,8 @@ func NewWithOptions(st store.Store, fetcher BodyFetcher, opts Options) Renderer 
 		htmlConverter:            opts.HTMLConverter,
 		htmlConverterCmd:         opts.HTMLConverterCmd,
 		externalConverterTimeout: extTimeout,
+		prettyTables:             opts.PrettyTables,
+		prettyTableMaxRows:       maxRows,
 		logger:                   opts.Logger,
 	}
 }
@@ -177,6 +191,8 @@ type renderer struct {
 	htmlConverter            string
 	htmlConverterCmd         string
 	externalConverterTimeout time.Duration
+	prettyTables             bool
+	prettyTableMaxRows       int
 	logger                   *slog.Logger
 	// inflight guards against concurrent duplicate fetches for the same
 	// message ID. Stores messageID → struct{}{}.

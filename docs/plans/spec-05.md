@@ -388,3 +388,62 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
 - Next: implementation iter — `internal/render/htmltable.go` with the
   classifier + width estimator + rewrite, `htmltable_test.go` driving
   the corpus, perf benchmark over `real_newsletter_data_analysis.eml`.
+
+### Iter (implementation) — 2026-05-08
+- Slice: ship §6.1.1. New file `internal/render/htmltable.go` (~280
+  LoC) with the seven-rule classifier, sizing guard, and HTML rewrite
+  via `golang.org/x/net/html`. Layout `<table>` → `<div>` and
+  structural descendants (`<tr>`, `<thead>`, `<tbody>`, `<tfoot>`,
+  `<caption>`) renamed to `<div>`; `<td>`/`<th>` renamed to `<span>`
+  with a trailing space; `<col>`/`<colgroup>` dropped. Data tables
+  pass through; oversize ones (rows > 50 OR width > 2× pane) get a
+  `[Wide table — N×M, omitted; press O to view in browser]`
+  placeholder.
+- Wired into `htmlToText()`: between the tracking-pixel strip and
+  `html2text.FromString`. `PrettyTables: true` fed to html2text only
+  when the classifier ran — `false` keeps the v0.17.x behavior so
+  `[rendering].pretty_tables = false` is a clean kill-switch.
+- Config: `[rendering].pretty_tables` (default `true`),
+  `pretty_table_max_rows` (default `50`) added to
+  `internal/config/{config,defaults}.go`, plumbed through
+  `cmd/inkwell/cmd_run.go`, documented in `docs/CONFIG.md`.
+- `golang.org/x/net` promoted from indirect → direct (was already at
+  v0.53.0; no `go.sum` drift, single-line `require ()` move).
+- Tests:
+  - `internal/render/eml_test.go` — `loadEmlHTML(testing.TB, path)`
+    helper. Multipart-aware though all current fixtures are
+    single-part `text/html`.
+  - `internal/render/htmltable_test.go` — 13 tests covering each
+    classifier branch, the rewrite output, the sizing guard
+    (rows + width), end-to-end `htmlToText` on each fixture,
+    placeholder visibility in user-visible text, and the
+    PrettyTables=false kill-switch. Plus 2 benchmarks.
+- Privacy: scrubbed three brand-placeholder domains
+  (`postable.com`, `yourskincare.com`, `yourreviewlink.com`) in the
+  Mailteorite fixtures to `example.invalid`. Public-CDN references
+  (Google Fonts, image hosts, social-media href profile URLs) left
+  intact — they are technical infrastructure, not PII. Modification
+  acknowledged in `internal/render/testdata/tables/LICENSES.md`.
+- Self-review pass: tightened `loadEmlHTML` to take `testing.TB` so
+  benchmarks pass real `*testing.B` (not a faked `*testing.T{}`);
+  defensive defaults in `classifyTables` for `paneWidth ≤ 0` /
+  `maxRows ≤ 0`; reworded the `estimatedWidth` doc-comment that was
+  contradicting itself on rune-vs-byte counting; added an end-to-end
+  placeholder-visibility test (`TestEndToEndPlaceholderSurfaces`) so
+  we cover the user-visible string, not just the post-rewrite HTML.
+- Commands run:
+  - `gofmt -l internal/render/` — clean.
+  - `go vet ./...` — clean.
+  - `go test -race -count=1 ./...` — all packages green.
+  - `go test -tags=e2e -timeout=5m ./...` — all packages green.
+  - `go test -bench=. -benchmem -run='^$' ./internal/render/...`:
+    - `BenchmarkClassifyRealNewsletter`: 0.34 ms/op, 304 KB/op,
+      2305 allocs/op (budget <10 ms — 29× margin).
+    - `BenchmarkHTMLToTextRealNewsletter`: 1.17 ms/op, 1.20 MB/op,
+      6462 allocs/op (budget <100 ms — 85× margin).
+- Perf budgets §14:
+  - HTML body render with classifier active (cached, <500KB):
+    measured 1.17 ms vs <100 ms budget. ✓
+  - Classifier walk over 50-nested `<table>` MJML body:
+    measured 0.34 ms vs <10 ms budget. ✓
+- Status-line bumped: §6.1.1 marked shipped in v0.54.0.

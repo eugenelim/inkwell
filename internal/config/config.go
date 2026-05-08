@@ -454,6 +454,15 @@ type RenderingConfig struct {
 	// ExternalConverterTimeout caps the external-converter subprocess.
 	// Default 5s. On timeout the renderer falls back to the internal path.
 	ExternalConverterTimeout time.Duration `toml:"external_converter_timeout"`
+	// PrettyTables toggles the spec 05 §6.1.1 data-vs-layout
+	// classifier. true (default) renders real data tables as ASCII
+	// grids and flattens layout tables; false flattens every table
+	// (the v0.17.x behavior).
+	PrettyTables bool `toml:"pretty_tables"`
+	// PrettyTableMaxRows is the row-count ceiling above which a data
+	// table is downgraded to a "[Wide table — N×M, omitted; press O
+	// to view in browser]" placeholder. Default 50.
+	PrettyTableMaxRows int `toml:"pretty_table_max_rows"`
 }
 
 // LoggingConfig owns the [logging] section.

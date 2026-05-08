@@ -139,6 +139,8 @@ Controls how message bodies are displayed.
 | `strip_patterns` | list of regex strings | `[]` (defaults shipped in code) | regex | Regex patterns to strip from rendered email bodies. Defaults cover common Outlook noise (external email banners, "trouble viewing" preludes). |
 | `external_converter_timeout` | duration | `"5s"` | 1s–60s | Timeout when `html_converter = "external"`. On timeout, falls back to in-process renderer. |
 | `url_display_max_width` | int | `60` | `0`, 30–300 | Cap the visible OSC 8 hyperlink text in the viewer body at N cells with end-truncation (`https://example.com/auth/…`). The OSC 8 url-portion stays full so Cmd-click + the URL picker (`o`) + the trailing `Links:` block still resolve to the full URL. `0` disables truncation (URLs render full inline). |
+| `pretty_tables` | bool | `true` | — | Spec 05 §6.1.1 data-vs-layout classifier: real data tables (with `<th>` or rectangular header-shaped first row) render as ASCII grids; layout tables (MJML newsletters, single-cell wrappers, etc.) flatten to flowing text. `false` flattens every `<table>` (the v0.17.x behavior). |
+| `pretty_table_max_rows` | int | `50` | 1–10000 | Row-count ceiling above which a data table is downgraded to `[Wide table — N×M, omitted; press O to view in browser]`. Above the ceiling the grid exceeds a screenful and the user is better served by the browser fallback. |
 
 **Owner spec:** 05.
 
