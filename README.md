@@ -51,8 +51,8 @@ For the design decisions behind these, see
 
 ```sh
 # Download (replace vX.Y.Z with the latest release).
-gh release download v0.8.0 -p '*macos_arm64*' -D /tmp
-tar -xzf /tmp/inkwell_0.8.0_macos_arm64.tar.gz -C /tmp
+gh release download v0.53.0 -p '*macos_arm64*' -D /tmp
+tar -xzf /tmp/inkwell_0.53.0_macos_arm64.tar.gz -C /tmp
 xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
 sudo mv /tmp/inkwell /usr/local/bin/              # optional
 
@@ -143,22 +143,30 @@ For contributing or hacking on the codebase, jump to
 **Pre-1.0.** Tagged releases ship continuously as specs land. The
 current major surfaces:
 
-| Capability                                                         | Status |
-| ------------------------------------------------------------------ | ------ |
-| Sign-in (Microsoft Graph CLI Tools client, multi-tenant)           | ✅ v0.1+ |
-| Local SQLite cache, FTS5, body LRU eviction                        | ✅ v0.2+ |
-| Sync engine (folders + per-folder delta + lazy backfill)           | ✅ v0.2+ |
-| Three-pane TUI with cursor / focus markers, theming                | ✅ v0.2+ |
-| HTML → text rendering, scrollable viewer                           | ✅ v0.2+ |
-| Triage: read/unread, flag, soft-delete, archive                    | ✅ v0.3+ |
-| Local FTS search (`/`)                                             | ✅ v0.4+ |
-| Pattern language (`~f`, `~d <30d`, etc.) + bulk filter (`;d`)      | ✅ v0.6+ |
-| Saved searches as virtual folders                                  | ✅ v0.7+ |
-| Calendar (read-only, `:cal`)                                       | ✅ v0.8+ |
-| Mailbox settings (out-of-office)                                   | 🚧 v0.9 |
-| Compose / reply (drafts only)                                      | 🚧 v1.0 |
-| CLI mode (non-interactive)                                         | 🚧 v1.0 |
-| Code-signing + notarization                                        | 🚧 v1.0 |
+| Capability                                                                  | Status     |
+| --------------------------------------------------------------------------- | ---------- |
+| Sign-in (Microsoft Graph CLI Tools client, multi-tenant)                    | ✅ v0.1+  |
+| Local SQLite cache, FTS5, body LRU eviction                                 | ✅ v0.2+  |
+| Sync engine (folders + per-folder delta + lazy backfill)                    | ✅ v0.2+  |
+| Three-pane TUI with cursor / focus markers, theming                         | ✅ v0.2+  |
+| HTML → text rendering, scrollable viewer                                    | ✅ v0.2+  |
+| Triage: read/unread, flag, soft-delete, archive, unsubscribe (`U`)          | ✅ v0.3+  |
+| Local FTS search (`/`)                                                      | ✅ v0.4+  |
+| Pattern language (`~f`, `~d <30d`, etc.) + bulk filter (`;d`)               | ✅ v0.6+  |
+| Saved searches as virtual folders                                           | ✅ v0.7+  |
+| Calendar (read-only, `:cal`)                                                | ✅ v0.8+  |
+| Mailbox settings (out-of-office, `:ooo`)                                    | ✅ v0.27+ |
+| Compose / reply (drafts only)                                               | ✅ v0.30+ |
+| CLI mode (non-interactive: `inkwell messages`, `inkwell search`, etc.)      | ✅ v0.31+ |
+| Security hardening (CASA evidence, gosec / Semgrep / govulncheck CI gates)  | ✅ v0.39+ |
+| Folder management (TUI sidebar: `N` new · `R` rename · `X` delete)         | ✅ v0.46+ |
+| Mute thread (`M`), thread chord (`T`-chord), cross-folder bulk              | ✅ v0.47+ |
+| Command palette (`Ctrl+K`)                                                  | ✅ v0.50+ |
+| Routing destinations — Imbox / Feed / Paper Trail / Screener (`S`-chord)   | ✅ v0.51+ |
+| Split inbox tabs (`[` / `]`)                                                | ✅ v0.52+ |
+| Reply Later (`L`) / Set Aside (`P`) stacks                                 | ✅ v0.53+ |
+| Bundle senders (collapse same-sender runs in list)                          | 🚧 in progress |
+| Code-signing + notarization                                                 | 🚧 v1.0   |
 
 Reading the binary's full feature list at any version: see
 [`docs/user/reference.md`](docs/user/reference.md). Roadmap beyond
