@@ -1,6 +1,7 @@
 # Spec 24 — Split inbox tabs
 
-**Status:** Ready for implementation.
+**Status:** Shipped.
+**Shipped:** v0.52.0 (2026-05-07)
 **Depends on:** Specs 02 (saved_searches table), 04 (TUI shell), 07
 (triage actions — archive verb), 08 (pattern compile/execute), 11
 (saved-search Manager), 19 (mute — `ExcludeMuted` filter), 20

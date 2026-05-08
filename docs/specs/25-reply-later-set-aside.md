@@ -1,6 +1,7 @@
 # Spec 25 — Reply Later / Set Aside stacks
 
-**Status:** Ready for implementation.
+**Status:** Shipped.
+**Shipped:** v0.53.0 (2026-05-07)
 **Depends on:** Spec 02 (`messages.categories` JSON column +
 `MessageQuery.Categories` filter — predicate widened to
 case-insensitive in this spec), Spec 07 (`add_category` /

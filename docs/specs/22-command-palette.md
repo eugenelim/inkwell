@@ -1,6 +1,7 @@
 # Spec 22 — Command palette
 
-**Status:** Ready for implementation.
+**Status:** Shipped.
+**Shipped:** v0.50.0 (2026-05-07)
 **Depends on:** Specs 04 (TUI shell — `Mode` enum, command-bar,
 `KeyMap`, help overlay), 07 (triage verbs surfaced as actions), 10
 (`:filter` cmd-bar entry surfaced), 11 (saved searches surfaced),

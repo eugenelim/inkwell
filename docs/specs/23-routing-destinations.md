@@ -1,6 +1,7 @@
 # Spec 23 — Routing destinations (Imbox / Feed / Paper Trail / Screener)
 
-**Status:** Ready for implementation.
+**Status:** Shipped.
+**Shipped:** v0.51.0 (2026-05-07)
 **Depends on:** Specs 02 (store), 04 (TUI sidebar), 08 (pattern
 language — adds `~o` operator), 10 (filter UX — `;` chord parity),
 11 (saved searches — TOML mirror conventions), 19 (mute — both the

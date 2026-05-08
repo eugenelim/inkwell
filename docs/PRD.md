@@ -251,29 +251,31 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 13  | `13-mailbox-settings.md`           | 5.11                         |
 | 14  | `14-cli-mode.md`                   | 5.12                         |
 | 15  | `15-compose-reply.md`              | 5.13                         |
-| 16  | `16-unsubscribe.md`                          | post-v1, ROADMAP §0 bucket 1 (shipped v0.12.0) |
-| 17  | `17-security-testing-and-casa-evidence.md`  | hardening — CI shipped v0.12.0, tests + docs pending; recommended before public v1 distribution |
-| 18  | `18-folder-management.md`                    | post-v1, ROADMAP §0 bucket 1 |
-| 19  | `19-mute-thread.md`                          | post-v1, ROADMAP §0 bucket 1 |
-| 20  | `20-conversation-ops.md`                     | post-v1, ROADMAP §0 bucket 1 |
-| 21  | `21-cross-folder-bulk.md`                    | post-v1, ROADMAP §0 bucket 1 |
-| 22  | `22-command-palette.md`                      | post-v1, ROADMAP §0 bucket 2 |
-| 23  | `23-routing-destinations.md`                 | post-v1, ROADMAP §0 bucket 2 |
-| 24  | `24-split-inbox-tabs.md`                     | post-v1, ROADMAP §0 bucket 2 |
-| 25  | `25-reply-later-set-aside.md`                | post-v1, ROADMAP §0 bucket 2 |
+| 16  | `16-unsubscribe.md`                                | post-v1, ROADMAP §0 bucket 1 — **shipped v0.12.0** |
+| 17  | `17-security-testing-and-casa-evidence.md`         | hardening — **shipped v0.39.0 / v0.45.0** (CI gates, threat model, privacy doc, path traversal guard) |
+| 18  | `18-folder-management.md`                          | post-v1, ROADMAP §0 bucket 1 — **shipped v0.46.0** |
+| 19  | `19-mute-thread.md`                                | post-v1, ROADMAP §0 bucket 1 — **shipped v0.47.0** |
+| 20  | `20-conversation-ops.md`                           | post-v1, ROADMAP §0 bucket 1 — **shipped v0.48.0** |
+| 21  | `21-cross-folder-bulk.md`                          | post-v1, ROADMAP §0 bucket 1 — **shipped v0.49.0** |
+| 22  | `22-command-palette.md`                            | post-v1, ROADMAP §0 bucket 2 — **shipped v0.50.0** |
+| 23  | `23-routing-destinations.md`                       | post-v1, ROADMAP §0 bucket 2 — **shipped v0.51.0** |
+| 24  | `24-split-inbox-tabs.md`                           | post-v1, ROADMAP §0 bucket 2 — **shipped v0.52.0** |
+| 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
+| 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — in progress         |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
-the v1 specs — additive, no architectural change. The CI portion
-shipped in v0.12.0; the security tests and the SECURITY.md /
-THREAT_MODEL.md / PRIVACY.md documents are pending. CLAUDE.md §11
-makes "did this PR change anything spec 17 cares about?" a required
-cross-cutting checklist item, so future specs surface threat-model
-deltas as they land instead of accumulating into a separate audit.
+the v1 specs — additive, no architectural change. Fully shipped across
+v0.39.0 and v0.45.0: CI gates (gosec, Semgrep, govulncheck), security
+tests, SECURITY_TESTS.md, THREAT_MODEL.md, PRIVACY.md, and path
+traversal guard for attachment save. CLAUDE.md §11 makes "did this PR
+change anything spec 17 cares about?" a required cross-cutting
+checklist item so future specs surface threat-model deltas as they land.
 
 Specs 16, 18–21 cover the "triage primitives" bucket from
-`docs/ROADMAP.md` §0 — atomic verbs that subsequent buckets depend
-on. They follow the v1 capabilities (§5) chronologically; the build
-order within bucket 1 is the order listed.
+`docs/ROADMAP.md` §0 — all shipped v0.12.0 through v0.49.0.
+
+Specs 22–25 cover the "inbox philosophy" bucket — all shipped
+v0.50.0 through v0.53.0. Spec 26 (bundle senders) is in progress.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

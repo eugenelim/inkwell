@@ -579,244 +579,135 @@ inkwell thread archive <conversation-id> --output json
 
 ---
 
-## Set up Imbox / Feed / Paper Trail (sender routing)
+---
 
-inkwell can divide your inbox into intent-based streams (HEY-style):
-real correspondence in **Imbox**, newsletters in **Feed**, receipts
-in **Paper Trail**, and "review later" senders in **Screener**.
-Routing is per-sender; once you route `news@example.com` to Feed,
-every past and future message from that address shows up in Feed
-(retroactive). The actual Inbox folder is unchanged.
+## Discover bindings and actions with the command palette
 
-In the TUI, focus a message and press the chord:
+Press `Ctrl+K` from any pane to open the command palette. Type any
+fragment of a command name, folder, or saved search — the palette
+fuzzy-matches across all of them and shows the keybinding on the right.
 
-```
-S i     # route this sender → Imbox
-S f     # route this sender → Feed
-S p     # route this sender → Paper Trail
-S k     # route this sender → s(k)reener
-S c     # clear routing for this sender (returns them to unrouted)
-```
+- Type `>` to narrow to commands only.
+- Type `#` to narrow to folders only.
+- Type `@` to narrow to saved searches only.
+- `↑` / `↓` (or `Ctrl+P` / `Ctrl+N`) move the cursor; `Enter` runs;
+  `Esc` dismisses without action.
 
-The four streams appear under a "Streams" section in the sidebar:
-
-```
-▾ Mail
-  Inbox        47
-  Sent
-  Archive
-  …
-▾ Streams
-  📥 Imbox        12
-  📰 Feed         84
-  🧾 Paper Trail  31
-  🚪 Screener      3
-```
-
-`Enter` on any stream loads the routed messages into the list pane.
-The buckets are always visible — even at zero — so you can see "I
-haven't routed anyone yet" rather than wondering where they went.
-
-Reassign is a one-keystroke operation: `S f` on a sender already
-routed to Imbox flips them to Feed and the toast shows
-`(was Imbox)` so you spot accidents.
-
-From the cmd-bar:
-
-```
-:route assign news@example.com feed
-:route clear news@example.com
-:route show news@example.com
-:route list
-```
-
-From the shell, for batch flows or scripted seeding:
-
-```sh
-# One-off
-inkwell route assign news@example.com feed
-inkwell route assign aws-billing@amazon.com paper_trail
-
-# Walk a list of likely-Feed senders from your existing patterns
-inkwell filter '~f *@vendor.com' --output json \
-  | jq -r '.[] | .from_address' \
-  | sort -u \
-  | xargs -I{} inkwell route assign {} feed
-```
-
-The pattern operator `~o <dest>` lets you slice routing into other
-queries:
-
-```
-:filter ~o feed                  # all routed-to-feed messages
-:filter ~o none                  # everything from unrouted senders
-:filter ~o feed & ~A             # Feed messages with attachments
-:filter ! ~o feed                # everything NOT in Feed (unrouted + Imbox + ...)
-```
-
-`~o none` matches only senders with no routing row at all (truly
-unrouted). `! ~o feed` matches anything not in Feed — including
-Imbox, Paper Trail, Screener, and unrouted. The two are different.
-
-## Set up split inbox tabs
-
-Tabs (spec 24) are saved searches surfaced as a one-row strip above
-the list pane. Cycle with `]` / `[` when the list pane is focused —
-each tab keeps its own cursor and scroll position across cycles.
-
-A starter set:
-
-```
-# 1. Save the searches you want to surface as tabs:
-:filter ~f newsletter@* | ~f noreply@*
-:save Newsletters
-
-:filter ~f boss@example.invalid | ~f spouse@
-:save VIP
-
-:filter ~G receipt | ~f *@receipts.*
-:save Receipts
-
-# 2. Promote each one to the tab strip:
-:tab add Newsletters
-:tab add VIP
-:tab add Receipts
-```
-
-The strip now reads `[Newsletters 12] [VIP 3] [Receipts 47]`. From
-the list pane, `]` jumps to the next tab. The `•` glyph appears
-when a tab has new mail since you last focused it.
-
-**Make archive remove the message from a tab.** Add `~m Inbox` to
-the tab pattern:
-
-```
-:filter ~m Inbox & ~f boss@example.invalid
-:save VIP
-:tab add VIP
-```
-
-Now archiving (`a`) a VIP message moves it out of Inbox; the next
-tab refresh drops it from the VIP view automatically. (A pattern
-like `~f boss@` without `~m Inbox` keeps the message visible after
-archive — that's a deliberate choice the user makes.)
-
-From the cmd-bar:
-
-```
-:tab list                      # show the names
-:tab Newsletters               # jump by name
-:tab move VIP 0                # move VIP to leftmost
-:tab close                     # demote the active tab
-```
-
-From the shell:
-
-```sh
-inkwell tab list
-inkwell tab list --output json
-inkwell tab add VIP
-inkwell tab move Newsletters 0
-inkwell tab remove Receipts
-```
-
-The pattern operator `~o` from spec 23 composes naturally with
-tabs: a tab with pattern `~o feed` shows every message from a
-sender routed to Feed.
-
-## Build a Reply Later queue
-
-The Reply Later stack (spec 25) is a queue of writing-debt — "I owe
-this person a reply, but not now." Press `L` on a focused message
-to add it; `L` again removes it. The stack appears in the sidebar
-when its count > 0:
-
-```
-▾ Mail
-  Inbox          47
-  Sent
-  Archive
-  …
-↩ Reply Later     12
-📌 Set Aside       3
-```
-
-`Enter` on the sidebar entry — or `:later` from the cmd-bar —
-loads the queue into the list pane. Each row carries the `↩`
-indicator. Triage works as usual: `r` mark-read, `d` delete,
-`a` archive, `f` flag.
-
-To walk the queue and reply to each in turn, use Focus & Reply:
-
-```
-:focus           # start at the top of the queue
-:focus 5         # start at position 5 (1-indexed)
-```
-
-Focus mode opens compose-reply for each message; `Esc` exits the
-mode any time. The status bar shows `[focus 3/12]` while active.
-
-The thread chord verbs operate over a whole conversation:
-
-```
-T l       # add the whole thread to Reply Later
-T L       # remove the whole thread from Reply Later
-```
-
-The bulk chord pairs naturally with `:filter`:
-
-```
-:filter ~f boss@example.invalid
-;l        # add every match to Reply Later
-```
-
-## Set things aside for reference
-
-The Set Aside stack (spec 25) is a reference shelf — door codes,
-hotel confirmations, the SKU you might re-buy. Press `P` on the
-focused message (mnemonic: Pin, matches the 📌 indicator) to add
-it; `P` again removes it.
-
-```
-:aside    # switch to the Set Aside virtual folder view
-T s       # add the whole thread
-T S       # remove the whole thread
-```
-
-Stacks round-trip via Microsoft Graph categories
-(`Inkwell/ReplyLater` / `Inkwell/SetAside`), so state syncs across
-devices — you'll see the categories in Outlook web. That's
-intentional cross-device sync.
-
-## Discover and learn keybindings using the palette
-
-The TUI has a lot of bindings. The fastest way to find one is the
-**command palette** (`Ctrl+K`).
-
-```
-Ctrl+K           # opens the palette anywhere in Normal mode
-arch             # type to fuzzy-match — first match auto-selected
-Enter            # run the highlighted action
-
-# Sigils scope the search:
-#inbox           # `#` → folders only; selecting jumps the list pane
-@receipts        # `@` → saved searches only; selecting runs the filter
->archive         # `>` → commands only; rules out folder name matches
-```
-
-The right-hand column on every row shows the live keybinding for
-that action — glance at it once, use the shortcut next time. The
-palette itself doubles as a cheatsheet. Recently-used commands
-surface first when the buffer is empty (`Ctrl+K` → `Enter`), so
-your common actions are always one keystroke away.
-
-For commands that take an argument (move to folder, set a category,
-type a filter pattern, jump to a folder by name), press `Tab`
-instead of `Enter` — the palette closes and hands off to the
-existing argument flow (folder picker / category input /
-command-bar pre-fill), so you finish the command in the same way
-you would by typing it directly.
+Recently used commands float to the top automatically, so the palette
+doubles as a cheatsheet that learns your workflow.
 
 ---
 
-_Last reviewed against v0.9.0._
+## Route a sender to Imbox / Feed / Paper Trail / Screener
+
+Routing assigns a sender to a stream once; all future mail from them
+lands there automatically.
+
+**From the TUI** (list or viewer pane, focused on the sender's message):
+
+1. Press `S` to start the stream chord.
+2. Press the destination: `i` Imbox · `f` Feed · `p` Paper Trail ·
+   `s` Screener · `c` clear routing.
+
+A status toast confirms. The sender's messages appear under the
+matching stream entry in the sidebar.
+
+**From the CLI:**
+
+```sh
+inkwell route assign alice@example.com feed
+inkwell route list
+inkwell route show alice@example.com
+inkwell route clear alice@example.com
+```
+
+**Pattern filter — find all Feed-routed messages:**
+
+```sh
+inkwell filter '~o feed'
+inkwell filter '~o feed' --output json | jq '.[] | .subject'
+```
+
+---
+
+## Set up split inbox tabs
+
+Tabs divide the list pane into named focus areas, each backed by a
+saved search pattern. Useful for processing newsletters, VIP mail, or
+project-specific mail in separate passes.
+
+**Add tabs from the command bar:**
+
+```
+:tab add Newsletters ~f newsletter@*
+:tab add VIP ~r alice@example.com | ~r bob@example.com
+:tab add Receipts ~o paper_trail
+```
+
+`]` / `[` cycle tabs when the list pane is focused. The tab strip
+appears above the list automatically once any tabs exist.
+
+**Manage tabs from the CLI:**
+
+```sh
+inkwell tab list
+inkwell tab add "Receipts" "~o paper_trail"
+inkwell tab move "Receipts" 1          # make it the first tab
+inkwell tab remove "Newsletters"
+```
+
+**Tips:**
+- `:filter` while a tab is active AND's with the tab's pattern —
+  you search only within that focus area.
+- `[tabs] show_zero_count = true` keeps empty tabs visible.
+- `[tabs] enabled = false` hides the strip entirely.
+
+---
+
+## Use Reply Later and Set Aside stacks
+
+**Reply Later** (`L`) queues a message to reply to later. **Set
+Aside** (`P`) pins a message for reference. Both use Graph categories
+stored server-side, so they persist across devices.
+
+**Toggle from the TUI** (list or viewer pane):
+
+- `L` — add/remove focused message from Reply Later (↩)
+- `P` — add/remove focused message from Set Aside (📌)
+- The sidebar shows Reply Later and Set Aside entries with their
+  counts when non-zero; `Enter` on either loads the stack.
+
+**Apply to a whole thread** (T-chord):
+
+- `T l` / `T L` — add / remove entire thread from Reply Later
+- `T s` / `T S` — add / remove entire thread from Set Aside
+
+**Bulk** (requires an active filter, `;` chord):
+
+- `;l` / `;L` — bulk add / remove the filtered set to Reply Later
+- `;s` / `;S` — bulk add / remove the filtered set to Set Aside
+
+**Focus mode** — work through Reply Later one message at a time:
+
+Press `:focus` (or `Enter` on the Reply Later sidebar entry then
+`:focus`). The first Reply Later message opens. Reply (or archive /
+delete), and when the compose pane closes the next message loads
+automatically. The status bar shows `[focus N/M]`. Press `Esc` to
+exit at any time.
+
+**From the CLI:**
+
+```sh
+inkwell later list
+inkwell later add <message-id>
+inkwell later remove <message-id>
+inkwell later clear                    # empties the stack (with confirm)
+
+inkwell aside list
+inkwell aside add <message-id>
+inkwell aside clear
+```
+
+---
+
+_Last reviewed against v0.53.0._
