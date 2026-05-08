@@ -64,12 +64,12 @@ Workflow patterns built on the primitives. Users feel these.
 
 Ties verbs together once enough verbs exist.
 
-| Order | Item                                | Notes                                          |
-| ----- | ----------------------------------- | ---------------------------------------------- |
-| 1     | Custom actions framework (§2)       | Needs most primitives in B1+B2.                |
-| 2     | Screener (1.16)                     | Uses `sender_routing` from B2.                 |
-| 3     | Watch mode (1.19)                   | Spec 29 — ready. Small CLI addition.           |
-| 4     | "Done" alias (1.23)                 | Binding/branding only.                         |
+| Order | Item                                | Spec | Status                                          |
+| ----- | ----------------------------------- | ---- | ----------------------------------------------- |
+| 1     | Custom actions framework (§2)       | 27   | Needs most primitives in B1+B2 (slot reserved). |
+| 2     | Screener (1.16)                     | 28   | Spec drafted (ready for implementation).        |
+| 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
+| 4     | "Done" alias (1.23)                 | —    | Binding/branding only.                          |
 
 ### Bucket 4 — Mailbox parity
 
@@ -270,13 +270,13 @@ Server-side rules run on every incoming message; persist server-side; visible ac
 
 Microsoft Graph already provides `inferenceClassification` (Focused / Other). Surface it as a tab in the list pane and filter accordingly. Cheap, immediate value. Richer auto-categorisation (Promotions, Updates, Forums) is research-grade — see §3 and §1.21.
 
-### 1.16 Screener for new senders — P3
+### 1.16 Screener for new senders — Spec 28 (ready)
 
 **The concept.** New senders aren't admitted to the main flow until you say so. Their mail sits in a separate Screener queue until accepted, then routes per §1.9.
 
 **TUI translation.** Build it as a saved search: `~r me & ! IN (sender_routing)`. Senders not in our routing table appear here.
 
-**Take.** The original pattern relies on disabling all-mail notifications and replacing them with selective notifications. Native macOS doesn't expose this for the platform's mail client, and our TUI has no notification subsystem at all. The concept survives as "stuff from people I haven't categorised yet" but loses the notification-suppression. Ships as part of the Inbox Philosophy pack with a note that the experience is partial.
+**Take.** The original pattern relies on disabling all-mail notifications and replacing them with selective notifications. Native macOS doesn't expose this for the platform's mail client, and our TUI has no notification subsystem at all. The concept survives as "stuff from people I haven't categorised yet" but loses the notification-suppression. Specced as **spec 28** (Bucket 3 §0): builds on spec 23's `sender_routing` table — pending senders (no row) appear in a redefined Screener virtual folder; screened-out senders' mail is hidden from default views. Opt-in behind `[screener].enabled`, default off. The notification-suppression piece is explicitly out of scope by construction (inkwell owns no notification surface; users keep native Outlook running for that).
 
 ### 1.17 Calendar invitation actions in mail viewer — P3 (scope-gated)
 
