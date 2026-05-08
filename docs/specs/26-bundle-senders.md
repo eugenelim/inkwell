@@ -1,6 +1,6 @@
 # Spec 26 — Bundle senders
 
-**Shipped:** v0.54.0
+**Shipped:** v0.55.0
 **Status:** Shipped.
 **Depends on:** Spec 02 (store + new `bundled_senders` table), Spec 04
 (TUI), Spec 07 (action queue — bulk-pending path only; bundle is local-

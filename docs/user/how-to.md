@@ -777,4 +777,4 @@ CLI changes apply on the next `Ctrl+R` refresh inside a running TUI.
 
 ---
 
-_Last reviewed against v0.54.0._
+_Last reviewed against v0.55.0._

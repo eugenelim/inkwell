@@ -71,7 +71,7 @@ Mirrors `docs/specs/26-bundle-senders.md` §9. Tick as work lands.
 
 ## Iteration log
 
-### Iter 2 — 2026-05-08 (implementation shipped as v0.54.0)
+### Iter 2 — 2026-05-08 (implementation shipped as v0.55.0)
 - Slice: full implementation per §9 DoD.
 - Schema + store: migration 013 added (`bundled_senders` table, FK-
   cascade on accounts), four `Store` methods with defense-in-depth
@@ -117,14 +117,14 @@ Mirrors `docs/specs/26-bundle-senders.md` §9. Tick as work lands.
   store benchmarks; 6 CLI tests. All four perf budgets measured
   well under target on M5.
 - Doc sweep: PRD §10 inventory marked shipped, ROADMAP bucket and
-  §1.11 backlog flipped to Shipped v0.54.0, README status table +
-  download example bumped to v0.54.0, reference.md gains B / Space /
+  §1.11 backlog flipped to Shipped v0.55.0, README status table +
+  download example bumped to v0.55.0, reference.md gains B / Space /
   bundle indicators + CLI rows, how-to.md gains the
   "Bundle a noisy newsletter sender" recipe with the
   `:filter ~f <addr>` / `;<verb>` workflow callout, CONFIG.md
   gains all three new keys + the two new bindings, PRIVACY.md
   notes the new local-only metadata table, spec sets
-  `**Shipped:** v0.54.0`, plan flips to `done`.
+  `**Shipped:** v0.55.0`, plan flips to `done`.
 
 ### Iter 1 — 2026-05-07 (spec drafted + adversarial review)
 - Slice: spec written; three rounds of adversarial review.
