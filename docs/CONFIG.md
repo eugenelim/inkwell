@@ -104,6 +104,15 @@ Controls the terminal UI.
 | `flag_indicator` | string | `"⚑"` | any string ≤ 2 chars | Glyph for flagged messages. |
 | `attachment_indicator` | string | `"📎"` | any string ≤ 2 chars | Suffix for messages with attachments. Use `"@"` for ASCII-only terminals. |
 | `mute_indicator` | string | `"🔕"` | any string ≤ 2 chars | Glyph for messages in muted threads. Use `"m"` for ASCII-only terminals. |
+| `show_routing_indicator` | bool | `false` | `true` / `false` | Spec 23 §5.5. Toggles the per-row routing glyph in regular folder views. Always on inside routing virtual folders regardless of this setting. |
+| `stream_indicators.imbox` | string | `"📥"` | any string ≤ 2 chars | Spec 23 §5.4. Per-destination glyph for the Imbox stream. Empty falls back to the theme default. |
+| `stream_indicators.feed` | string | `"📰"` | any string ≤ 2 chars | Per-destination glyph for the Feed stream. |
+| `stream_indicators.paper_trail` | string | `"🧾"` | any string ≤ 2 chars | Per-destination glyph for the Paper Trail stream. |
+| `stream_indicators.screener` | string | `"🚪"` | any string ≤ 2 chars | Per-destination glyph for the Screener stream. |
+| `stream_ascii_fallback` | bool | `false` | `true` / `false` | When `true`, the four stream indicators are forced to single ASCII letters (`i` / `f` / `p` / `k`) regardless of `stream_indicators.*`. For terminals without emoji support. |
+| `reply_later_indicator` | string | `"↩"` | any string ≤ 2 chars | Spec 25 §5.2. Glyph for the Reply Later stack indicator on list rows and in the viewer header. Use `"R"` for ASCII-only terminals. |
+| `set_aside_indicator` | string | `"📌"` | any string ≤ 2 chars | Glyph for the Set Aside stack indicator. Use `"P"` for ASCII-only terminals. |
+| `focus_queue_limit` | int | `200` | 1–1000 | Spec 25 §5.7.1. Cap on the Reply Later queue pre-fetched by `:focus`. The queue is frozen for the session; rare to exceed 200. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
 | `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
 | `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
@@ -304,6 +313,29 @@ Runtime knobs for the saved-search Manager (spec 11 §9).
 
 ---
 
+## `[tabs]`
+
+Controls the spec 24 split-inbox tab strip. Tabs are saved searches
+promoted to a one-row strip above the list pane; cycle with `]` /
+`[` when the list pane is focused.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | true / false | When `false`, the strip is hidden even if tabs are configured (escape hatch — the tabs themselves persist). |
+| `show_zero_count` | bool | `false` | true / false | When `true`, render `[Name 0]` for tabs with no unread; default hides the zero. |
+| `max_name_width` | int | `16` | ≥ 4 | Per-tab name truncation width (with `…`). |
+| `cycle_wraps` | bool | `true` | true / false | When `false`, `]` at the last tab and `[` at the first tab no-op instead of wrapping. |
+
+Promote a saved search via `:tab add <name>` (cmd-bar) or
+`inkwell tab add <name>` (CLI). The `[bindings].next_tab` /
+`[bindings].prev_tab` keys default to `]` / `[`; both are
+list-pane-scoped (the viewer pane keeps `]` / `[` for thread
+navigation, the calendar pane keeps them for day navigation).
+
+**Owner spec:** 24.
+
+---
+
 ## `[bulk]`
 
 Controls bulk-operation UX.
@@ -374,6 +406,12 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `unsubscribe` | `"U"` | RFC 8058 one-click / mailto / browser flow. Spec 16. |
 | `mute_thread` | `"M"` | Toggle mute on the focused message's conversation. Spec 19. |
 | `thread_chord` | `"T"` | Begin thread chord (T+r/R/f/F/d/D/a/m). Spec 20. |
+| `stream_chord` | `"S"` | Begin stream chord (S+i/f/p/k/c) — route the focused sender to Imbox / Feed / Paper Trail / Screener, or clear routing. Spec 23. |
+| `next_tab` | `"]"` | Cycle to the next spec 24 tab when the list pane is focused. Pane-scoped — viewer pane keeps `]` for thread navigation, calendar pane keeps it for day navigation. |
+| `prev_tab` | `"["` | Cycle to the previous spec 24 tab when the list pane is focused. Same pane-scoping as `next_tab`. |
+| `reply_later_toggle` | `"L"` | Spec 25. Toggle the focused message in the Reply Later stack (Inkwell/ReplyLater category). |
+| `set_aside_toggle` | `"P"` | Spec 25. Toggle the focused message in the Set Aside stack (Inkwell/SetAside category). Mnemonic: Pin (matches the 📌 indicator). Spec text suggested `S`; deviated because spec 23's stream chord already claimed `S`. |
+| `palette` | `"ctrl+k"` | Open the spec 22 command palette (fuzzy-find every action; right-aligned binding column doubles as a passive cheatsheet). Set to `""` to disable. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 
 **Pane-scoped bindings** (e.g., `r`, `R`, `f`) have different actions in list vs. viewer panes by design — see spec 04 §5 and spec 07 §12. Overriding them via this section changes the binding in BOTH panes; per-pane override is not supported in v1.

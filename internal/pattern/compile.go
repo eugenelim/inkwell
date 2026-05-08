@@ -148,6 +148,7 @@ type astCapability struct {
 	hasHeader       bool // ~h
 	hasReadFlag     bool // ~N / ~U / ~F
 	hasImportance   bool // ~i / ~y
+	hasRouting      bool // ~o (spec 23) — local-only, like ~i / ~y
 	hasFolderScope  string
 	hasNonLocalPred bool // any predicate that local SQL rejects today
 	predicateCount  int
@@ -173,6 +174,8 @@ func analyse(root Node) astCapability {
 			cap.hasReadFlag = true
 		case FieldImportance, FieldInferenceCls:
 			cap.hasImportance = true
+		case FieldRouting:
+			cap.hasRouting = true
 		case FieldFolder:
 			if sv, ok := p.Value.(StringValue); ok {
 				cap.hasFolderScope = sv.Raw
@@ -242,7 +245,8 @@ func astWithoutLocalOnly(n Node) Node {
 func isLocalOnlyField(f Field) bool {
 	switch f {
 	case FieldUnread, FieldRead, FieldFlagged,
-		FieldImportance, FieldInferenceCls, FieldConversation:
+		FieldImportance, FieldInferenceCls, FieldConversation,
+		FieldRouting:
 		return true
 	}
 	return false
@@ -300,7 +304,7 @@ func selectStrategy(root Node, cap astCapability, opts CompileOptions) (Executio
 		// express (~N / ~U / ~F / ~i / ~y), peel them off the
 		// $search subtree; refinement runs in-memory against
 		// the full AST. Spec 08 §11.
-		if cap.hasReadFlag || cap.hasImportance {
+		if cap.hasReadFlag || cap.hasImportance || cap.hasRouting {
 			stripped := astWithoutLocalOnly(root)
 			if stripped == nil {
 				notes = append(notes, fmt.Sprintf("Strategy: %s", StrategyLocalOnly))

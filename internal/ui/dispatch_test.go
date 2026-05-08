@@ -409,6 +409,11 @@ func TestFlattenFolderTreeHandlesUntrackedParents(t *testing.T) {
 // TestFoldersCollapseHidesChildren seeds Inbox > Sub > Sub-Sub, asserts
 // Inbox is auto-expanded (default), then collapses Inbox via 'o' and
 // confirms the children disappear from m.folders.items.
+//
+// Spec 23 §5.4: the sidebar always renders the four routing virtual
+// folders (Streams section header + 4 rows = 5 trailing items). The
+// folder-tree section is the prefix of fm.items up to the first
+// stream/saved/muted/cal row; this test counts only that prefix.
 func TestFoldersCollapseHidesChildren(t *testing.T) {
 	in := []store.Folder{
 		{ID: "inbox", DisplayName: "Inbox", WellKnownName: "inbox"},
@@ -417,8 +422,9 @@ func TestFoldersCollapseHidesChildren(t *testing.T) {
 	}
 	fm := NewFolders()
 	fm.SetFolders(in)
-	// Default: Inbox expanded, Sub collapsed → 2 visible rows (Inbox, Sub).
-	require.Equal(t, 2, len(fm.items), "Inbox auto-expanded; Sub collapsed by default")
+	// Default: Inbox expanded, Sub collapsed → 2 folder-tree rows
+	// (Inbox, Sub) plus the trailing Streams section.
+	require.Equal(t, 2, folderTreeLen(fm), "Inbox auto-expanded; Sub collapsed by default")
 	require.True(t, fm.items[0].expanded)
 	require.False(t, fm.items[1].expanded)
 	require.True(t, fm.items[1].hasKids, "Sub has Sub Sub")
@@ -426,16 +432,29 @@ func TestFoldersCollapseHidesChildren(t *testing.T) {
 	// Cursor on Inbox → toggle collapses it.
 	fm.cursor = 0
 	fm.ToggleExpand()
-	require.Equal(t, 1, len(fm.items), "collapsed Inbox hides Sub")
+	require.Equal(t, 1, folderTreeLen(fm), "collapsed Inbox hides Sub")
 
 	// Re-expand Inbox, move cursor to Sub, expand Sub.
 	fm.ToggleExpand()
-	require.Equal(t, 2, len(fm.items))
+	require.Equal(t, 2, folderTreeLen(fm))
 	fm.cursor = 1
 	fm.ToggleExpand()
-	require.Equal(t, 3, len(fm.items), "expanding Sub reveals Sub Sub")
+	require.Equal(t, 3, folderTreeLen(fm), "expanding Sub reveals Sub Sub")
 	require.Equal(t, "subsub", fm.items[2].f.ID)
 	require.Equal(t, 2, fm.items[2].depth)
+}
+
+// folderTreeLen returns the count of folder-tree rows (i.e. items
+// before the first non-folder row — Streams section / saved searches
+// / muted virtual folder / calendar). Used by tests that pre-date
+// spec 23's always-rendered Streams section.
+func folderTreeLen(fm FoldersModel) int {
+	for i, it := range fm.items {
+		if it.isStream || it.isSaved || it.isSavedHeader || it.isMuted || it.isCalHeader || it.isCalEvent {
+			return i
+		}
+	}
+	return len(fm.items)
 }
 
 // TestDispatchExpandKeyTogglesFolder confirms 'o' in the focused
@@ -1583,14 +1602,20 @@ func TestSavedSearchEnterRunsFilter(t *testing.T) {
 	m = m2.(Model)
 	require.Equal(t, FoldersPane, m.focused)
 
-	// Walk the cursor to the saved-search row. The newDispatchTestModel
-	// seeds 2 folders (Inbox + Archive); after them, items has the
-	// section header (skipped on Down) and the saved search.
-	for i := 0; i < 5; i++ {
+	// Walk the cursor to the saved-search row. After spec 23 the
+	// sidebar inserts a 5-row Streams section between folders and
+	// saved searches; just iterate Down() until SelectedSavedSearch
+	// reports the row instead of relying on a hard-coded count.
+	var ss SavedSearch
+	var ok bool
+	for i := 0; i < 20; i++ {
+		ss, ok = m.folders.SelectedSavedSearch()
+		if ok {
+			break
+		}
 		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 		m = m2.(Model)
 	}
-	ss, ok := m.folders.SelectedSavedSearch()
 	require.True(t, ok, "cursor must land on saved-search row")
 	require.Equal(t, "Newsletters", ss.Name)
 
@@ -4616,6 +4641,32 @@ func (s *stubSavedSearchService) Edit(_ context.Context, _, newName, pattern str
 
 func (s *stubSavedSearchService) EvaluatePattern(_ context.Context, _ string) (int, error) {
 	return 0, nil
+}
+
+func (s *stubSavedSearchService) Tabs(_ context.Context) ([]SavedSearch, error) {
+	out := make([]SavedSearch, 0)
+	for _, ss := range s.saved {
+		if ss.TabOrder != nil {
+			out = append(out, ss)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubSavedSearchService) PromoteTab(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (s *stubSavedSearchService) DemoteTab(_ context.Context, _ string) error {
+	return nil
+}
+
+func (s *stubSavedSearchService) ReorderTab(_ context.Context, _, _ int) error {
+	return nil
+}
+
+func (s *stubSavedSearchService) RefreshTabCounts(_ context.Context) (map[int64]int, error) {
+	return map[int64]int{}, nil
 }
 
 // TestRuleSaveWithActiveFilterCallsService drives `:rule save Newsletters`

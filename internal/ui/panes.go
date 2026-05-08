@@ -51,12 +51,129 @@ type displayedFolder struct {
 	// Selectable; selecting it loads ListMutedMessages into the list pane.
 	isMuted    bool
 	mutedCount int // distinct muted-conversation count for the badge
+	// Spec 25 stack virtual entries — Reply Later / Set Aside.
+	// Selectable; the dispatcher routes Enter to loadStackMessagesCmd.
+	isReplyLater bool
+	isSetAside   bool
+	stackCount   int // shared count for whichever stack flag is set
+	// isStream marks one of the four spec 23 routing virtual folders
+	// (Imbox / Feed / Paper Trail / Screener). Selectable; selecting
+	// it loads ListMessagesByRouting into the list pane. The
+	// streamDestination field carries the routing destination
+	// ("imbox" / "feed" / "paper_trail" / "screener") for the dispatch
+	// path. Always rendered (even at zero count) per §5.4 — distinct
+	// from the muted-threads hide-at-zero rule.
+	isStream          bool
+	streamDestination string
+	streamDisplayName string
+	streamCount       int
+	streamIsHeader    bool // synthetic "Streams" section divider
 }
 
 // mutedSentinelID is the virtual folder ID used for the "Muted Threads"
 // sidebar entry (spec 19). Prefixed with double-underscores to avoid
 // collision with Graph folder IDs, which are base64url strings.
 const mutedSentinelID = "__muted__"
+
+// Sentinel folder IDs for the spec 23 routing virtual folders. Same
+// double-underscore convention as mutedSentinelID. The destination
+// strings (imbox / feed / paper_trail / screener) are the API
+// contract; the sentinel IDs are the sidebar handle.
+const (
+	imboxSentinelID      = "__imbox__"
+	feedSentinelID       = "__feed__"
+	paperTrailSentinelID = "__paper_trail__"
+	screenerSentinelID   = "__screener__"
+)
+
+// IsStreamSentinelID reports whether id is one of the four routing
+// virtual-folder sentinels. Used by the sentinel→destination
+// translator and by the list-pane indicator's "always-on inside
+// routing virtual folders" rule (spec 23 §5.5).
+func IsStreamSentinelID(id string) bool {
+	switch id {
+	case imboxSentinelID, feedSentinelID, paperTrailSentinelID, screenerSentinelID:
+		return true
+	}
+	return false
+}
+
+// streamDestinationFromID returns the routing destination string
+// for a sentinel folder ID, or "" when id is not a stream sentinel.
+func streamDestinationFromID(id string) string {
+	switch id {
+	case imboxSentinelID:
+		return "imbox"
+	case feedSentinelID:
+		return "feed"
+	case paperTrailSentinelID:
+		return "paper_trail"
+	case screenerSentinelID:
+		return "screener"
+	}
+	return ""
+}
+
+// streamSentinelIDForDestination is the inverse — destination → sentinel.
+func streamSentinelIDForDestination(dest string) string {
+	switch dest {
+	case "imbox":
+		return imboxSentinelID
+	case "feed":
+		return feedSentinelID
+	case "paper_trail":
+		return paperTrailSentinelID
+	case "screener":
+		return screenerSentinelID
+	}
+	return ""
+}
+
+// streamGlyphForDestination returns the configured indicator glyph
+// for a routing destination, falling back to a single ASCII letter
+// when the theme's indicator is empty (e.g. when [ui]
+// stream_ascii_fallback was set; see internal/ui/app.go ApplyDeps).
+func streamGlyphForDestination(dest string, t Theme) string {
+	switch dest {
+	case "imbox":
+		if t.ImboxIndicator != "" {
+			return t.ImboxIndicator
+		}
+		return "i"
+	case "feed":
+		if t.FeedIndicator != "" {
+			return t.FeedIndicator
+		}
+		return "f"
+	case "paper_trail":
+		if t.PaperTrailIndicator != "" {
+			return t.PaperTrailIndicator
+		}
+		return "p"
+	case "screener":
+		if t.ScreenerIndicator != "" {
+			return t.ScreenerIndicator
+		}
+		return "k"
+	}
+	return ""
+}
+
+// streamDisplayLabelForDestination returns the human-facing display
+// label for a routing destination. Mirrors the spec 23 §5.4 table.
+func streamDisplayLabelForDestination(dest string) string {
+	switch dest {
+	case "imbox":
+		return "Imbox"
+	case "feed":
+		return "Feed"
+	case "paper_trail":
+		return "Paper Trail"
+	case "screener":
+		return "Screener"
+	}
+	return ""
+}
 
 // FoldersModel is the sidebar pane. It stores the raw folders + per-id
 // expansion state, then computes the displayed tree on demand. The
@@ -74,6 +191,14 @@ type FoldersModel struct {
 	// mutedConvCount is the count of distinct muted conversations (spec 19).
 	// When > 0, the "Muted Threads" virtual entry is shown in the sidebar.
 	mutedConvCount int
+	// streamCounts is the per-destination message count for the four
+	// spec 23 routing virtual folders. Always rendered (even at zero)
+	// per §5.4 — divergence from spec 19's hide-at-zero rule.
+	streamCounts map[string]int
+	// Spec 25 stack counts. Each is rendered as a virtual sidebar
+	// entry only when > 0 (matches spec 19 hide-at-zero pattern).
+	replyLaterCount int
+	setAsideCount   int
 }
 
 // NewFolders returns an empty folders pane. The default expansion
@@ -125,6 +250,34 @@ func (m *FoldersModel) SetMutedCount(count int) {
 	m.rebuild()
 }
 
+// SetReplyLaterCount / SetSetAsideCount drive the spec 25 sidebar
+// virtual entries. Each entry renders only when its count > 0.
+func (m *FoldersModel) SetReplyLaterCount(count int) {
+	m.replyLaterCount = count
+	m.rebuild()
+}
+func (m *FoldersModel) SetSetAsideCount(count int) {
+	m.setAsideCount = count
+	m.rebuild()
+}
+
+// SetStreamCounts replaces the per-destination routing counts and
+// rebuilds the sidebar. Spec 23 §5.4. Map keys are the destination
+// strings ("imbox" / "feed" / "paper_trail" / "screener"); missing
+// keys mean zero. Called after every routing assignment, after each
+// FolderSyncedEvent, and on the spec 11 background refresh tick.
+func (m *FoldersModel) SetStreamCounts(counts map[string]int) {
+	if counts == nil {
+		m.streamCounts = nil
+	} else {
+		m.streamCounts = make(map[string]int, len(counts))
+		for k, v := range counts {
+			m.streamCounts[k] = v
+		}
+	}
+	m.rebuild()
+}
+
 // SetCalendarEvents replaces the sidebar calendar section (spec 12).
 func (m *FoldersModel) SetCalendarEvents(events []CalendarEvent, showDays int, tz *time.Location) {
 	m.calendarEvents = append([]CalendarEvent(nil), events...)
@@ -150,6 +303,20 @@ func (m FoldersModel) SelectedCalendarEvent() (*CalendarEvent, bool) {
 // rebuild recomputes m.items from m.raw + m.expanded + m.saved + calendar events.
 func (m *FoldersModel) rebuild() {
 	items := flattenFolderTree(m.raw, m.expanded)
+	// Streams section — spec 23 §5.4. Always rendered with all four
+	// buckets, even at zero count (divergence from spec 19's
+	// hide-at-zero rule). The header is non-selectable.
+	if len(m.raw) > 0 || m.streamCounts != nil {
+		items = append(items, displayedFolder{isStream: true, streamIsHeader: true})
+		for _, dest := range []string{"imbox", "feed", "paper_trail", "screener"} {
+			items = append(items, displayedFolder{
+				isStream:          true,
+				streamDestination: dest,
+				streamDisplayName: streamDisplayLabelForDestination(dest),
+				streamCount:       m.streamCounts[dest],
+			})
+		}
+	}
 	if len(m.saved) > 0 {
 		items = append(items, displayedFolder{isSavedHeader: true})
 		for _, s := range m.saved {
@@ -162,6 +329,21 @@ func (m *FoldersModel) rebuild() {
 				savedCount:   s.Count,
 			})
 		}
+	}
+	// Spec 25 stack virtual entries — Reply Later / Set Aside.
+	// Visible only when count > 0. Order between virtual entries
+	// (when all > 0): Reply Later → Set Aside → Muted (spec 25 §5.3).
+	if m.replyLaterCount > 0 {
+		items = append(items, displayedFolder{
+			isReplyLater: true,
+			stackCount:   m.replyLaterCount,
+		})
+	}
+	if m.setAsideCount > 0 {
+		items = append(items, displayedFolder{
+			isSetAside: true,
+			stackCount: m.setAsideCount,
+		})
 	}
 	// Muted Threads virtual entry — spec 19 §5.4.
 	if m.mutedConvCount > 0 {
@@ -335,6 +517,9 @@ func folderRank(f store.Folder) int {
 
 // isSelectableRow reports whether a sidebar row can receive cursor focus.
 func isSelectableRow(it displayedFolder) bool {
+	if it.streamIsHeader {
+		return false
+	}
 	return !it.isSavedHeader && !it.isCalHeader
 }
 
@@ -403,16 +588,49 @@ func (m *FoldersModel) JumpBottom() {
 
 // Selected returns the highlighted folder, if any. Returns ok=false
 // when the cursor is on a saved-search row, a section header, a
-// calendar event row, or the virtual muted-threads entry.
+// calendar event row, the virtual muted-threads entry, or any
+// routing virtual folder (spec 23 §5.4 — stream sentinels inherit
+// the spec 18 N/R/X protection by returning ok=false here).
 func (m FoldersModel) Selected() (store.Folder, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return store.Folder{}, false
 	}
 	it := m.items[m.cursor]
-	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent || it.isMuted {
+	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent || it.isMuted || it.isStream || it.isReplyLater || it.isSetAside {
 		return store.Folder{}, false
 	}
 	return it.f, true
+}
+
+// SelectedReplyLater / SelectedSetAside report whether the cursor
+// sits on the corresponding spec 25 stack virtual entry. The
+// dispatcher routes Enter to loadStackMessagesCmd when either
+// returns true.
+func (m FoldersModel) SelectedReplyLater() bool {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.items[m.cursor].isReplyLater
+}
+func (m FoldersModel) SelectedSetAside() bool {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.items[m.cursor].isSetAside
+}
+
+// SelectedStream reports the routing destination of the highlighted
+// stream sentinel ("imbox" / "feed" / "paper_trail" / "screener"),
+// or "" when the cursor is on a non-stream row. Spec 23 §5.4.
+func (m FoldersModel) SelectedStream() string {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return ""
+	}
+	it := m.items[m.cursor]
+	if !it.isStream || it.streamIsHeader {
+		return ""
+	}
+	return it.streamDestination
 }
 
 // SelectedMuted returns true when the cursor is on the virtual
@@ -476,6 +694,56 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	}
 	rows := make([]string, 0, len(m.items))
 	for i, it := range m.items {
+		// Streams section header (spec 23 §5.4).
+		if it.isStream && it.streamIsHeader {
+			rows = append(rows, t.Dim.Render("  Streams"))
+			continue
+		}
+		// Stream virtual folder rows.
+		if it.isStream {
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			glyph := streamGlyphForDestination(it.streamDestination, t)
+			line := fmt.Sprintf("%s%s %s  %d", marker, glyph, it.streamDisplayName, it.streamCount)
+			styled := truncate(line, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
+			continue
+		}
+		// Spec 25 stacks — Reply Later / Set Aside virtual folders.
+		if it.isReplyLater || it.isSetAside {
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			glyph := "↩"
+			label := "Reply Later"
+			if it.isSetAside {
+				label = "Set Aside"
+				if t.SetAsideIndicator != "" {
+					glyph = t.SetAsideIndicator
+				} else {
+					glyph = "📌"
+				}
+			} else if t.ReplyLaterIndicator != "" {
+				glyph = t.ReplyLaterIndicator
+			}
+			line := fmt.Sprintf("%s%s %s  %d", marker, glyph, label, it.stackCount)
+			styled := truncate(line, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
+			continue
+		}
 		// Muted Threads virtual folder (spec 19 §5.4).
 		if it.isMuted {
 			marker := "  "
@@ -835,21 +1103,43 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		// Meeting-invite / mute indicator. Calendar takes priority:
-		// if the message is a meeting invite, show 📅 regardless of mute
-		// state. Otherwise, if we're in the muted virtual view, show the
-		// mute glyph. Normal folder views exclude muted messages
-		// (ExcludeMuted: true) so 🔕 only ever appears in __muted__ view.
-		// Spec 19 §5.2.
+		// Indicator slot priority (spec 19 §5.2 + spec 23 §5.5 +
+		// spec 25 §5.2): calendar > mute (in __muted__ view only)
+		// > routing (in routing virtual folder) > Reply Later
+		// (in stack views or any view where the row is tagged) >
+		// Set Aside > nothing.
 		invite := "  "
-		if isMeetingMessage(msg) {
+		switch {
+		case isMeetingMessage(msg):
 			invite = "📅 "
-		} else if m.FolderID == mutedSentinelID {
+		case m.FolderID == mutedSentinelID:
 			mi := t.MuteIndicator
 			if mi == "" {
 				mi = "🔕"
 			}
 			invite = mi + " "
+		default:
+			if dest := streamDestinationFromID(m.FolderID); dest != "" {
+				if g := streamGlyphForDestination(dest, t); g != "" {
+					invite = g + " "
+				}
+			}
+			// Spec 25 stack indicator: shown inside stack virtual
+			// folders or whenever the message carries the category.
+			// Reply Later wins over Set Aside.
+			showStack := m.FolderID == replyLaterSentinelID || m.FolderID == setAsideSentinelID
+			if invite == "  " && showStack {
+				switch {
+				case store.IsInCategory(msg.Categories, store.CategoryReplyLater):
+					if g := stackGlyph(store.CategoryReplyLater, t); g != "" {
+						invite = g + " "
+					}
+				case store.IsInCategory(msg.Categories, store.CategorySetAside):
+					if g := stackGlyph(store.CategorySetAside, t); g != "" {
+						invite = g + " "
+					}
+				}
+			}
 		}
 		flag := "  "
 		if msg.FlagStatus == "flagged" {

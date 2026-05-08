@@ -54,10 +54,10 @@ Workflow patterns built on the primitives. Users feel these.
 
 | Order | Item                                | Notes                                          |
 | ----- | ----------------------------------- | ---------------------------------------------- |
-| 1     | Command palette (1.6)               | Discoverability for everything else.            |
-| 2     | Routing destinations (1.9)          | `sender_routing` table reused by B3.           |
-| 3     | Split inbox tabs (1.7)              | Depends on saved searches + conversation ops. |
-| 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
+| 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
+| 2     | Routing destinations (1.9)          | Owner: spec 23. `sender_routing` table reused by B3. |
+| 3     | Split inbox tabs (1.7)              | Owner: spec 24. Saved searches promoted to a list-pane tab strip. |
+| 4     | Reply Later / Set Aside (1.10)      | Owner: spec 25. Graph categories — independent. |
 | 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
 
 ### Bucket 3 — Power-user automation
@@ -168,28 +168,34 @@ The list view filters out new messages from muted conversations. `M` (capital) o
 
 ### 1.6 Command palette — P1
 
+**Owner: spec 22.**
+
 **The concept.** A fuzzy-find palette listing every action with its keybinding, opened by a chord (commonly Ctrl+K). Solves the "I forgot the shortcut" problem that vim-style TUIs have.
 
-**TUI translation.** We already have `:` command mode. Add `Ctrl+K` to open a modal that lists all commands, filterable by typing, with the current keybinding shown next to each. Custom actions (§2) and saved searches surface here too.
+**TUI translation.** We already have `:` command mode. `Ctrl+K` opens a modal that lists all commands, filterable by typing, with the current keybinding shown right-aligned next to each row (passive cheatsheet). Sigils scope the search: `#` for folders, `@` for saved searches, `>` for commands-only. Custom actions (§2) and routing destinations (§1.9) will register into the same row index without re-architecting.
 
 **Take.** Easy to implement, big UX win. Ships in v1.1.
 
 ### 1.7 Split inbox tabs — P1
 
+**Owner: spec 24 (shipped).**
+
 **The concept.** Divide the inbox into multiple focus areas (e.g., "VIP", "Notifications", "Calendar", "Team") defined by user-supplied queries. Each becomes a tab so the user can process one focus area at a time, reducing context-switching.
 
 **TUI translation.** We already have saved searches as virtual folders. The upgrade:
 
-- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`Tab`/`Shift+Tab` cycles). Each tab maintains its own scroll position and selection.
-- **Auto-archive coupling.** When a message arrives in a split, it's already implicitly "filed." When the user marks it done (`E`), it disappears from all splits. Effectively a rebrand of "archive" as the default state.
+- **Tabs at the top of the list pane.** Currently the user picks one folder OR one saved search. Splits let them flip between several saved searches as tabs (`]` / `[` cycle when the list pane is focused; `Tab` / `Shift+Tab` remain pane-focus). Each tab maintains its own scroll position and selection.
+- **Auto-archive coupling.** When the message no longer matches the tab pattern (e.g. archive moves a `~m Inbox`-scoped row out of Inbox), the next refresh drops it from the tab. Emergent property — no new verb. The "rebrand archive as done" item (§1.23) is a separate, deferred follow-up.
 
-**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Spec 17 candidate.
+**Take.** Genuinely the most productive workflow pattern we know of for a busy mailbox. Shipped as spec 24.
 
 ### 1.8 Conversation-level operations — P2
 
 v1 operates on individual messages. "Archive entire thread," "delete entire conversation history" all require thread-aware actions. The data model has `conversation_id`; we just don't act on it as a unit yet.
 
 ### 1.9 Routing destinations (Imbox / Feed / Paper Trail) — P2
+
+**Owner: spec 23.**
 
 **The concept.** Divide incoming mail into intent-based streams rather than urgency-based: important mail in one stream, newsletters and digests in a "feed" stream, receipts and transactional in a "paper trail" stream. The user designates per-sender where their mail lands. Once a sender is assigned, all their future mail flows to the right place. Read mail in the primary stream drops off naturally — no archive ritual.
 
@@ -220,16 +226,13 @@ When the user marks a sender as "this goes to Feed," all future mail from that s
 
 ### 1.10 Reply Later / Set Aside stacks — P2
 
+**Owner: spec 25 (shipped).**
+
 **The concept.** Two adjacent ideas: messages I'll reply to later, and messages I want to keep handy without replying. Each is a stack you can fan out at will.
 
-**TUI translation.** Add two flag-like fields backed by Graph categories:
+**TUI translation.** Two reserved Graph categories — `Inkwell/ReplyLater` and `Inkwell/SetAside` — surfaced as sidebar virtual entries and toggled by a single keypress. `L` adds/removes the focused message from Reply Later; `P` (mnemonic: Pin, matches the 📌 indicator) toggles Set Aside (the spec suggested `S`; deviated because spec 23's stream chord already claimed it). Thread chord verbs `T l` / `T L` / `T s` / `T S` apply over a whole conversation. `:focus [N]` walks the Reply Later queue, opening compose-reply for each message.
 
-- A built-in `_reply_later` category — used as a stack. Capital `R` on the focused message adds it; `:replies` opens a modal with the queue.
-- A built-in `_set_aside` category — same pattern, key `S`.
-
-These differ from regular flags because they have a dedicated overlay rather than just being an indicator.
-
-**Take.** Genuinely improves workflow for senior pros with a backlog. The "Reply Later" pattern in particular hits something the native client handles poorly. Ships as part of the Inbox Philosophy pack.
+**Take.** Genuinely improves workflow for senior pros with a backlog. Stacks round-trip via Graph categories so state syncs across devices.
 
 ### 1.11 Bundle senders — P2
 

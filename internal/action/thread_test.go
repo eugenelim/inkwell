@@ -47,7 +47,7 @@ func TestThreadExecuteMarkRead(t *testing.T) {
 		_, _ = w.Write([]byte(`{"responses":[{"id":"0","status":200},{"id":"1","status":200}]}`))
 	})
 
-	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMarkRead, "t-1")
+	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMarkRead, "t-1", nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
 	require.Len(t, results, 2)
@@ -55,7 +55,7 @@ func TestThreadExecuteMarkRead(t *testing.T) {
 
 func TestThreadExecuteRejectsMove(t *testing.T) {
 	exec, _, accID, _ := newTestExec(t)
-	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMove, "m-1")
+	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMove, "m-1", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "use ThreadMove")
 	require.Zero(t, total)
@@ -81,9 +81,66 @@ func TestThreadMoveCallsBulkMove(t *testing.T) {
 func TestThreadExecuteNoConvID(t *testing.T) {
 	exec, _, accID, _ := newTestExec(t)
 	// m-1 was seeded by newTestExec with an empty ConversationID.
-	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMarkRead, "m-1")
+	total, results, err := exec.ThreadExecute(context.Background(), accID, store.ActionMarkRead, "m-1", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no conversation id")
 	require.Zero(t, total)
 	require.Nil(t, results)
+}
+
+// TestThreadExecuteAddCategoryWithParams covers spec 25 §5.8: when
+// ThreadExecute is invoked with a non-nil params map, the per-message
+// actions enqueued by the underlying batchExecute carry the supplied
+// `category` parameter.
+func TestThreadExecuteAddCategoryWithParams(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	seedThreadMessage(t, st, accID, "tc-1", "conv-cat")
+	seedThreadMessage(t, st, accID, "tc-2", "conv-cat")
+
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/$batch", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"responses":[{"id":"0","status":200},{"id":"1","status":200}]}`))
+	})
+
+	total, results, err := exec.ThreadExecute(context.Background(), accID,
+		store.ActionAddCategory, "tc-1",
+		map[string]any{"category": store.CategoryReplyLater})
+	require.NoError(t, err)
+	require.Equal(t, 2, total)
+	require.Len(t, results, 2)
+	for _, r := range results {
+		require.NoError(t, r.Err)
+	}
+	// Confirm the local-apply path tagged both messages.
+	for _, id := range []string{"tc-1", "tc-2"} {
+		m, err := st.GetMessage(context.Background(), id)
+		require.NoError(t, err)
+		require.Contains(t, m.Categories, store.CategoryReplyLater)
+	}
+}
+
+func TestThreadExecuteRemoveCategoryWithParams(t *testing.T) {
+	exec, st, accID, srv := newTestExec(t)
+	require.NoError(t, st.UpsertMessage(context.Background(), store.Message{
+		ID: "tc-1", AccountID: accID, FolderID: "f-inbox",
+		ConversationID: "conv-cat-r",
+		Categories:     []string{store.CategoryReplyLater},
+		ReceivedAt:     time.Now(),
+	}))
+
+	srv.Config.Handler.(*http.ServeMux).HandleFunc("/$batch", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"responses":[{"id":"0","status":200}]}`))
+	})
+
+	total, _, err := exec.ThreadExecute(context.Background(), accID,
+		store.ActionRemoveCategory, "tc-1",
+		map[string]any{"category": store.CategoryReplyLater})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	m, err := st.GetMessage(context.Background(), "tc-1")
+	require.NoError(t, err)
+	require.NotContains(t, m.Categories, store.CategoryReplyLater)
 }

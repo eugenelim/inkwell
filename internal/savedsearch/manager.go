@@ -80,11 +80,15 @@ func (m *Manager) Save(ctx context.Context, ss store.SavedSearch) error {
 	return nil
 }
 
-// Delete removes a saved search by ID. Invalidates the full evaluation cache
-// and rewrites the TOML mirror.
+// Delete removes a saved search by ID. Invalidates the full evaluation cache,
+// reindexes the spec 24 tab strip (so deleting a tabbed saved search leaves
+// no hole in the dense ordering), and rewrites the TOML mirror.
 func (m *Manager) Delete(ctx context.Context, id int64) error {
 	if err := m.st.DeleteSavedSearch(ctx, id); err != nil {
 		return err
+	}
+	if err := m.st.ReindexTabs(ctx, m.accountID); err != nil {
+		return fmt.Errorf("delete: reindex tabs: %w", err)
 	}
 	m.invalidateAll()
 	_ = m.writeTOMLMirror(ctx)
@@ -104,6 +108,9 @@ func (m *Manager) DeleteByName(ctx context.Context, name string) error {
 	}
 	if err := m.st.DeleteSavedSearchByName(ctx, m.accountID, name); err != nil {
 		return err
+	}
+	if err := m.st.ReindexTabs(ctx, m.accountID); err != nil {
+		return fmt.Errorf("delete %q: reindex tabs: %w", name, err)
 	}
 	m.invalidateAll()
 	_ = m.writeTOMLMirror(ctx)
@@ -320,6 +327,9 @@ func (m *Manager) writeTOMLMirror(ctx context.Context) error {
 			sb.WriteString("pinned = false\n")
 		}
 		sb.WriteString("sort_order = " + strconv.Itoa(s.SortOrder) + "\n")
+		if s.TabOrder != nil {
+			sb.WriteString("tab_order = " + strconv.Itoa(*s.TabOrder) + "\n")
+		}
 		sb.WriteString("\n")
 	}
 	// #nosec G306 — mode 0600: mail.db is 0600; mirror is same sensitivity.

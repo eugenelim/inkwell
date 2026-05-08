@@ -32,6 +32,13 @@ func FuzzParse(f *testing.F) {
 		"))))",
 		"~s \"unterminated",
 		"~f bob ~f alice ~A ~N ~F ~U",
+		// Spec 23 routing operator seed corpus.
+		"~o feed",
+		"~o none",
+		"~o paper_trail",
+		"~o screener & ~A",
+		"~o feed | ~o paper_trail",
+		"!~o feed",
 	}
 	for _, s := range seeds {
 		f.Add(s)

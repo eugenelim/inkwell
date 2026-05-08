@@ -109,6 +109,7 @@ func buildHelpSections(km KeyMap) []helpSection {
 			rows: []helpRow{
 				{keysOf(km.Cmd), "command mode"},
 				{keysOf(km.Search), "search mode"},
+				{keysOf(km.Palette), "command palette"},
 				{keysOf(km.Refresh), "force sync now"},
 				{keysOf(km.Help), "this help"},
 				{keysOf(km.Quit), "quit"},

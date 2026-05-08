@@ -73,6 +73,11 @@ func emitFilterPredicate(p Predicate) (string, error) {
 		return emitFilterString(p.Field, v)
 	case DateValue:
 		return emitFilterDate(p.Field, v)
+	case RoutingValue:
+		// ~o is local-only (no Graph equivalent — spec 23 §4.3
+		// rejects inferenceClassificationOverride). The strategy
+		// selector forces LocalOnly or TwoStage.
+		return "", fmt.Errorf("%w: ~o routing is local-only (no Graph equivalent)", ErrUnsupported)
 	}
 	return "", fmt.Errorf("%w: unsupported value type %T for field %v", ErrUnsupported, p.Value, p.Field)
 }

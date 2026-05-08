@@ -257,6 +257,10 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 19  | `19-mute-thread.md`                          | post-v1, ROADMAP §0 bucket 1 |
 | 20  | `20-conversation-ops.md`                     | post-v1, ROADMAP §0 bucket 1 |
 | 21  | `21-cross-folder-bulk.md`                    | post-v1, ROADMAP §0 bucket 1 |
+| 22  | `22-command-palette.md`                      | post-v1, ROADMAP §0 bucket 2 |
+| 23  | `23-routing-destinations.md`                 | post-v1, ROADMAP §0 bucket 2 |
+| 24  | `24-split-inbox-tabs.md`                     | post-v1, ROADMAP §0 bucket 2 |
+| 25  | `25-reply-later-set-aside.md`                | post-v1, ROADMAP §0 bucket 2 |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. The CI portion

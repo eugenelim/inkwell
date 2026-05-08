@@ -11,10 +11,12 @@ require (
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20260427100455-1ea3e7f8134f
 	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec
 	github.com/mattn/go-runewidth v0.0.23
+	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/zalando/go-keyring v0.2.8
 	go.uber.org/goleak v1.3.0
+	golang.org/x/sync v0.20.0
 	modernc.org/sqlite v1.50.0
 )
 
@@ -47,7 +49,6 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.2.0 // indirect

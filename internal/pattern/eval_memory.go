@@ -6,6 +6,17 @@ import (
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
+// EvalEnv carries optional context the in-memory evaluator
+// consults for store-backed predicates. Today only `~o` (routing)
+// uses it — Routing is the lowercased+trimmed sender address →
+// destination map for the candidate set. nil / empty map means
+// every routing lookup misses, so `~o feed` evaluates to false
+// (and `~o none` to true) — the in-memory path cannot satisfy
+// `~o` without help from the caller.
+type EvalEnv struct {
+	Routing map[string]string
+}
+
 // EvaluateInMemory walks the AST against a single in-memory
 // message. Used by [Execute]'s TwoStage path: the server returns
 // a candidate set; the structural predicates (~N / ~U / ~F /
@@ -16,29 +27,39 @@ import (
 //
 // Predicates the in-memory path cannot evaluate (~h header
 // lookup) return false — TwoStage only refines using fields
-// already on the cached envelope.
+// already on the cached envelope. `~o` evaluates against an
+// empty EvalEnv; use [EvaluateInMemoryEnv] to thread routing.
 func EvaluateInMemory(root Node, m *store.Message) bool {
+	return EvaluateInMemoryEnv(root, m, EvalEnv{})
+}
+
+// EvaluateInMemoryEnv is [EvaluateInMemory] with a context for
+// store-backed predicates. Spec 23 §4.3 / §6: TwoStage refinement
+// preloads sender_routing into env.Routing, then this evaluator
+// can satisfy `~o feed` against the cached envelope without a DB
+// round-trip per message.
+func EvaluateInMemoryEnv(root Node, m *store.Message, env EvalEnv) bool {
 	if root == nil || m == nil {
 		return false
 	}
-	return evalMem(root, m)
+	return evalMem(root, m, env)
 }
 
-func evalMem(n Node, m *store.Message) bool {
+func evalMem(n Node, m *store.Message, env EvalEnv) bool {
 	switch v := n.(type) {
 	case And:
-		return evalMem(v.L, m) && evalMem(v.R, m)
+		return evalMem(v.L, m, env) && evalMem(v.R, m, env)
 	case Or:
-		return evalMem(v.L, m) || evalMem(v.R, m)
+		return evalMem(v.L, m, env) || evalMem(v.R, m, env)
 	case Not:
-		return !evalMem(v.X, m)
+		return !evalMem(v.X, m, env)
 	case Predicate:
-		return evalMemPredicate(v, m)
+		return evalMemPredicate(v, m, env)
 	}
 	return false
 }
 
-func evalMemPredicate(p Predicate, m *store.Message) bool {
+func evalMemPredicate(p Predicate, m *store.Message, env EvalEnv) bool {
 	switch p.Field {
 	case FieldHasAttachments:
 		return m.HasAttachments
@@ -55,8 +76,24 @@ func evalMemPredicate(p Predicate, m *store.Message) bool {
 		return evalMemString(p.Field, v, m)
 	case DateValue:
 		return evalMemDate(p.Field, v, m)
+	case RoutingValue:
+		return evalMemRouting(v, m, env)
 	}
 	return false
+}
+
+// evalMemRouting evaluates `~o <dest>` against env.Routing. The
+// candidate's lowercased+trimmed from_address is the lookup key.
+// `~o none` matches when the address is unrouted (no map entry or
+// empty value). Other destinations match exact string equality
+// against the map's value.
+func evalMemRouting(v RoutingValue, m *store.Message, env EvalEnv) bool {
+	addr := strings.ToLower(strings.TrimSpace(m.FromAddress))
+	dest := env.Routing[addr]
+	if v.Destination == "none" {
+		return dest == ""
+	}
+	return dest == v.Destination
 }
 
 func evalMemString(f Field, v StringValue, m *store.Message) bool {

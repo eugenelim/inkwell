@@ -38,6 +38,7 @@ type Config struct {
 	Pattern         PatternConfig         `toml:"pattern"`
 	SavedSearch     SavedSearchSettings   `toml:"saved_search"`
 	SavedSearches   []SavedSearchConfig   `toml:"saved_searches"`
+	Tabs            TabsConfig            `toml:"tabs"`
 	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
 	Compose         ComposeConfig         `toml:"compose"`
 	CLI             CLIConfig             `toml:"cli"`
@@ -264,6 +265,23 @@ type SavedSearchSettings struct {
 	SuggestSaveAfterNUses int `toml:"suggest_save_after_n_uses"`
 }
 
+// TabsConfig owns the [tabs] section (spec 24). Tabs are saved
+// searches promoted to a strip above the list pane.
+type TabsConfig struct {
+	// Enabled, when false, forcibly hides the tab strip even if
+	// promoted tabs exist in the database. Tabs themselves persist;
+	// this is rendering-only. Default true.
+	Enabled bool `toml:"enabled"`
+	// ShowZeroCount renders `[Name 0]` instead of `[Name]` for tabs
+	// with no unread. Default false (zero-counts are hidden).
+	ShowZeroCount bool `toml:"show_zero_count"`
+	// MaxNameWidth is the per-tab name truncation width. Min 4.
+	MaxNameWidth int `toml:"max_name_width"`
+	// CycleWraps controls whether `]` at the last tab and `[` at
+	// the first tab wrap (true) or no-op (false). Default true.
+	CycleWraps bool `toml:"cycle_wraps"`
+}
+
 // AccountConfig owns the [account] section (spec 01).
 type AccountConfig struct {
 	TenantID             string `toml:"tenant_id"`
@@ -317,45 +335,82 @@ type UIConfig struct {
 	// (spec 19). Default 🔕; ASCII fallback "m" for terminals without
 	// emoji support.
 	MuteIndicator string `toml:"mute_indicator"`
+
+	// ShowRoutingIndicator (spec 23 §5.5) toggles the per-row routing
+	// glyph in regular folder views. Default false (clutter); always
+	// on inside routing virtual folders regardless of this setting.
+	ShowRoutingIndicator bool `toml:"show_routing_indicator"`
+	// StreamIndicators (spec 23 §5.4 / §5.5) is the per-destination
+	// glyph table. Empty values fall back to the theme defaults
+	// (📥 / 📰 / 🧾 / 🚪).
+	StreamIndicators StreamIndicatorsConfig `toml:"stream_indicators"`
+	// StreamASCIIFallback flips all four stream indicators to single-
+	// ASCII letters (i / f / p / k) regardless of any configured
+	// values. For terminals that cannot render emoji.
+	StreamASCIIFallback bool `toml:"stream_ascii_fallback"`
+
+	// Spec 25 inkwell stack indicators. Empty falls back to the
+	// theme defaults (↩ / 📌). Use the ASCII fallback letters
+	// `R` / `P` for terminals without emoji support.
+	ReplyLaterIndicator string `toml:"reply_later_indicator"`
+	SetAsideIndicator   string `toml:"set_aside_indicator"`
+	// FocusQueueLimit caps the spec 25 §5.7 Focus & Reply queue
+	// pre-fetch. Range 1–1000; default 200.
+	FocusQueueLimit int `toml:"focus_queue_limit"`
+}
+
+// StreamIndicatorsConfig is the inline table used by spec 23 §11 for
+// per-destination glyph overrides.
+type StreamIndicatorsConfig struct {
+	Imbox      string `toml:"imbox"`
+	Feed       string `toml:"feed"`
+	PaperTrail string `toml:"paper_trail"`
+	Screener   string `toml:"screener"`
 }
 
 // BindingsConfig owns the [bindings] section (spec 04).
 type BindingsConfig struct {
-	Quit            string `toml:"quit"`
-	Help            string `toml:"help"`
-	Cmd             string `toml:"cmd"`
-	Search          string `toml:"search"`
-	Refresh         string `toml:"refresh"`
-	FocusFolders    string `toml:"focus_folders"`
-	FocusList       string `toml:"focus_list"`
-	FocusViewer     string `toml:"focus_viewer"`
-	NextPane        string `toml:"next_pane"`
-	PrevPane        string `toml:"prev_pane"`
-	Up              string `toml:"up"`
-	Down            string `toml:"down"`
-	Left            string `toml:"left"`
-	Right           string `toml:"right"`
-	PageUp          string `toml:"page_up"`
-	PageDown        string `toml:"page_down"`
-	Home            string `toml:"home"`
-	End             string `toml:"end"`
-	Open            string `toml:"open"`
-	MarkRead        string `toml:"mark_read"`
-	MarkUnread      string `toml:"mark_unread"`
-	ToggleFlag      string `toml:"toggle_flag"`
-	Delete          string `toml:"delete"`
-	PermanentDelete string `toml:"permanent_delete"`
-	Archive         string `toml:"archive"`
-	Move            string `toml:"move"`
-	AddCategory     string `toml:"add_category"`
-	RemoveCategory  string `toml:"remove_category"`
-	Undo            string `toml:"undo"`
-	Filter          string `toml:"filter"`
-	ClearFilter     string `toml:"clear_filter"`
-	ApplyToFiltered string `toml:"apply_to_filtered"`
-	Unsubscribe     string `toml:"unsubscribe"`
-	MuteThread      string `toml:"mute_thread"`
-	ThreadChord     string `toml:"thread_chord"`
+	Quit             string `toml:"quit"`
+	Help             string `toml:"help"`
+	Cmd              string `toml:"cmd"`
+	Search           string `toml:"search"`
+	Refresh          string `toml:"refresh"`
+	FocusFolders     string `toml:"focus_folders"`
+	FocusList        string `toml:"focus_list"`
+	FocusViewer      string `toml:"focus_viewer"`
+	NextPane         string `toml:"next_pane"`
+	PrevPane         string `toml:"prev_pane"`
+	Up               string `toml:"up"`
+	Down             string `toml:"down"`
+	Left             string `toml:"left"`
+	Right            string `toml:"right"`
+	PageUp           string `toml:"page_up"`
+	PageDown         string `toml:"page_down"`
+	Home             string `toml:"home"`
+	End              string `toml:"end"`
+	Open             string `toml:"open"`
+	MarkRead         string `toml:"mark_read"`
+	MarkUnread       string `toml:"mark_unread"`
+	ToggleFlag       string `toml:"toggle_flag"`
+	Delete           string `toml:"delete"`
+	PermanentDelete  string `toml:"permanent_delete"`
+	Archive          string `toml:"archive"`
+	Move             string `toml:"move"`
+	AddCategory      string `toml:"add_category"`
+	RemoveCategory   string `toml:"remove_category"`
+	Undo             string `toml:"undo"`
+	Filter           string `toml:"filter"`
+	ClearFilter      string `toml:"clear_filter"`
+	ApplyToFiltered  string `toml:"apply_to_filtered"`
+	Unsubscribe      string `toml:"unsubscribe"`
+	MuteThread       string `toml:"mute_thread"`
+	ThreadChord      string `toml:"thread_chord"`
+	Palette          string `toml:"palette"`
+	StreamChord      string `toml:"stream_chord"`
+	NextTab          string `toml:"next_tab"`
+	PrevTab          string `toml:"prev_tab"`
+	ReplyLaterToggle string `toml:"reply_later_toggle"`
+	SetAsideToggle   string `toml:"set_aside_toggle"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

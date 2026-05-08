@@ -12,41 +12,47 @@ import (
 // §2). Each field is the override key string ("d", "ctrl+d", etc.);
 // empty means "leave default".
 type BindingOverrides struct {
-	Quit            string
-	Help            string
-	Cmd             string
-	Search          string
-	Refresh         string
-	FocusFolders    string
-	FocusList       string
-	FocusViewer     string
-	NextPane        string
-	PrevPane        string
-	Up              string
-	Down            string
-	Left            string
-	Right           string
-	PageUp          string
-	PageDown        string
-	Home            string
-	End             string
-	Open            string
-	MarkRead        string
-	MarkUnread      string
-	ToggleFlag      string
-	Delete          string
-	PermanentDelete string
-	Archive         string
-	Move            string
-	AddCategory     string
-	RemoveCategory  string
-	Undo            string
-	Filter          string
-	ClearFilter     string
-	ApplyToFiltered string
-	Unsubscribe     string
-	MuteThread      string
-	ThreadChord     string
+	Quit             string
+	Help             string
+	Cmd              string
+	Search           string
+	Refresh          string
+	FocusFolders     string
+	FocusList        string
+	FocusViewer      string
+	NextPane         string
+	PrevPane         string
+	Up               string
+	Down             string
+	Left             string
+	Right            string
+	PageUp           string
+	PageDown         string
+	Home             string
+	End              string
+	Open             string
+	MarkRead         string
+	MarkUnread       string
+	ToggleFlag       string
+	Delete           string
+	PermanentDelete  string
+	Archive          string
+	Move             string
+	AddCategory      string
+	RemoveCategory   string
+	Undo             string
+	Filter           string
+	ClearFilter      string
+	ApplyToFiltered  string
+	Unsubscribe      string
+	MuteThread       string
+	ThreadChord      string
+	Palette          string
+	StreamChord      string
+	NextTab          string
+	PrevTab          string
+	ReplyLaterToggle string
+	SetAsideToggle   string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -138,6 +144,34 @@ type KeyMap struct {
 	// operations (spec 20). Pressing T puts the UI into chord-pending
 	// state; the next keypress selects the action.
 	ThreadChord key.Binding
+
+	// Palette opens the spec 22 Ctrl+K command palette overlay — a
+	// fuzzy-find modal exposing every action (verbs, folders, saved
+	// searches) in one ranked list with the live binding rendered in
+	// the right-hand column.
+	Palette key.Binding
+
+	// StreamChord initiates the S<dest> chord for routing the focused
+	// message's sender to one of the four streams (Imbox / Feed /
+	// Paper Trail / Screener) or clearing routing (S c). Spec 23.
+	// Symmetric with ThreadChord (T): both prefix multi-target verbs
+	// in the list / viewer panes.
+	StreamChord key.Binding
+
+	// NextTab / PrevTab cycle the spec 24 list-pane tab strip. They
+	// are pane-scoped: only fire when the list pane is focused.
+	// `]` / `[` retain their viewer-pane (NavPrev/NextInThread, spec
+	// 05) and calendar-pane (day nav, spec 12) meanings; this is a
+	// third pane-scoped meaning, not a global binding (spec 24 §5.2).
+	NextTab key.Binding
+	PrevTab key.Binding
+
+	// ReplyLaterToggle / SetAsideToggle (spec 25). Add/remove the
+	// focused message from the corresponding inkwell stack
+	// (Inkwell/ReplyLater / Inkwell/SetAside category). Pane-scoped
+	// to list and viewer.
+	ReplyLaterToggle key.Binding
+	SetAsideToggle   key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -194,6 +228,19 @@ func DefaultKeyMap() KeyMap {
 		FullscreenBody: key.NewBinding(key.WithKeys("z")),
 		MuteThread:     key.NewBinding(key.WithKeys("M")),
 		ThreadChord:    key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "thread chord")),
+		Palette:        key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "command palette")),
+		StreamChord:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "stream chord")),
+		NextTab:        key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		PrevTab:        key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
+		// Spec 25 §5.1 specified `L` (Reply Later) and `S` (Set Aside),
+		// noting both as "unused capitals". Spec 23 subsequently
+		// claimed `S` for the stream chord, so this implementation
+		// keeps `L` for ReplyLater but binds Set Aside to `P`
+		// (mnemonic: Pin, matches the 📌 indicator the spec chose).
+		// Documented as a deviation from spec 25 in the spec-25 plan
+		// file iter log.
+		ReplyLaterToggle: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "reply later")),
+		SetAsideToggle:   key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "set aside (pin)")),
 	}
 }
 
@@ -271,6 +318,12 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.Unsubscribe, o.Unsubscribe)
 	apply(&km.MuteThread, o.MuteThread)
 	apply(&km.ThreadChord, o.ThreadChord)
+	apply(&km.Palette, o.Palette)
+	apply(&km.StreamChord, o.StreamChord)
+	apply(&km.NextTab, o.NextTab)
+	apply(&km.PrevTab, o.PrevTab)
+	apply(&km.ReplyLaterToggle, o.ReplyLaterToggle)
+	apply(&km.SetAsideToggle, o.SetAsideToggle)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -319,6 +372,10 @@ func findDuplicateBinding(km KeyMap) string {
 		{"unsubscribe", km.Unsubscribe},
 		{"mute_thread", km.MuteThread},
 		{"thread_chord", km.ThreadChord},
+		{"palette", km.Palette},
+		{"stream_chord", km.StreamChord},
+		{"reply_later_toggle", km.ReplyLaterToggle},
+		{"set_aside_toggle", km.SetAsideToggle},
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {
