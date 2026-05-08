@@ -1,0 +1,46 @@
+From: Acme News <news@example.invalid>
+To: reader@example.invalid
+Subject: Spring promo — 20% off everything
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <min-layout-marketing@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f4f4f4">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center" style="padding:24px">
+          <table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#fff">
+            <tr>
+              <td style="padding:24px;background:#222;color:#fff" align="center">
+                <h1>Spring Sale</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px">
+                <p>Hi friend,</p>
+                <p>For the next 48 hours, take 20% off everything in our store with code <b>SPRING20</b>.</p>
+                <table cellpadding="0" cellspacing="0" border="0" align="center">
+                  <tr>
+                    <td style="background:#0066cc;padding:12px 24px" align="center">
+                      <a href="https://shop.example.invalid/sale" style="color:#fff;text-decoration:none">Shop now</a>
+                    </td>
+                  </tr>
+                </table>
+                <p>Happy shopping,<br>The Acme team</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px;background:#eee;color:#666" align="center">
+                <small>You're receiving this because you opted in. <a href="https://shop.example.invalid/u">Unsubscribe</a></small>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

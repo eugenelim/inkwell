@@ -1,0 +1,23 @@
+From: Bob <bob@example.invalid>
+To: reader@example.invalid
+Subject: Quick note
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <min-single-cell@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html>
+  <body>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td>
+          <p>Hi,</p>
+          <p>Just confirming we're on for Thursday at 2pm. I'll send the dial-in tomorrow.</p>
+          <p>Thanks,<br>Bob</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

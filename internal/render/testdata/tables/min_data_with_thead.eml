@@ -1,0 +1,28 @@
+From: Finance Bot <finance@example.invalid>
+To: reader@example.invalid
+Subject: Q2 forecast — top accounts
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <min-data-thead@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html>
+  <body>
+    <p>Top five accounts by Q2 forecast:</p>
+    <table>
+      <thead>
+        <tr><th>Account</th><th>Owner</th><th>Q1 actual</th><th>Q2 forecast</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Northwind</td><td>Alice</td><td>$120k</td><td>$145k</td></tr>
+        <tr><td>Contoso</td><td>Bob</td><td>$98k</td><td>$110k</td></tr>
+        <tr><td>Fabrikam</td><td>Carol</td><td>$76k</td><td>$92k</td></tr>
+        <tr><td>Tailspin</td><td>Dan</td><td>$54k</td><td>$60k</td></tr>
+        <tr><td>Wingtip</td><td>Erin</td><td>$48k</td><td>$58k</td></tr>
+      </tbody>
+    </table>
+    <p>Numbers reflect committed pipeline only.</p>
+  </body>
+</html>

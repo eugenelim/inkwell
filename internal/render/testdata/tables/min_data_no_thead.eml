@@ -1,0 +1,23 @@
+From: Reports <reports@example.invalid>
+To: reader@example.invalid
+Subject: Daily build status
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <min-data-nothead@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html>
+  <body>
+    <p>Build status as of 09:00 UTC:</p>
+    <table>
+      <tr><td><b>Service</b></td><td><b>Status</b></td><td><b>Duration</b></td></tr>
+      <tr><td>api</td><td>green</td><td>3m12s</td></tr>
+      <tr><td>worker</td><td>green</td><td>1m47s</td></tr>
+      <tr><td>ui</td><td>red</td><td>0m41s</td></tr>
+      <tr><td>migrations</td><td>green</td><td>0m08s</td></tr>
+    </table>
+    <p>ui failure under investigation.</p>
+  </body>
+</html>

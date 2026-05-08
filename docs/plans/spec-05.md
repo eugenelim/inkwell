@@ -342,3 +342,49 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
   - `go vet ./...` — clean.
   - `go test -race ./...` — all 17 packages pass.
   - `go test -tags=e2e ./...` — all 17 packages pass.
+
+### Iter (planning) — 2026-05-07
+- Slice: scope the §6.1.1 data-vs-layout table classifier — no code yet.
+  Today's `htmlToText()` (`internal/render/html.go:23`) sets
+  `html2text.PrettyTables: false`, which flattens both real data tables
+  and layout-only tables. Users with finance/dashboard email lose the
+  grid; flipping the flag globally would catastrophise marketing email
+  (every MJML body is 50 nested tables of layout chrome). Need a
+  classifier.
+- Spec amendment landed: `docs/specs/05-message-rendering.md` §6.1
+  redirect → §6.1.1 (new). Heuristic written: `role="presentation"`,
+  nested-table → layout; `<th>` or rectangular short-header first row →
+  data; default-fallback layout. Sizing guard downgrades wide / >50-row
+  tables. Adds `[rendering].pretty_tables` (default `true`) and
+  `pretty_table_max_rows` (default `50`) to §13. New perf rows in §14:
+  HTML render with classifier <100ms; classifier walk over 50-nested
+  body <10ms. Status line bumped.
+- Fixture corpus committed to `internal/render/testdata/tables/`:
+  - `min_data_with_thead.eml`, `min_data_no_thead.eml`,
+    `min_layout_marketing.eml`, `min_nested_data_in_layout.eml`,
+    `min_single_cell_wrapper.eml` — hand-crafted, one per classifier
+    branch, kept short for golden-file diff readability.
+  - `real_newsletter_data_analysis.eml` (50 tables, 3 `<th>`),
+    `real_review_request.eml` (50 tables, 0 `<th>`),
+    `real_card_shipped.eml` (46 tables, 0 `<th>`) — wrapped from
+    Mailteorite/mjml-email-templates (MIT). Attribution + provenance
+    table in `LICENSES.md` alongside the fixtures.
+  - All headers use `example.invalid`, no PII, repo-distributable.
+- Open questions before implementation iter:
+  - Width of pretty tables vs pane: tablewriter takes its own width
+    decision based on cell content; needs a pre-render width estimator
+    so we can downgrade *before* invoking it. Likely: walk the data
+    table once, sum max-cell-widths + separators, compare to
+    `2 × pane_width`.
+  - Interaction with the configured external converter
+    (`html.go:38-50`): classifier should run only on the internal-path
+    body. External converter output is already plain text — no tables
+    to classify.
+  - `golang.org/x/net v0.53.0` is already in `go.mod` as an indirect
+    dep, so importing `golang.org/x/net/html` only promotes it to
+    direct (no new module, no `go.sum` line drift). Still warrants
+    its own `go mod tidy` commit per CLAUDE.md §10.
+- Commands run: none (no code changes this iter; spec + fixtures only).
+- Next: implementation iter — `internal/render/htmltable.go` with the
+  classifier + width estimator + rewrite, `htmltable_test.go` driving
+  the corpus, perf benchmark over `real_newsletter_data_analysis.eml`.

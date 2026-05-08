@@ -1,0 +1,909 @@
+From: Acme Greetings <orders@acme.example.invalid>
+To: reader@example.invalid
+Subject: How was your order?
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <real_review_request@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!--
+  Template: Post-Purchase Review Request
+  File: 04-review-request-post-delivery.mjml
+  Category: receipt-invoice / post-purchase
+  
+  Purpose:
+  Request product/service review after confirmed delivery to boost social proof and customer engagement.
+  Warm, gratitude-focused approach to maximize review submission rate.
+  
+  When to send:
+  - 7-10 days after delivery confirmation (allows time for product testing)
+  - After "delivered" shipping status update
+  - Post-purchase nurture sequence (email 2 or 3)
+  - Only to customers who haven't left a review yet
+  
+  Personalize:
+  - {{first_name}}
+  - {{product_name}} or {{product_category}} (e.g., "skincare products")
+  - {{order_number}} (optional reference)
+  - {{review_url}} for "Share Your Feedback" CTA
+  - {{product_image}} - hero flatlay image
+  - Brand colors (#ffe6a7 primary, #fdfcdc secondary, #3e2723 text)
+  
+  Notes:
+  - Marketing/transactional hybrid (review request after purchase)
+  - Gratitude-first approach: "Thank you" before asking
+  - Educational section: "Why Your Voice Matters" reduces friction
+  - 3-point bullet list = clear value proposition for leaving review
+  - Community building language: "strengthen our community", "skin-positive"
+  - Works best 7-14 days post-delivery (sweet spot for fresh experience)
+  - Avoid sending too early (product not tested) or too late (forgotten)
+  - Can be automated via Shopify/WooCommerce + email platform
+  
+  Best practices:
+  - Keep tone warm, never demanding or transactional
+  - Make CTA obvious but not aggressive
+  - Explain benefits of leaving review (education = higher conversion)
+  - Provide support contact in case of issues (prevent bad reviews)
+  - Segment: Only send to satisfied customers (use NPS or delivery tracking)
+-->
+<!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-50 { width:50% !important; max-width: 50%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-50 { width:50% !important; max-width: 50%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+    
+    
+  </head>
+  <body style="word-spacing:normal;background-color:none;">
+    
+    
+      <div
+         style="background-color:none;" lang="und" dir="auto"
+      >
+        <!-- Header/Thank You Section -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#ffe6a7" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffe6a7;background-color:#ffe6a7;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffe6a7;background-color:#ffe6a7;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:20px 15px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:570px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:26px;font-weight:bold;line-height:1;text-align:center;color:#3e2723;"
+      >Thank You for Your Purchase!</div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 0 20px 0;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:500px;">
+              
+      <img
+         alt="Skincare Product Flatlay" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1747161894/uploaded-by-ai/an-aesthetically-pleasing-flatlay-of-skincare-products-arran.jpg" style="border:0;border-radius:7px;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="500" height="auto"
+      />
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:16px;line-height:1;text-align:center;color:#6d4c41;"
+      >We hope your new skincare products have arrived safely and are brightening your daily routine. Your trust means everything to us, and we’d love to hear about your experience!</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    <!-- Main Feedback CTA Section -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#fdfcdc" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#fdfcdc;background-color:#fdfcdc;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#fdfcdc;background-color:#fdfcdc;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:20px 20px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:560px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:20px;font-weight:bold;line-height:1;text-align:center;color:#4d342e;"
+      >How Was Your Experience?</div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:16px;line-height:1;text-align:center;color:#4d342e;"
+      >Your feedback helps us grow and inspires us to keep delivering self-care solutions you’ll truly love. If you have a moment, please leave us a review about your shopping and delivery experience!</div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:20px 0;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"
+      >
+        <tbody>
+          <tr>
+            <td
+               align="center" bgcolor="#ffe6a7" role="presentation" style="border:none;border-radius:12px;cursor:auto;mso-padding-alt:10px 25px;background:#ffe6a7;" valign="middle"
+            >
+              <a
+                 href="https://yourreviewlink.com" style="display:inline-block;background:#ffe6a7;color:#3e2723;font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:10px 25px;mso-padding-alt:0px;border-radius:12px;" target="_blank"
+              >
+                Share Your Feedback
+              </a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    <!-- Benefits/Social Proof Section -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:15px 15px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:570px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:18px;font-weight:bold;line-height:1;text-align:center;color:#4d342e;"
+      >Why Your Voice Matters</div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:15px;line-height:1.6;text-align:left;color:#333333;"
+      ><ul style="padding-left:15px;">
+            <li>⭐ Guide new customers to make informed choices.</li>
+            <li>⭐ Help us improve our products and customer service.</li>
+            <li>⭐ Strengthen our community with your honest thoughts.</li>
+          </ul>
+          Every review—big or small—makes a real difference!</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    <!-- Aftercare & Community Section -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#ffe6a7" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffe6a7;background-color:#ffe6a7;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffe6a7;background-color:#ffe6a7;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:15px 15px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:285px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-50 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:200px;">
+              
+      <img
+         alt="Natural Ingredients" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1747161894/uploaded-by-ai/a-beautifully-composed-image-showcasing-natural-ingredients-.jpg" style="border:0;border-radius:7px;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="200" height="auto"
+      />
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td><td class="" style="vertical-align:middle;width:285px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-50 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:middle;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:middle;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:14px;line-height:1;text-align:center;color:#4d342e;"
+      >If you have any questions or need tips for your skincare routine, our friendly team is always here to help. We love being part of your daily self-care!<br/><br/>
+          Your choice means the world to us—every review and message helps us grow and create what matters most to you. Thank you for supporting our skincare community!</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    <!-- Social Section -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#fdfcdc" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#fdfcdc;background-color:#fdfcdc;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#fdfcdc;background-color:#fdfcdc;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:10px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:600px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:14px;line-height:1;text-align:center;color:#6d4c41;"
+      >Join our skin-positive community for tips, sneak peeks, and exclusive offers:</div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      
+     <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" ><tr><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://youtube.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1740061171/youtube-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://twitter.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1739470105/twitter-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://linkedin.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1728425053/linkedin-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://instagram.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1740061962/instagram-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://facebook.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1728426637/facebook-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://tiktok.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1740062001/tiktok-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td><td><![endif]-->
+              <table
+                 align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="float:none;display:inline-table;"
+              >
+                <tbody>
+                  
+      <tr
+        
+      >
+        <td  style="padding:4px;vertical-align:middle;">
+          <table
+             border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:3px;width:30px;"
+          >
+            <tbody>
+              <tr>
+                <td  style="font-size:0;height:30px;vertical-align:middle;width:30px;">
+                  <a  href="https://pinterest.com" target="_blank">
+                    <img
+                       alt="" height="30" src="https://res.cloudinary.com/dk79hhqvp/image/upload/v1740061496/pinterest-round-outlined.png" style="border-radius:3px;display:block;" width="30"
+                    />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+        
+      </tr>
+    
+                </tbody>
+              </table>
+            <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    <!-- Footer -->
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#ffe6a7" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffe6a7;background-color:#ffe6a7;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffe6a7;background-color:#ffe6a7;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:10px 15px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:570px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:transparent;vertical-align:top;padding:20px 15px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 25px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:12px;line-height:1;text-align:center;color:#4d342e;"
+      >You are receiving this email because you recently shopped with us.<br>
+          Need help? Reach us at <a href="mailto:support@yourskincare.com" style="color:#4d342e;text-decoration:underline;">support@yourskincare.com</a></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:5px 0 0 0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Ubuntu, Helvetica, Arial, sans-serif;font-size:11px;line-height:1;text-align:center;color:#bfa278;"
+      >&copy; 2024 Your Skincare Brand. All rights reserved.</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    
+      </div>
+    
+  </body>
+</html>
+  

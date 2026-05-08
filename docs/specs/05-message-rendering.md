@@ -1,6 +1,6 @@
 # Spec 05 — Message Rendering
 
-**Status:** Shipped (CI scope, v0.2.x → v0.17.x). Headers + body fetch + html2text + plain-text normalisation + URL extraction + OSC 8 hyperlink wrapping all wired. v0.17.x adds the attachment visibility block between headers and body (PR 8 sibling — spec §8 amended). URL extraction hardened against parens-in-query + hard-wrapped URLs in the same release. Residual: viewer keybindings (`o`, `O`, `e`, `Q`, `1-9`, `a-z`, `Shift+A-Z`, `[`, `]`) + GetAttachment helper + save / open path + thread map + format=flowed unwrapping + attribution-line detection — all tracked under PR 10.
+**Status:** Shipped (CI scope, v0.2.x → v0.17.x). Headers + body fetch + html2text + plain-text normalisation + URL extraction + OSC 8 hyperlink wrapping all wired. v0.17.x adds the attachment visibility block between headers and body (PR 8 sibling — spec §8 amended). URL extraction hardened against parens-in-query + hard-wrapped URLs in the same release. Residual: viewer keybindings (`o`, `O`, `e`, `Q`, `1-9`, `a-z`, `Shift+A-Z`, `[`, `]`) + GetAttachment helper + save / open path + thread map + format=flowed unwrapping + attribution-line detection — all tracked under PR 10. Pending: §6.1.1 data-vs-layout table classifier (drafted 2026-05-07; fixture corpus committed to `internal/render/testdata/tables/`; implementation not started).
 **Depends on:** Specs 02 (store, body cache), 03 (sync engine, on-demand body fetch), 04 (TUI viewer pane).
 **Blocks:** Spec 07 (triage actions; reply/forward needs rendered body context).
 **Estimated effort:** 2 days.
@@ -157,12 +157,112 @@ Use `github.com/jaytaylor/html2text` for the in-process default. It handles the 
 - `<strong>`, `<em>` → preserved with terminal styling (bold, italic).
 - `<a href="…">text</a>` → `text [N]` with the URL collected for the link list (§9).
 - `<ul>`/`<ol>` → bulleted/numbered lists with proper indentation.
-- `<table>` → simple text-grid rendering when small; "[Table omitted, see :open]" when large.
+- `<table>` → see §6.1.1.
 - `<blockquote>` → `>` quoting with theme-styled color.
 - `<img>` → `[image: alt-text]` placeholder; URL collected for `:open`.
 - `<br>` → newline.
 
 This covers ~80% of corporate email well. Marketing emails with complex CSS layouts will look terrible; that's expected and is what the `:open` fallback is for.
+
+### 6.1.1 Tables: data vs layout
+
+**Problem.** HTML email uses `<table>` for two unrelated purposes: real
+tabular data (invoices, dashboards, finance digests) and visual layout
+(every newsletter, every transactional email out of MJML / Mailchimp /
+Constant Contact). The two need opposite renderings — data tables should
+keep their grid; layout tables should flatten to flowing text. v0.17.x
+shipped with `html2text.PrettyTables: false`, which flattens *both*. That
+loses real data; users have no way to see Q-by-Q numbers without falling
+back to `:open`.
+
+**Approach.** Pre-process the HTML before handing it to `html2text`:
+walk the document with `golang.org/x/net/html`, classify each `<table>`
+node, and rewrite layout tables into their concatenated cell content
+(stripping the `<table>` shell so html2text sees flowing inline text).
+Data tables are left intact and html2text is invoked with
+`PrettyTables: true` so the surviving tables render as ASCII grids via
+`olekukonko/tablewriter`. We do **not** write our own table layout
+engine; we let html2text do that work for the tables we keep.
+
+**Classification heuristic** — each `<table>` node is classified
+independently. When inspecting a table's descendants, descendants that
+lie inside a nested `<table>` belong to that nested table, not the outer
+one. Rules below are evaluated in order; first match wins.
+
+1. **`role="presentation"`** → layout. Author intent is explicit; trust it.
+2. **Contains a `<th>` (own descendant)** → data. Semantic markup is the
+   cleanest positive signal, and overrides the structural heuristics
+   below.
+3. **Contains another `<table>` as a descendant** → layout. Nesting is
+   a layout-engineering pattern; data tables don't nest.
+4. **One row × one cell** → layout. Single-cell wrapper pattern.
+5. **Inconsistent cell count across rows** → layout. Data tables are
+   rectangular; layout tables aren't.
+6. **≥2 rows, consistent cell count between 2 and 8, first row's cells
+   all ≤30 chars** → data. Header-like first row even without `<th>`;
+   exercised by `min_data_no_thead.eml`.
+7. **Default** → layout. Conservative fallback: the cost of mistakenly
+   flattening a data table is "user opens in browser"; the cost of
+   mistakenly box-drawing a layout table is "the entire email renders
+   as nested ASCII boxes". Asymmetry favors flatten.
+
+For the `real_newsletter_data_analysis.eml` case (data table embedded in
+MJML chrome): outer wrapping tables hit rule 3, the inner data table
+hits rule 2. Both classify correctly.
+
+**Sizing guard.** Even when classified as data, a table is downgraded to
+flatten if:
+
+- Estimated rendered width (sum of max cell widths + separators)
+  exceeds `2 × pane_width` — the table can't fit even with wrapping
+  and tablewriter's truncation produces worse output than flat text.
+- Row count > `[rendering].pretty_table_max_rows` (default 50).
+  Above that, the grid exceeds a screenful and the user is better
+  served by `:open` in the browser.
+
+When downgraded, prepend `[Wide table — N×M, omitted; press O to view in browser]` so the user knows there *was* a table.
+
+**Config.** Adds one knob to `[rendering]`:
+
+```toml
+[rendering]
+pretty_tables = true              # default true; false reverts to v0.17.x flat behavior
+pretty_table_max_rows = 50        # downgrade above this row count
+```
+
+**Pipeline placement.** The classifier lives in
+`internal/render/htmltable.go`, called from `htmlToText()` between the
+tracking-pixel strip (existing) and the `html2text.FromString` call
+(existing). Output of the classifier is rewritten HTML — same string
+type, same downstream contract. `normalisePlain()` (`plain.go`) is
+unchanged. Soft-wrap only sees the post-html2text text, so wrapping
+of pretty-rendered tables relies on html2text emitting newlines at
+row boundaries (it does).
+
+**Test corpus.** Fixtures live under `internal/render/testdata/tables/`
+as `.eml` files (per spec §16/§17 DoD). Two flavors:
+
+- `min_*.eml` (5 files) — hand-crafted minimal isolations of each
+  classifier branch: `min_data_with_thead.eml`,
+  `min_data_no_thead.eml`, `min_layout_marketing.eml`,
+  `min_nested_data_in_layout.eml`, `min_single_cell_wrapper.eml`.
+  Used for golden-file unit tests of the classifier.
+- `real_*.eml` (3 files; spec §17 DoD targets 20 anonymised samples
+  total — fill in as we hit edge cases) — real-world MJML-compiled
+  email bodies wrapped in RFC 5322 envelopes, taken from
+  [Mailteorite/mjml-email-templates](https://github.com/Mailteorite/mjml-email-templates)
+  (MIT, copyright (c) 2025 Mailteorite — see
+  `internal/render/testdata/tables/LICENSES.md`). These exercise the
+  ~50-nested-`<table>` shape that real marketing/transactional email
+  has, including `real_newsletter_data_analysis.eml` (50 tables total,
+  3 `<th>` cells in one inner data table) where the classifier must
+  pretty-render the inner data table while flattening the outer
+  layout chrome.
+
+The test harness adds a small `loadEmlHTML(t, path)` helper that uses
+`net/mail` + `mime/multipart` to extract the `text/html` part. Same
+harness is reused for any future testdata category (quotes,
+marketing, etc.).
 
 ### 6.2 External converter option
 
@@ -412,6 +512,8 @@ New keys this spec adds (also in CONFIG.md):
 | `rendering.large_attachment_warn_mb` | `25` | §8.2 |
 | `rendering.strip_patterns` | `[]` of regexes (defaults shipped in code) | §6.5 |
 | `rendering.external_converter_timeout` | `"5s"` | §6.2 |
+| `rendering.pretty_tables` | `true` | §6.1.1 |
+| `rendering.pretty_table_max_rows` | `50` | §6.1.1 |
 
 ## 14. Performance budgets
 
@@ -423,6 +525,8 @@ New keys this spec adds (also in CONFIG.md):
 | Body fetch from Graph (uncached) | <500ms |
 | Attachment metadata listing (cached) | <5ms |
 | Conversation thread map render | <20ms |
+| HTML body render with table classifier active (cached, <500KB) | <100ms |
+| Table classifier walk over 50-nested-`<table>` MJML body | <10ms |
 
 The HTML budget is the looser one because real-world corporate HTML is gnarly. If we exceed it on a real sample, we either invest in faster HTML parsing or surface a "rendering took 200ms…" debug indicator and accept it.
 

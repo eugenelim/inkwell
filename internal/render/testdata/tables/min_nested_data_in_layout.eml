@@ -1,0 +1,51 @@
+From: Acme Receipts <receipts@example.invalid>
+To: reader@example.invalid
+Subject: Your order #4421 — receipt
+Date: Mon, 04 May 2026 09:15:00 +0000
+Message-ID: <min-nested-data@example.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html>
+  <body style="margin:0;background:#f4f4f4">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center" style="padding:24px">
+          <table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#fff">
+            <tr>
+              <td style="padding:24px;background:#0a3d62;color:#fff">
+                <h2>Thanks for your order</h2>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px">
+                <p>Order <b>#4421</b> — placed May 4, 2026.</p>
+                <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+                  <thead>
+                    <tr><th>Item</th><th>Qty</th><th>Price</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Notebook A5</td><td>2</td><td>$24.00</td></tr>
+                    <tr><td>Fountain pen</td><td>1</td><td>$48.00</td></tr>
+                    <tr><td>Ink, blue-black</td><td>3</td><td>$36.00</td></tr>
+                  </tbody>
+                  <tfoot>
+                    <tr><td colspan="2" align="right"><b>Total</b></td><td><b>$108.00</b></td></tr>
+                  </tfoot>
+                </table>
+                <p>Shipping to your address on file. We'll email tracking when it leaves the warehouse.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px;background:#eee" align="center">
+                <small>Acme Stationery · 1 Mill St · <a href="https://acme.example.invalid/help">Help</a></small>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
