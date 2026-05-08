@@ -1852,14 +1852,14 @@ func TestIsMeetingMessagePrefersCanonicalSignal(t *testing.T) {
 			comment: "casual 'where' without 'When:' label is NOT an invite",
 		},
 		{
-			name: "bodypreview-checks-only-first-200-chars",
+			name: "bodypreview-checks-only-first-400-chars",
 			msg: store.Message{
 				Subject: "long email",
-				BodyPreview: strings.Repeat("noise ", 50) +
+				BodyPreview: strings.Repeat("noise ", 70) +
 					"When: tomorrow Where: my desk",
 			},
 			want:    false,
-			comment: "When/Where buried past 200 chars don't trigger the heuristic",
+			comment: "When/Where buried past 400 chars don't trigger the heuristic",
 		},
 	}
 	for _, tc := range cases {

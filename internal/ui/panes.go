@@ -1408,6 +1408,17 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 		"Date:    " + m.current.ReceivedAt.Format(time.RFC1123),
 		"Subject: " + m.current.Subject,
 	}
+	// Meeting invite summary lines: shown for both compact and full
+	// header modes immediately after Subject so the reader sees
+	// the meeting time without scrolling or pressing H.
+	if isMeetingMessage(*m.current) {
+		if when, where := extractMeetingInfo(m.current.BodyPreview); when != "" {
+			hdrs = append(hdrs, "When:    "+when)
+			if where != "" {
+				hdrs = append(hdrs, "Where:   "+where)
+			}
+		}
+	}
 	if m.showFullHdr {
 		hdrs = append(hdrs,
 			"To:      "+joinAddrs(m.current.ToAddresses),
@@ -1906,20 +1917,83 @@ func isMeetingMessage(msg store.Message) bool {
 // back" or "Where do you want to meet" but rarely both as
 // labelled headers.
 //
-// We scan the first ~200 chars only (the Outlook preview header
-// block is short). Limiting the scan window keeps the heuristic
-// from false-positiving on long emails that happen to contain
-// both words elsewhere in the body.
+// We scan the first ~400 chars (extended from 200 to accommodate
+// long timezone strings, e.g. "(UTC+05:30) Chennai, Kolkata,
+// Mumbai, New Delhi", which push "Where:" past the old window).
+//
+// Fallback: "When:" alone is accepted when the value immediately
+// after the colon begins with a digit or a day/month name. Virtual
+// meetings (Teams-only) sometimes omit "Where:" entirely; a
+// datetime-shaped value rules out prose "When I have a moment".
 func hasInviteBodyPreview(preview string) bool {
 	if preview == "" {
 		return false
 	}
 	head := preview
-	if len(head) > 200 {
-		head = head[:200]
+	if len(head) > 400 {
+		head = head[:400]
 	}
 	lower := strings.ToLower(head)
-	return strings.Contains(lower, "when:") && strings.Contains(lower, "where:")
+	if strings.Contains(lower, "when:") && strings.Contains(lower, "where:") {
+		return true
+	}
+	idx := strings.Index(lower, "when:")
+	if idx >= 0 {
+		rest := strings.TrimSpace(lower[idx+5:])
+		if inviteDatetimeShape(rest) {
+			return true
+		}
+	}
+	return false
+}
+
+// inviteDatetimeShape reports whether s starts with a digit or a
+// day/month name — the shapes that appear after "When:" in
+// Outlook-generated invite previews.
+func inviteDatetimeShape(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] >= '0' && s[0] <= '9' {
+		return true
+	}
+	for _, p := range meetingDatePrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// meetingDatePrefixes are the day and month name tokens that can
+// follow "When:" in Outlook invite previews.
+var meetingDatePrefixes = []string{
+	"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+	"january", "february", "march", "april", "may", "june", "july", "august",
+	"september", "october", "november", "december",
+	"jan ", "feb ", "mar ", "apr ", "may ", "jun ",
+	"jul ", "aug ", "sep ", "oct ", "nov ", "dec ",
+	"today", "tomorrow",
+}
+
+// extractMeetingInfo scans a body preview for Outlook's "When:" and
+// "Where:" labels and returns their trimmed values. Either may be
+// empty when the corresponding label is absent from the preview.
+func extractMeetingInfo(preview string) (when, where string) {
+	for _, line := range strings.Split(preview, "\n") {
+		line = strings.TrimSpace(line)
+		lower := strings.ToLower(line)
+		if when == "" && strings.HasPrefix(lower, "when:") {
+			when = strings.TrimSpace(line[5:])
+		}
+		if where == "" && strings.HasPrefix(lower, "where:") {
+			where = strings.TrimSpace(line[6:])
+		}
+		if when != "" && where != "" {
+			break
+		}
+	}
+	return
 }
 
 // truncate cuts s to fit `width` terminal cells. Width is measured

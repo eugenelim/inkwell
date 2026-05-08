@@ -194,3 +194,77 @@ func TestSafeAttachmentPathDirPrefixFalsePositive(t *testing.T) {
 	// filepath.Base("bar/x") == "x", joined = "/foo/x" — inside /foo, ok.
 	require.NoError(t, err)
 }
+
+// hasInviteBodyPreview and extractMeetingInfo tests.
+
+func TestHasInviteBodyPreviewBothLabels(t *testing.T) {
+	preview := "When: Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC+00:00)\nWhere: Microsoft Teams Meeting\n"
+	require.True(t, hasInviteBodyPreview(preview), "both When+Where must be detected")
+}
+
+func TestHasInviteBodyPreviewWhenAloneWithDigit(t *testing.T) {
+	// Virtual meeting: no physical location, "Where:" omitted.
+	preview := "When: 5/8/2026 2:00 PM – 3:00 PM (UTC)\n"
+	require.True(t, hasInviteBodyPreview(preview), "When: with numeric date must be detected without Where:")
+}
+
+func TestHasInviteBodyPreviewWhenAloneWithDayName(t *testing.T) {
+	preview := "When: Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC)\n"
+	require.True(t, hasInviteBodyPreview(preview), "When: with day name must be detected without Where:")
+}
+
+func TestHasInviteBodyPreviewWhenAloneWithMonthName(t *testing.T) {
+	preview := "When: May 8, 2026 2:00 PM – 3:00 PM (UTC)\n"
+	require.True(t, hasInviteBodyPreview(preview), "When: with month name must be detected without Where:")
+}
+
+func TestHasInviteBodyPreviewWhereAloneIsNotSufficient(t *testing.T) {
+	preview := "Where: Conference Room B\n"
+	require.False(t, hasInviteBodyPreview(preview), "Where: alone must not be detected")
+}
+
+func TestHasInviteBodyPreviewProseWhenIsNotDetected(t *testing.T) {
+	// Regular email containing "When I" — must not false-positive.
+	preview := "When I have a chance I will review the document and send feedback."
+	require.False(t, hasInviteBodyPreview(preview), "prose 'when' clause must not be detected")
+}
+
+func TestHasInviteBodyPreviewEmptyReturnsFalse(t *testing.T) {
+	require.False(t, hasInviteBodyPreview(""))
+}
+
+func TestHasInviteBodyPreviewLongTimezoneWindowExtended(t *testing.T) {
+	// Long timezone pushes "Where:" past the old 200-char window; the
+	// extended 400-char window must catch it.
+	longWhen := "When: Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi\n"
+	where := "Where: Microsoft Teams Meeting\n"
+	preview := longWhen + where
+	require.True(t, hasInviteBodyPreview(preview), "Where: after long timezone must be detected in extended window")
+}
+
+func TestExtractMeetingInfoBothPresent(t *testing.T) {
+	preview := "When: Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC)\nWhere: Building 5\n"
+	when, where := extractMeetingInfo(preview)
+	require.Equal(t, "Thursday, May 8, 2026 2:00 PM – 3:00 PM (UTC)", when)
+	require.Equal(t, "Building 5", where)
+}
+
+func TestExtractMeetingInfoWhenOnly(t *testing.T) {
+	preview := "When: 5/8/2026 2:00 PM\nNo location info here.\n"
+	when, where := extractMeetingInfo(preview)
+	require.Equal(t, "5/8/2026 2:00 PM", when)
+	require.Empty(t, where)
+}
+
+func TestExtractMeetingInfoEmpty(t *testing.T) {
+	when, where := extractMeetingInfo("")
+	require.Empty(t, when)
+	require.Empty(t, where)
+}
+
+func TestExtractMeetingInfoCaseInsensitive(t *testing.T) {
+	preview := "WHEN: Monday, Jun 1, 2026\nWHERE: Room 42\n"
+	when, where := extractMeetingInfo(preview)
+	require.Equal(t, "Monday, Jun 1, 2026", when)
+	require.Equal(t, "Room 42", where)
+}
