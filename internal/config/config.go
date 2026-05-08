@@ -357,6 +357,20 @@ type UIConfig struct {
 	// FocusQueueLimit caps the spec 25 §5.7 Focus & Reply queue
 	// pre-fetch. Range 1–1000; default 200.
 	FocusQueueLimit int `toml:"focus_queue_limit"`
+
+	// BundleMinCount is the minimum size of a consecutive run of
+	// designated-sender messages before it collapses into a bundle row
+	// (spec 26 §5.3). Default 2; range 0–9999. Setting to 0 disables
+	// bundling entirely while preserving the user's designations.
+	BundleMinCount int `toml:"bundle_min_count"`
+	// BundleIndicatorCollapsed is the disclosure glyph shown on a
+	// collapsed bundle row (spec 26 §5.2). Default "▸"; ASCII
+	// fallback ">". Validated to ≤2 display cells at config load.
+	BundleIndicatorCollapsed string `toml:"bundle_indicator_collapsed"`
+	// BundleIndicatorExpanded is the disclosure glyph shown on an
+	// expanded bundle row (spec 26 §5.2). Default "▾"; ASCII
+	// fallback "v". Validated to ≤2 display cells at config load.
+	BundleIndicatorExpanded string `toml:"bundle_indicator_expanded"`
 }
 
 // StreamIndicatorsConfig is the inline table used by spec 23 §11 for
@@ -411,6 +425,8 @@ type BindingsConfig struct {
 	PrevTab          string `toml:"prev_tab"`
 	ReplyLaterToggle string `toml:"reply_later_toggle"`
 	SetAsideToggle   string `toml:"set_aside_toggle"`
+	BundleToggle     string `toml:"bundle_toggle"`
+	BundleExpand     string `toml:"bundle_expand"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

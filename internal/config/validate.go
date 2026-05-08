@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // Validate reports the first invalid or missing field in c.
@@ -42,6 +44,15 @@ func (c *Config) Validate() error {
 	}
 	if c.UI.FocusQueueLimit < 1 || c.UI.FocusQueueLimit > 1000 {
 		errs = append(errs, "ui.focus_queue_limit must be between 1 and 1000")
+	}
+	if c.UI.BundleMinCount < 0 || c.UI.BundleMinCount > 9999 {
+		errs = append(errs, "ui.bundle_min_count must be between 0 and 9999")
+	}
+	if w := runewidth.StringWidth(c.UI.BundleIndicatorCollapsed); w > 2 {
+		errs = append(errs, fmt.Sprintf("ui.bundle_indicator_collapsed %q is %d display cells; must be ≤ 2", c.UI.BundleIndicatorCollapsed, w))
+	}
+	if w := runewidth.StringWidth(c.UI.BundleIndicatorExpanded); w > 2 {
+		errs = append(errs, fmt.Sprintf("ui.bundle_indicator_expanded %q is %d display cells; must be ≤ 2", c.UI.BundleIndicatorExpanded, w))
 	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":

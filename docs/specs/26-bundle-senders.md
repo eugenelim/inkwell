@@ -1,6 +1,7 @@
 # Spec 26 — Bundle senders
 
-**Status:** Ready for implementation.
+**Shipped:** v0.54.0
+**Status:** Shipped.
 **Depends on:** Spec 02 (store + new `bundled_senders` table), Spec 04
 (TUI), Spec 07 (action queue — bulk-pending path only; bundle is local-
 only and does NOT route through the action queue), Spec 10 (filter +

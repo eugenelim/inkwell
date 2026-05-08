@@ -116,7 +116,7 @@ func (m Model) startStackToggle(category string) (Model, tea.Cmd) {
 	var focused *store.Message
 	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
 		focused = cur
-	} else if sel, ok := m.list.Selected(); ok {
+	} else if sel, ok := m.list.SelectedMessage(); ok {
 		s := sel
 		focused = &s
 	}

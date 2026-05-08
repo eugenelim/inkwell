@@ -846,11 +846,46 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 	return t.Folders.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
+// renderedRow describes one visible row in the list pane (spec 26 §5.5).
+// A flat message row sets only Message; a bundle header carries
+// IsBundleHeader=true plus BundleAddress / BundleIDs / BundleSize
+// (and BundleFolders when cross-folder); a bundle member row (visible
+// only when the parent is expanded) carries IsBundleMember=true.
+type renderedRow struct {
+	IsBundleHeader bool
+	IsBundleMember bool
+	Message        store.Message
+	BundleAddress  string
+	BundleIDs      []string
+	BundleSize     int
+	// BundleFolders is the ordered list of distinct folder IDs in the
+	// bundle's members (first-seen order, deduplicated). Only set on
+	// header rows when the cross-folder filter is active.
+	BundleFolders []string
+}
+
+// bundleCache memoises the rendered slice + messageIndex lookup so a
+// vanilla View() with no state change is O(N) read, not O(N) recompute
+// (spec 26 §8.1). Invalidated by SetMessages, SetBundledSenders,
+// SetBundleExpanded, SetBundleMinCount, ResetLimit. Recomputed lazily
+// the next time anything reads the rendered slice.
+type bundleCache struct {
+	rendered     []renderedRow
+	messageIndex []int
+	valid        bool
+}
+
 // ListModel is the message-list pane.
 type ListModel struct {
 	FolderID string
 	messages []store.Message
-	cursor   int
+	// cursor indexes the rendered slice (bundleCache.rendered), not the
+	// underlying messages slice (spec 26 §5.5). When no bundles exist
+	// the two are 1:1 and behaviour is unchanged; when a bundle is
+	// collapsed the cursor steps over the (N) header row, not the N
+	// member rows. messageIndexAt(cursor) bridges back to the
+	// underlying messages slice for ShouldLoadMore and similar.
+	cursor int
 	// folderNameByID is populated when a cross-folder filter is active and
 	// results span more than one folder. Nil otherwise (column hidden).
 	folderNameByID map[string]string
@@ -882,6 +917,25 @@ type ListModel struct {
 	// genuine end of a mailbox kept hitting j and re-firing
 	// no-op backfills (real-tenant regression v0.14.x).
 	graphExhausted bool
+	// bundledSenders is the in-memory designated-sender set scoped to
+	// the signed-in account (spec 26 §5.6). Pushed by Model on sign-in
+	// and on every Ctrl+R refresh. Empty when bundling is unused.
+	bundledSenders map[string]struct{}
+	// bundleExpanded[address] = true when the bundle for that sender
+	// is expanded in the current folder. Pushed by Model whenever the
+	// active folder or expand-state changes.
+	bundleExpanded map[string]bool
+	// bundleMinCount mirrors [ui].bundle_min_count. 0 disables the
+	// bundle pass entirely (preserving designations) per spec 26 §5.3.
+	bundleMinCount int
+	// bundleIndCollapsed / bundleIndExpanded mirror the [ui]
+	// bundle_indicator_* config keys (spec 26 §5.2). Empty falls back
+	// to the spec defaults "▸" / "▾".
+	bundleIndCollapsed string
+	bundleIndExpanded  string
+	// cache holds the most-recently computed rendered+messageIndex
+	// slices; invalidated whenever any of the above inputs change.
+	cache bundleCache
 }
 
 // initialListLimit is the first-page size for the list pane.
@@ -905,26 +959,224 @@ func NewList() ListModel { return ListModel{loadLimit: initialListLimit} }
 // returned page is shorter than the requested limit — that signals
 // the local store has nothing more to give until a sync delivers
 // fresh messages.
+//
+// After spec 26: also recomputes the bundleCache and re-anchors the
+// cursor on the new rendered row whose underlying message ID matches
+// the prior selection (lands on the bundle header when the prior
+// message has been collapsed into one).
 func (m *ListModel) SetMessages(ms []store.Message) {
 	prevID := ""
-	if m.cursor < len(m.messages) {
+	if m.cursor >= 0 && m.cursor < len(m.cache.rendered) {
+		// Resolve current message id from the rendered cache so we
+		// re-anchor on the same logical message even if the cache
+		// has stale boundaries from a prior pass.
+		row := m.cache.rendered[m.cursor]
+		if row.IsBundleHeader && len(row.BundleIDs) > 0 {
+			prevID = row.BundleIDs[0]
+		} else {
+			prevID = row.Message.ID
+		}
+	} else if m.cursor < len(m.messages) {
 		prevID = m.messages[m.cursor].ID
 	}
 	m.messages = ms
 	m.loading = false
 	m.cacheExhausted = len(ms) < m.LoadLimit()
-	m.wallSyncRequested = false // fresh load → allow another wall-sync
+	m.wallSyncRequested = false
+	m.invalidateBundleCache()
+	m.ensureBundleCache()
 	if prevID != "" {
-		for i, msg := range ms {
-			if msg.ID == prevID {
+		for i, row := range m.cache.rendered {
+			if row.IsBundleHeader {
+				for _, id := range row.BundleIDs {
+					if id == prevID {
+						m.cursor = i
+						return
+					}
+				}
+				continue
+			}
+			if row.Message.ID == prevID {
 				m.cursor = i
 				return
 			}
 		}
 	}
-	if m.cursor >= len(ms) {
+	if m.cursor >= len(m.cache.rendered) {
 		m.cursor = 0
 	}
+}
+
+// SetBundledSenders pushes the in-memory designated-sender set into
+// the list model (spec 26 §5.6). The map is captured by reference;
+// callers MUST replace the map (not mutate in place) and call this
+// setter so the cache invalidates correctly.
+func (m *ListModel) SetBundledSenders(s map[string]struct{}) {
+	m.bundledSenders = s
+	m.invalidateBundleCache()
+}
+
+// SetBundleExpanded pushes the per-folder expand-state map (address →
+// bool). Same capture-by-reference contract as SetBundledSenders.
+func (m *ListModel) SetBundleExpanded(e map[string]bool) {
+	m.bundleExpanded = e
+	m.invalidateBundleCache()
+}
+
+// SetBundleMinCount mirrors [ui].bundle_min_count from the config.
+// 0 disables the bundle pass entirely (preserving designations).
+func (m *ListModel) SetBundleMinCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	m.bundleMinCount = n
+	m.invalidateBundleCache()
+}
+
+// SetBundleIndicators mirrors the two [ui].bundle_indicator_* config
+// keys; empty values fall back to "▸" / "▾".
+func (m *ListModel) SetBundleIndicators(collapsed, expanded string) {
+	m.bundleIndCollapsed = collapsed
+	m.bundleIndExpanded = expanded
+	// Indicator change is a render-only concern (the structure of
+	// rendered rows is identical); no cache invalidation needed.
+}
+
+// invalidateBundleCache marks the cache stale; the next read recomputes.
+func (m *ListModel) invalidateBundleCache() { m.cache.valid = false }
+
+// ensureBundleCache populates m.cache when stale (spec 26 §8.1).
+// O(N) over m.messages; allocates rendered + messageIndex slices.
+func (m *ListModel) ensureBundleCache() {
+	if m.cache.valid {
+		return
+	}
+	m.cache.rendered = m.cache.rendered[:0]
+	m.cache.messageIndex = m.cache.messageIndex[:0]
+	if cap(m.cache.rendered) < len(m.messages) {
+		m.cache.rendered = make([]renderedRow, 0, len(m.messages))
+		m.cache.messageIndex = make([]int, 0, len(m.messages))
+	}
+	bundleEnabled := m.bundleMinCount > 0 && len(m.bundledSenders) > 0
+	emit := func(r renderedRow, idx int) {
+		m.cache.rendered = append(m.cache.rendered, r)
+		m.cache.messageIndex = append(m.cache.messageIndex, idx)
+	}
+	for i := 0; i < len(m.messages); i++ {
+		if !bundleEnabled {
+			emit(renderedRow{Message: m.messages[i]}, i)
+			continue
+		}
+		addr := strings.ToLower(strings.TrimSpace(m.messages[i].FromAddress))
+		if addr == "" {
+			emit(renderedRow{Message: m.messages[i]}, i)
+			continue
+		}
+		if _, ok := m.bundledSenders[addr]; !ok {
+			emit(renderedRow{Message: m.messages[i]}, i)
+			continue
+		}
+		// Walk the consecutive run.
+		j := i
+		for j < len(m.messages) {
+			ja := strings.ToLower(strings.TrimSpace(m.messages[j].FromAddress))
+			if ja != addr {
+				break
+			}
+			j++
+		}
+		runLen := j - i
+		if runLen < m.bundleMinCount {
+			for k := i; k < j; k++ {
+				emit(renderedRow{Message: m.messages[k]}, k)
+			}
+			i = j - 1
+			continue
+		}
+		// Collect IDs and distinct folders for the bundle.
+		ids := make([]string, 0, runLen)
+		var folders []string
+		seen := make(map[string]struct{}, 4)
+		for k := i; k < j; k++ {
+			ids = append(ids, m.messages[k].ID)
+			fid := m.messages[k].FolderID
+			if _, ok := seen[fid]; !ok {
+				seen[fid] = struct{}{}
+				folders = append(folders, fid)
+			}
+		}
+		header := renderedRow{
+			IsBundleHeader: true,
+			Message:        m.messages[i], // newest (date-DESC sort)
+			BundleAddress:  addr,
+			BundleIDs:      ids,
+			BundleSize:     runLen,
+			BundleFolders:  folders,
+		}
+		emit(header, i)
+		if m.bundleExpanded[addr] {
+			for k := i; k < j; k++ {
+				emit(renderedRow{IsBundleMember: true, Message: m.messages[k]}, k)
+			}
+		}
+		i = j - 1
+	}
+	m.cache.valid = true
+}
+
+// rowAt returns the rendered row at i. Caller MUST guard against
+// out-of-bounds via len(m.cache.rendered) or use messageIndexAt's
+// own bounds check; rowAt panics on invalid i (matching slice access
+// semantics elsewhere in the codebase).
+func (m *ListModel) rowAt(i int) renderedRow {
+	m.ensureBundleCache()
+	return m.cache.rendered[i]
+}
+
+// SelectedMessage returns the message that single-message verbs
+// should target, plus an "ok" boolean (false when the list is
+// empty / cursor out of bounds — preserves the prior Selected()
+// contract). For a bundle header (collapsed or expanded), returns
+// the newest member (BundleIDs[0] / Message). For a flat row or a
+// bundle-member row, returns the row's own message.
+func (m *ListModel) SelectedMessage() (store.Message, bool) {
+	m.ensureBundleCache()
+	if m.cursor < 0 || m.cursor >= len(m.cache.rendered) {
+		return store.Message{}, false
+	}
+	return m.cache.rendered[m.cursor].Message, true
+}
+
+// SelectedRow returns the rendered row at the cursor, plus ok=false
+// when the list is empty / cursor out of bounds. Useful when the
+// caller needs to distinguish a bundle header from a flat row.
+func (m *ListModel) SelectedRow() (renderedRow, bool) {
+	m.ensureBundleCache()
+	if m.cursor < 0 || m.cursor >= len(m.cache.rendered) {
+		return renderedRow{}, false
+	}
+	return m.cache.rendered[m.cursor], true
+}
+
+// messageIndexAt returns the index in the underlying m.messages
+// slice of the message backing rendered row i. For a bundle header,
+// returns the index of the newest member (the first message in the
+// run, which appears at position i in m.messages because the run is
+// stored contiguously and emitted in order). Used by ShouldLoadMore
+// and any other consumer that reasons about position within the
+// cached message slice rather than rendered rows.
+func (m *ListModel) messageIndexAt(i int) int {
+	m.ensureBundleCache()
+	if i < 0 || i >= len(m.cache.messageIndex) {
+		return -1
+	}
+	return m.cache.messageIndex[i]
+}
+
+// renderedLen returns the number of rendered rows.
+func (m *ListModel) renderedLen() int {
+	m.ensureBundleCache()
+	return len(m.cache.rendered)
 }
 
 // LoadLimit reports the current page size for store.ListMessages.
@@ -940,14 +1192,23 @@ func (m ListModel) LoadLimit() int {
 // already in flight, or when the local store is exhausted at the
 // current limit (no point asking SQLite for more rows it doesn't
 // have; the engine's foreground sync will deliver more eventually).
-func (m ListModel) ShouldLoadMore() bool {
+//
+// After spec 26: the threshold is over the underlying message slice,
+// not the rendered row count — a long densely-bundled tail must NOT
+// pre-fire load-more because the message-side index hasn't reached
+// the cache wall yet.
+func (m *ListModel) ShouldLoadMore() bool {
 	if m.loading || m.cacheExhausted {
 		return false
 	}
 	if len(m.messages) == 0 {
 		return false
 	}
-	return m.cursor >= len(m.messages)-loadMoreThreshold
+	idx := m.messageIndexAt(m.cursor)
+	if idx < 0 {
+		return false
+	}
+	return idx >= len(m.messages)-loadMoreThreshold
 }
 
 // MarkLoading flips the loading flag and bumps the load limit by one
@@ -972,8 +1233,15 @@ func (m ListModel) OldestReceivedAt() time.Time {
 // AtCacheWall returns true when the cursor sits at the last row of a
 // list that's exhausted the local store. Caller can use this to kick
 // a sync so the engine pulls more from Graph.
-func (m ListModel) AtCacheWall() bool {
-	return m.cacheExhausted && len(m.messages) > 0 && m.cursor == len(m.messages)-1
+//
+// After spec 26: the wall is measured by the underlying message
+// index (messageIndexAt(cursor) at the tail of m.messages), not the
+// rendered row index — bundles at the tail otherwise hide the wall.
+func (m *ListModel) AtCacheWall() bool {
+	if !m.cacheExhausted || len(m.messages) == 0 {
+		return false
+	}
+	return m.messageIndexAt(m.cursor) == len(m.messages)-1
 }
 
 // ShouldKickWallSync returns true when the cursor is at the cache
@@ -982,7 +1250,7 @@ func (m ListModel) AtCacheWall() bool {
 // flips wallSyncRequested via [MarkWallSyncRequested] after firing
 // the Cmd, so subsequent j-presses don't re-fire until the next
 // SetMessages.
-func (m ListModel) ShouldKickWallSync() bool {
+func (m *ListModel) ShouldKickWallSync() bool {
 	return m.AtCacheWall() && !m.wallSyncRequested && !m.graphExhausted
 }
 
@@ -1014,18 +1282,21 @@ func (m *ListModel) ResetLimit() {
 	m.loading = false
 	m.graphExhausted = false
 	m.cacheExhausted = false
+	m.invalidateBundleCache()
 }
 
-// Up / Down / Selected mirror the folders pane.
+// Up / Down / Selected mirror the folders pane. After spec 26 they
+// step rendered rows, not underlying messages — a collapsed bundle
+// is one row, an expanded bundle is N+1 rows (header + members).
 func (m *ListModel) Up() {
 	if m.cursor > 0 {
 		m.cursor--
 	}
 }
 
-// Down moves the cursor toward newer messages.
+// Down moves the cursor toward newer messages (rendered rows).
 func (m *ListModel) Down() {
-	if m.cursor+1 < len(m.messages) {
+	if m.cursor+1 < m.renderedLen() {
 		m.cursor++
 	}
 }
@@ -1036,15 +1307,14 @@ func (m *ListModel) Down() {
 // mental position.
 const listPageStep = 20
 
-// PageDown jumps the cursor `listPageStep` rows toward the bottom,
-// clamped at the last message. Used by PgDn / Ctrl+D in the list
-// pane. Pre-fetch + wall-sync flow the same as a single Down() —
-// the dispatch in dispatchList re-checks ShouldLoadMore /
-// ShouldKickWallSync after the jump.
+// PageDown jumps the cursor `listPageStep` rendered rows toward the
+// bottom, clamped at the last rendered row. Used by PgDn / Ctrl+D in
+// the list pane.
 func (m *ListModel) PageDown() {
+	rl := m.renderedLen()
 	target := m.cursor + listPageStep
-	if target >= len(m.messages) {
-		target = len(m.messages) - 1
+	if target >= rl {
+		target = rl - 1
 	}
 	if target < 0 {
 		target = 0
@@ -1052,7 +1322,7 @@ func (m *ListModel) PageDown() {
 	m.cursor = target
 }
 
-// PageUp jumps the cursor `listPageStep` rows toward the top,
+// PageUp jumps the cursor `listPageStep` rendered rows toward the top,
 // clamped at row 0.
 func (m *ListModel) PageUp() {
 	target := m.cursor - listPageStep
@@ -1062,21 +1332,13 @@ func (m *ListModel) PageUp() {
 	m.cursor = target
 }
 
-// JumpTop / JumpBottom move the cursor to the first / last
-// message. Used by Home / End / g / G.
+// JumpTop / JumpBottom move the cursor to the first / last rendered
+// row. Used by Home / End / g / G.
 func (m *ListModel) JumpTop() { m.cursor = 0 }
 func (m *ListModel) JumpBottom() {
-	if len(m.messages) > 0 {
-		m.cursor = len(m.messages) - 1
+	if rl := m.renderedLen(); rl > 0 {
+		m.cursor = rl - 1
 	}
-}
-
-// Selected returns the highlighted message, if any.
-func (m ListModel) Selected() (store.Message, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.messages) {
-		return store.Message{}, false
-	}
-	return m.messages[m.cursor], true
 }
 
 // View renders the message column.
@@ -1086,91 +1348,36 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		body := strings.Join([]string{header, t.Dim.Render("  (select a folder)")}, "\n")
 		return t.List.Width(width).Height(height).Render(body)
 	}
+	// View() is a value receiver; ensureBundleCache mutates the
+	// receiver, so we work on the local copy. The cache is normally
+	// already valid (setters populate it eagerly), so this is an O(1)
+	// branch unless something forced an invalidation between Update
+	// cycles.
+	mp := &m
+	mp.ensureBundleCache()
 	var colHeader string
 	if m.folderNameByID != nil {
 		colHeader = t.Dim.Render(fmt.Sprintf("  %-10s %-12s %-12s %s", "RECEIVED", "FROM", "FOLDER", "SUBJECT"))
 	}
-	rows := make([]string, 0, len(m.messages))
-	for i, msg := range m.messages {
-		when := relativeWhen(msg.ReceivedAt)
-		from := msg.FromName
-		if from == "" {
-			from = msg.FromAddress
-		}
+	rows := make([]string, 0, len(m.cache.rendered))
+	for i, row := range m.cache.rendered {
 		marker := "  "
 		if i == m.cursor && focused {
 			marker = "▶ "
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		// Indicator slot priority (spec 19 §5.2 + spec 23 §5.5 +
-		// spec 25 §5.2): calendar > mute (in __muted__ view only)
-		// > routing (in routing virtual folder) > Reply Later
-		// (in stack views or any view where the row is tagged) >
-		// Set Aside > nothing.
-		invite := "  "
-		switch {
-		case isMeetingMessage(msg):
-			invite = "📅 "
-		case m.FolderID == mutedSentinelID:
-			mi := t.MuteIndicator
-			if mi == "" {
-				mi = "🔕"
-			}
-			invite = mi + " "
-		default:
-			if dest := streamDestinationFromID(m.FolderID); dest != "" {
-				if g := streamGlyphForDestination(dest, t); g != "" {
-					invite = g + " "
-				}
-			}
-			// Spec 25 stack indicator: shown inside stack virtual
-			// folders or whenever the message carries the category.
-			// Reply Later wins over Set Aside.
-			showStack := m.FolderID == replyLaterSentinelID || m.FolderID == setAsideSentinelID
-			if invite == "  " && showStack {
-				switch {
-				case store.IsInCategory(msg.Categories, store.CategoryReplyLater):
-					if g := stackGlyph(store.CategoryReplyLater, t); g != "" {
-						invite = g + " "
-					}
-				case store.IsInCategory(msg.Categories, store.CategorySetAside):
-					if g := stackGlyph(store.CategorySetAside, t); g != "" {
-						invite = g + " "
-					}
-				}
-			}
-		}
-		flag := "  "
-		if msg.FlagStatus == "flagged" {
-			fi := t.FlagIndicator
-			if fi == "" {
-				fi = "⚑"
-			}
-			flag = fi + " "
-		}
-		attach := ""
-		if msg.HasAttachments {
-			ai := t.AttachmentIndicator
-			if ai == "" {
-				ai = "📎"
-			}
-			attach = " " + ai
-		}
 		var line string
-		if m.folderNameByID != nil {
-			folder := m.folderNameByID[msg.FolderID]
-			if folder == "" {
-				folder = "???"
-			}
-			line = fmt.Sprintf("%s%s%s%-10s %-12s %-12s %s%s", marker, flag, invite, when, truncate(from, 12), truncate(folder, 12), msg.Subject, attach)
-		} else {
-			line = fmt.Sprintf("%s%s%s%-10s %-14s %s%s", marker, flag, invite, when, truncate(from, 14), msg.Subject, attach)
+		switch {
+		case row.IsBundleHeader:
+			line = m.renderBundleHeader(row, marker, t, width)
+		default:
+			line = m.renderFlatRow(row, marker, t, width)
 		}
 		styled := truncate(line, width-1)
 		if i == m.cursor && focused {
 			styled = t.ListSel.Render(styled)
-		} else if !msg.IsRead {
+		} else if !row.IsBundleHeader && !row.Message.IsRead {
 			styled = t.ListUnread.Render(styled)
 		}
 		rows = append(rows, styled)
@@ -1186,6 +1393,132 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 	}
 	out = append(out, visible...)
 	return t.List.Width(width).Height(height).Render(strings.Join(out, "\n"))
+}
+
+// renderFlatRow formats one ordinary message row (also used for bundle
+// member rows when expanded). The row layout matches the pre-spec-26
+// flat row — bundle members are visually indistinguishable from
+// other flat rows.
+func (m ListModel) renderFlatRow(row renderedRow, marker string, t Theme, width int) string {
+	msg := row.Message
+	when := relativeWhen(msg.ReceivedAt)
+	from := msg.FromName
+	if from == "" {
+		from = msg.FromAddress
+	}
+	// Indicator slot priority (spec 19 §5.2 + spec 23 §5.5 +
+	// spec 25 §5.2): calendar > mute (in __muted__ view only)
+	// > routing (in routing virtual folder) > Reply Later
+	// (in stack views or any view where the row is tagged) >
+	// Set Aside > nothing.
+	invite := "  "
+	switch {
+	case isMeetingMessage(msg):
+		invite = "📅 "
+	case m.FolderID == mutedSentinelID:
+		mi := t.MuteIndicator
+		if mi == "" {
+			mi = "🔕"
+		}
+		invite = mi + " "
+	default:
+		if dest := streamDestinationFromID(m.FolderID); dest != "" {
+			if g := streamGlyphForDestination(dest, t); g != "" {
+				invite = g + " "
+			}
+		}
+		showStack := m.FolderID == replyLaterSentinelID || m.FolderID == setAsideSentinelID
+		if invite == "  " && showStack {
+			switch {
+			case store.IsInCategory(msg.Categories, store.CategoryReplyLater):
+				if g := stackGlyph(store.CategoryReplyLater, t); g != "" {
+					invite = g + " "
+				}
+			case store.IsInCategory(msg.Categories, store.CategorySetAside):
+				if g := stackGlyph(store.CategorySetAside, t); g != "" {
+					invite = g + " "
+				}
+			}
+		}
+	}
+	flag := "  "
+	if msg.FlagStatus == "flagged" {
+		fi := t.FlagIndicator
+		if fi == "" {
+			fi = "⚑"
+		}
+		flag = fi + " "
+	}
+	attach := ""
+	if msg.HasAttachments {
+		ai := t.AttachmentIndicator
+		if ai == "" {
+			ai = "📎"
+		}
+		attach = " " + ai
+	}
+	if m.folderNameByID != nil {
+		folder := m.folderNameByID[msg.FolderID]
+		if folder == "" {
+			folder = "???"
+		}
+		return fmt.Sprintf("%s%s%s%-10s %-12s %-12s %s%s", marker, flag, invite, when, truncate(from, 12), truncate(folder, 12), msg.Subject, attach)
+	}
+	return fmt.Sprintf("%s%s%s%-10s %-14s %s%s", marker, flag, invite, when, truncate(from, 14), msg.Subject, attach)
+}
+
+// renderBundleHeader formats a bundle header row. The flag + invite
+// columns are replaced by a 2-cell disclosure glyph + 2 spaces (per
+// spec 26 §5.2 column-width invariant); the FROM column carries the
+// bundled address; the SUBJECT column carries `(N) — <latest subject>`.
+// On cross-folder bundles the FOLDER column shows `<folder> +N` via
+// truncateBundleFolder.
+func (m ListModel) renderBundleHeader(row renderedRow, marker string, t Theme, width int) string {
+	glyph := "▾"
+	if !m.bundleExpanded[row.BundleAddress] {
+		glyph = "▸"
+		if m.bundleIndCollapsed != "" {
+			glyph = m.bundleIndCollapsed
+		}
+	} else if m.bundleIndExpanded != "" {
+		glyph = m.bundleIndExpanded
+	}
+	disclosure := glyph + " "
+	when := relativeWhen(row.Message.ReceivedAt)
+	subject := fmt.Sprintf("(%d) — %s", row.BundleSize, row.Message.Subject)
+	// flag + invite slots: disclosure + 2 spaces (4 cells total to
+	// match flag + invite = 4 cells in flat rows).
+	flagSlot := disclosure
+	inviteSlot := "  "
+	if m.folderNameByID != nil {
+		folder := m.folderNameByID[row.Message.FolderID]
+		if folder == "" {
+			folder = "???"
+		}
+		others := 0
+		if len(row.BundleFolders) > 1 {
+			others = len(row.BundleFolders) - 1
+		}
+		folderCell := truncateBundleFolder(folder, others, 12)
+		return fmt.Sprintf("%s%s%s%-10s %-12s %-12s %s", marker, flagSlot, inviteSlot, when, truncate(row.BundleAddress, 12), folderCell, subject)
+	}
+	return fmt.Sprintf("%s%s%s%-10s %-14s %s", marker, flagSlot, inviteSlot, when, truncate(row.BundleAddress, 14), subject)
+}
+
+// truncateBundleFolder formats `<folder> +N` into a width-cell column
+// (spec 26 §5.2). The +N suffix is preserved verbatim; the folder
+// name is truncated and suffixed with `…` if it had to be cut. When
+// others==0 falls back to plain truncate(folder, width).
+func truncateBundleFolder(folder string, others, width int) string {
+	if others <= 0 {
+		return truncate(folder, width)
+	}
+	suffix := fmt.Sprintf(" +%d", others)
+	head := width - len(suffix)
+	if head < 1 {
+		head = 1
+	}
+	return truncate(folder, head) + suffix
 }
 
 // ViewerModel is the read pane. Headers + body + attachments routed

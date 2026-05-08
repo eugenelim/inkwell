@@ -58,7 +58,7 @@ Workflow patterns built on the primitives. Users feel these.
 | 2     | Routing destinations (1.9)          | 23   | Shipped v0.51.0.                               |
 | 3     | Split inbox tabs (1.7)              | 24   | Shipped v0.52.0.                               |
 | 4     | Reply Later / Set Aside (1.10)      | 25   | Shipped v0.53.0.                               |
-| 5     | Bundle senders (1.11)               | 26   | In progress.                                   |
+| 5     | Bundle senders (1.11)               | 26   | Shipped v0.54.0.                               |
 
 ### Bucket 3 — Power-user automation
 
@@ -231,7 +231,7 @@ These differ from regular flags because they have a dedicated overlay rather tha
 
 **Take.** Genuinely improves workflow for senior pros with a backlog. The "Reply Later" pattern in particular hits something the native client handles poorly. Ships as part of the Inbox Philosophy pack.
 
-### 1.11 Bundle senders — P2 (spec 26, in progress)
+### 1.11 Bundle senders — Shipped v0.54.0 (spec 26)
 
 **The concept.** For senders who send a deluge (newsletters, recruiter spam), collapse consecutive messages from the same sender in the list view into a single row. Expanding shows the bundle.
 

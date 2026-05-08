@@ -710,4 +710,71 @@ inkwell aside clear
 
 ---
 
-_Last reviewed against v0.53.0._
+## Bundle a noisy newsletter sender
+
+When a single sender (newsletter, recruiter spam, build bot) sends
+many emails, a bundle collapses runs of consecutive same-sender
+messages into one row in the list pane. Bundles are per-sender
+opt-in: nothing is bundled until you designate it. Spec 26.
+
+**Designate a sender:**
+
+1. Focus the list pane (`2`).
+2. Move the cursor onto any message from the sender you want to bundle.
+3. Press `B`.
+
+The status bar shows `▸ bundled <addr> — collapses N messages`. The
+runs of N≥2 consecutive same-sender messages collapse to a single
+header row showing `(N) — <latest subject>`.
+
+If the address only appears once in the current view, the toast
+reads `no consecutive run in current view; will collapse on next
+match` — the designation is saved and applies as soon as a run
+appears.
+
+**Expand / collapse a bundle:**
+
+- `Space` on the bundle header toggles expand/collapse. The cursor
+  stays on the header.
+- `Enter` on a *collapsed* header expands the bundle and leaves the
+  cursor on the header. Press `Enter` again to open the
+  representative (newest member) in the viewer.
+- `Space` on a bundle *member* collapses the parent and lands the
+  cursor on the now-collapsed header.
+
+**Un-designate a sender:**
+
+Press `B` again on the bundle header (or any flat row from the same
+sender). The bundle dissolves into flat rows in place; the toast
+reads `flat <addr> (was bundled)`.
+
+**Act on the whole bundle as one unit (the canonical workflow):**
+
+Single-message verbs (`d`, `a`, `f`, `T r`) on a bundle row target
+the *representative* (newest member), not the whole bundle. To act
+on every member at once, filter to the sender, then bulk-apply:
+
+```
+:filter ~f news@acme.com
+;d        # delete every message in the filter result (12 messages,
+          # not 1 row — the modal shows the true count)
+```
+
+The `;d` confirm modal text reflects the filter's true message
+count, even if the filter result is currently rendered as a single
+bundle row.
+
+**From the CLI:**
+
+```sh
+inkwell bundle add news@acme.com
+inkwell bundle remove news@acme.com
+inkwell bundle list
+inkwell bundle list --output json
+```
+
+CLI changes apply on the next `Ctrl+R` refresh inside a running TUI.
+
+---
+
+_Last reviewed against v0.54.0._

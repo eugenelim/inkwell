@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 12
+const SchemaVersion = 13
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -129,6 +129,15 @@ type Store interface {
 	IsConversationMuted(ctx context.Context, accountID int64, conversationID string) (bool, error)
 	ListMutedMessages(ctx context.Context, accountID int64, limit int) ([]Message, error)
 	CountMutedConversations(ctx context.Context, accountID int64) (int, error)
+
+	// Bundled senders (spec 26 — local only, no Graph call). Per-sender
+	// designation: matching mail in the list pane collapses into a bundle
+	// row. Membership key is the lowercased from_address; the store
+	// lowercases on write and read as defense-in-depth.
+	AddBundledSender(ctx context.Context, accountID int64, address string) error
+	RemoveBundledSender(ctx context.Context, accountID int64, address string) error
+	ListBundledSenders(ctx context.Context, accountID int64) ([]BundledSender, error)
+	IsSenderBundled(ctx context.Context, accountID int64, address string) (bool, error)
 
 	// Sender routing (spec 23 — local only, no Graph call). Per-sender
 	// assignment to one of imbox / feed / paper_trail / screener.

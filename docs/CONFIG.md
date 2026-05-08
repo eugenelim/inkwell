@@ -113,6 +113,9 @@ Controls the terminal UI.
 | `reply_later_indicator` | string | `"↩"` | any string ≤ 2 chars | Spec 25 §5.2. Glyph for the Reply Later stack indicator on list rows and in the viewer header. Use `"R"` for ASCII-only terminals. |
 | `set_aside_indicator` | string | `"📌"` | any string ≤ 2 chars | Glyph for the Set Aside stack indicator. Use `"P"` for ASCII-only terminals. |
 | `focus_queue_limit` | int | `200` | 1–1000 | Spec 25 §5.7.1. Cap on the Reply Later queue pre-fetched by `:focus`. The queue is frozen for the session; rare to exceed 200. |
+| `bundle_min_count` | int | `2` | 0–9999 | Spec 26 §5.3. Minimum size of a consecutive same-sender run before it collapses into a bundle row. `0` disables bundling entirely while preserving designations. |
+| `bundle_indicator_collapsed` | string | `"▸"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on a collapsed bundle row. Use `">"` for ASCII-only terminals. |
+| `bundle_indicator_expanded` | string | `"▾"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on an expanded bundle row. Use `"v"` for ASCII-only terminals. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
 | `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
 | `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
@@ -413,6 +416,8 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `prev_tab` | `"["` | Cycle to the previous spec 24 tab when the list pane is focused. Same pane-scoping as `next_tab`. |
 | `reply_later_toggle` | `"L"` | Spec 25. Toggle the focused message in the Reply Later stack (Inkwell/ReplyLater category). |
 | `set_aside_toggle` | `"P"` | Spec 25. Toggle the focused message in the Set Aside stack (Inkwell/SetAside category). Mnemonic: Pin (matches the 📌 indicator). Spec text suggested `S`; deviated because spec 23's stream chord already claimed `S`. |
+| `bundle_toggle` | `"B"` | Spec 26 §5.1. List-pane only. Toggle per-sender bundle designation on the focused message's address. |
+| `bundle_expand` | `" "` | Spec 26 §5.1. List-pane only, when the focused row is a bundle header. Toggles expand/collapse. Shares Space with `expand` (folders pane) by intent — pane dispatch resolves which fires. |
 | `palette` | `"ctrl+k"` | Open the spec 22 command palette (fuzzy-find every action; right-aligned binding column doubles as a passive cheatsheet). Set to `""` to disable. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 

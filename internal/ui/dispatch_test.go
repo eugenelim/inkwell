@@ -4843,7 +4843,7 @@ func TestSavedSearchCountBadgeRendersWhenNonNegative(t *testing.T) {
 // asserts the flag indicator (⚑) appears in the list view output.
 func TestFlagIndicatorRendersOnFlaggedMessage(t *testing.T) {
 	m := newDispatchTestModel(t)
-	m.list.messages = []store.Message{
+	m.list.SetMessages([]store.Message{
 		{
 			ID:         "m-flagged",
 			AccountID:  m.deps.Account.ID,
@@ -4853,7 +4853,7 @@ func TestFlagIndicatorRendersOnFlaggedMessage(t *testing.T) {
 			FlagStatus: "flagged",
 			ReceivedAt: time.Now(),
 		},
-	}
+	})
 	out := m.list.View(m.theme, 80, 20, true)
 	require.Contains(t, out, "⚑", "flag indicator must appear for flagged message")
 }
@@ -4863,7 +4863,7 @@ func TestFlagIndicatorRendersOnFlaggedMessage(t *testing.T) {
 // indicator (📎) appears in the list view output.
 func TestAttachmentIndicatorRendersOnMessageWithAttachments(t *testing.T) {
 	m := newDispatchTestModel(t)
-	m.list.messages = []store.Message{
+	m.list.SetMessages([]store.Message{
 		{
 			ID:             "m-attach",
 			AccountID:      m.deps.Account.ID,
@@ -4873,7 +4873,7 @@ func TestAttachmentIndicatorRendersOnMessageWithAttachments(t *testing.T) {
 			HasAttachments: true,
 			ReceivedAt:     time.Now(),
 		},
-	}
+	})
 	out := m.list.View(m.theme, 80, 20, true)
 	require.Contains(t, out, "📎", "attachment indicator must appear when HasAttachments=true")
 }
@@ -4882,7 +4882,7 @@ func TestAttachmentIndicatorRendersOnMessageWithAttachments(t *testing.T) {
 // indicator does NOT appear for a normal (unflagged) message.
 func TestNoFlagIndicatorOnUnflaggedMessage(t *testing.T) {
 	m := newDispatchTestModel(t)
-	m.list.messages = []store.Message{
+	m.list.SetMessages([]store.Message{
 		{
 			ID:         "m-normal",
 			AccountID:  m.deps.Account.ID,
@@ -4892,7 +4892,7 @@ func TestNoFlagIndicatorOnUnflaggedMessage(t *testing.T) {
 			FlagStatus: "notFlagged",
 			ReceivedAt: time.Now(),
 		},
-	}
+	})
 	out := m.list.View(m.theme, 80, 20, true)
 	require.NotContains(t, out, "⚑", "flag indicator must not appear for unflagged message")
 }

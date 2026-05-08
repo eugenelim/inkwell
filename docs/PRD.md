@@ -261,7 +261,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 23  | `23-routing-destinations.md`                       | post-v1, ROADMAP §0 bucket 2 — **shipped v0.51.0** |
 | 24  | `24-split-inbox-tabs.md`                           | post-v1, ROADMAP §0 bucket 2 — **shipped v0.52.0** |
 | 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
-| 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — in progress         |
+| 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — **shipped v0.54.0** |
 | 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
@@ -278,8 +278,8 @@ checklist item so future specs surface threat-model deltas as they land.
 Specs 16, 18–21 cover the "triage primitives" bucket from
 `docs/ROADMAP.md` §0 — all shipped v0.12.0 through v0.49.0.
 
-Specs 22–25 cover the "inbox philosophy" bucket — all shipped
-v0.50.0 through v0.53.0. Spec 26 (bundle senders) is in progress.
+Specs 22–26 cover the "inbox philosophy" bucket — all shipped
+v0.50.0 through v0.54.0.
 
 Specs 27 (custom actions framework, ROADMAP §0 Bucket 3 row 1 /
 §2), 28 (screener for new senders, Bucket 3 row 2 / §1.16), 29

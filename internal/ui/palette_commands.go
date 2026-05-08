@@ -41,7 +41,7 @@ func focusedMessage(m *Model) *store.Message {
 	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
 		return cur
 	}
-	if sel, ok := m.list.Selected(); ok {
+	if sel, ok := m.list.SelectedMessage(); ok {
 		s := sel
 		return &s
 	}

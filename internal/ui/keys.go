@@ -53,6 +53,8 @@ type BindingOverrides struct {
 	PrevTab          string
 	ReplyLaterToggle string
 	SetAsideToggle   string
+	BundleToggle     string
+	BundleExpand     string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -172,6 +174,18 @@ type KeyMap struct {
 	// to list and viewer.
 	ReplyLaterToggle key.Binding
 	SetAsideToggle   key.Binding
+
+	// BundleToggle (spec 26). Capital `B` toggles per-sender bundle
+	// designation on the focused message's address. Active in the
+	// list pane only. Same convention as D / M / U / T / X: capital
+	// = "affects more than the single message".
+	BundleToggle key.Binding
+	// BundleExpand (spec 26). Space toggles expand/collapse on a
+	// focused bundle header in the list pane. Pane-scoped: shares
+	// Space with `Expand` (folders pane) by intent — they fire in
+	// different panes, never both. Deliberately excluded from the
+	// duplicate-binding scan for the same reason.
+	BundleExpand key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -241,6 +255,8 @@ func DefaultKeyMap() KeyMap {
 		// file iter log.
 		ReplyLaterToggle: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "reply later")),
 		SetAsideToggle:   key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "set aside (pin)")),
+		BundleToggle:     key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "bundle sender")),
+		BundleExpand:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "expand bundle")),
 	}
 }
 
@@ -324,6 +340,8 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.PrevTab, o.PrevTab)
 	apply(&km.ReplyLaterToggle, o.ReplyLaterToggle)
 	apply(&km.SetAsideToggle, o.SetAsideToggle)
+	apply(&km.BundleToggle, o.BundleToggle)
+	apply(&km.BundleExpand, o.BundleExpand)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -376,6 +394,12 @@ func findDuplicateBinding(km KeyMap) string {
 		{"stream_chord", km.StreamChord},
 		{"reply_later_toggle", km.ReplyLaterToggle},
 		{"set_aside_toggle", km.SetAsideToggle},
+		{"bundle_toggle", km.BundleToggle},
+		// `bundle_expand` (Space) intentionally NOT in this set — it
+		// shares the Space key with `Expand` (folders pane) by design.
+		// Pane dispatch resolves: list-pane Space toggles bundle expand;
+		// folders-pane Space toggles folder expand. Same precedent as
+		// MarkRead/Reply sharing `r` (above).
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

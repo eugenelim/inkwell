@@ -32,7 +32,12 @@ func TestMigration012AppliesCleanly(t *testing.T) {
 	var ver string
 	require.NoError(t, st.db.QueryRowContext(ctx,
 		`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&ver))
-	require.Equal(t, "12", strings.TrimSpace(ver))
+	// Migrations run cumulatively; once migration 013 (spec 26) lands
+	// the schema_meta version pins to the latest. The test-name
+	// references migration 012 because it asserts 012's table
+	// extension (tab_order column + partial unique index), not the
+	// version cap. Tracked alongside [SchemaVersion] in store.go.
+	require.Equal(t, "13", strings.TrimSpace(ver))
 
 	// tab_order column exists and is NULL for new rows.
 	acc := SeedAccount(t, s)

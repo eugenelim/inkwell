@@ -271,6 +271,14 @@ type Deps struct {
 	ReplyLaterIndicator string
 	SetAsideIndicator   string
 	FocusQueueLimit     int
+
+	// Spec 26 — bundle senders. BundleMinCount mirrors
+	// [ui].bundle_min_count (default 2; 0 disables bundling). The
+	// two indicator strings override the default disclosure glyphs
+	// (▸ / ▾); empty leaves the default in place.
+	BundleMinCount           int
+	BundleIndicatorCollapsed string
+	BundleIndicatorExpanded  string
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -780,6 +788,21 @@ type Model struct {
 	// pendingThreadIDs stores pre-fetched message IDs for T d / T D
 	// confirm flow, avoiding a double-fetch race.
 	pendingThreadIDs []string
+
+	// Spec 26 — bundle senders. bundledSenders is the in-memory
+	// designated-sender set for the signed-in account, populated by
+	// loadBundledSendersCmd at sign-in and re-read on Ctrl+R.
+	// bundleExpanded[folderID][address] persists per-folder expand-
+	// state; synthetic folder IDs (filter:*, search:*, __muted__) are
+	// cleared on view exit per §5.6 lifecycle. bundleInflight is the
+	// per-address monotonic counter that guards rapid B presses; the
+	// bundleToastMsg handler ignores stale (lower-seq) results.
+	bundledSenders map[string]struct{}
+	bundleExpanded map[string]map[string]bool
+	bundleInflight map[string]uint64
+	bundleMinCount int
+	bundleIndCol   string
+	bundleIndExp   string
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -855,6 +878,13 @@ func New(deps Deps) (Model, error) {
 	if err != nil {
 		return Model{}, fmt.Errorf("ui: %w", err)
 	}
+	bundleMinCount := deps.BundleMinCount
+	if bundleMinCount < 0 {
+		bundleMinCount = 0
+	}
+	list := NewList()
+	list.SetBundleMinCount(bundleMinCount)
+	list.SetBundleIndicators(deps.BundleIndicatorCollapsed, deps.BundleIndicatorExpanded)
 	return Model{
 		deps:                deps,
 		paneWidths:          DefaultPaneWidths(),
@@ -866,7 +896,7 @@ func New(deps Deps) (Model, error) {
 		savedSearches:       savedSearches,
 		filterSuggestCounts: make(map[string]int),
 		filterSuggestedFor:  make(map[string]bool),
-		list:                NewList(),
+		list:                list,
 		viewer:              NewViewer(),
 		cmd:                 NewCommand(),
 		status:              NewStatus(upn, tenant),
@@ -886,6 +916,12 @@ func New(deps Deps) (Model, error) {
 		tabsCfg:             tabsConfigOrDefault(deps.Tabs),
 		tabUnread:           make(map[int64]int),
 		tabLastFocused:      make(map[int64]time.Time),
+		bundledSenders:      make(map[string]struct{}),
+		bundleExpanded:      make(map[string]map[string]bool),
+		bundleInflight:      make(map[string]uint64),
+		bundleMinCount:      bundleMinCount,
+		bundleIndCol:        deps.BundleIndicatorCollapsed,
+		bundleIndExp:        deps.BundleIndicatorExpanded,
 	}, nil
 }
 
@@ -950,6 +986,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if sidebarCmd := m.calendarSidebarCmd(); sidebarCmd != nil {
 		cmds = append(cmds, sidebarCmd)
+	}
+	if m.deps.Account != nil && m.deps.Store != nil {
+		cmds = append(cmds, loadBundledSendersCmd(context.Background(), m.deps.Store, m.deps.Account.ID))
 	}
 	return tea.Batch(cmds...)
 }
@@ -1082,6 +1121,11 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
+			// Spec 26: push the active folder's bundle expand-state
+			// before SetMessages so the bundle pass sees the right
+			// expansion shape on its first render.
+			m.list.SetBundledSenders(m.bundledSenders)
+			m.list.SetBundleExpanded(m.bundleExpanded[m.list.FolderID])
 			m.list.SetMessages(msg.Messages)
 			// Spec 25 §5.4: stack views are cross-folder by nature
 			// (Reply Later messages can live in any folder). When
@@ -1734,6 +1778,48 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mutedCountUpdatedMsg:
 		m.folders.SetMutedCount(msg.count)
+		return m, nil
+
+	case bundleToastMsg:
+		// Race guard (spec 26 §6): drop if a newer toggle is in flight.
+		if cur, ok := m.bundleInflight[msg.address]; ok && msg.seq < cur {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("bundle failed: %w", msg.err)
+			return m, nil
+		}
+		// Optimistic mutation already happened in startBundleToggle;
+		// no further set mutation needed here. The toast string was
+		// also set there, so the success path is a no-op.
+		m.lastError = nil
+		return m, nil
+
+	case bundledSendersLoadedMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("bundle reload failed: %w", msg.err)
+			return m, nil
+		}
+		// Replace the in-memory set wholesale (store is authoritative).
+		next := make(map[string]struct{}, len(msg.addresses))
+		for _, a := range msg.addresses {
+			next[strings.ToLower(strings.TrimSpace(a))] = struct{}{}
+		}
+		m.bundledSenders = next
+		// Sweep stale bundleExpanded entries: any address no longer
+		// in bundledSenders has its expand-state dropped.
+		for fID, byAddr := range m.bundleExpanded {
+			for addr := range byAddr {
+				if _, ok := m.bundledSenders[addr]; !ok {
+					delete(byAddr, addr)
+				}
+			}
+			if len(byAddr) == 0 {
+				delete(m.bundleExpanded, fID)
+			}
+		}
+		m.list.SetBundledSenders(m.bundledSenders)
+		m.list.SetBundleExpanded(m.bundleExpanded[m.list.FolderID])
 		return m, nil
 
 	case threadChordTimeoutMsg:
@@ -2599,6 +2685,11 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(keyMsg, m.keymap.Refresh):
 		go func() { _ = m.deps.Engine.SyncAll(context.Background()) }()
+		// Spec 26 §6.1: also reload the bundled-sender set so CLI
+		// mutations made while the TUI is running take effect.
+		if m.deps.Account != nil && m.deps.Store != nil {
+			return m, loadBundledSendersCmd(context.Background(), m.deps.Store, m.deps.Account.ID)
+		}
 		return m, nil
 	case key.Matches(keyMsg, m.keymap.Cmd):
 		m.mode = CommandMode
@@ -2697,6 +2788,13 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchStatus = ""
 			m.searchActive = false
 			m.searchQuery = ""
+			// Spec 26 §5.6: drop bundleExpanded entries for the
+			// synthetic `search:*` folder ID we are leaving.
+			for fID := range m.bundleExpanded {
+				if strings.HasPrefix(fID, "search:") {
+					delete(m.bundleExpanded, fID)
+				}
+			}
 			m.list.FolderID = m.priorFolderID
 			if m.priorFolderID != "" {
 				return m, m.loadMessagesCmd(m.priorFolderID)
@@ -3035,7 +3133,7 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		var msgID string
 		if cur := m.viewer.current; cur != nil {
 			msgID = cur.ID
-		} else if sel, ok := m.list.Selected(); ok {
+		} else if sel, ok := m.list.SelectedMessage(); ok {
 			msgID = sel.ID
 		}
 		if msgID == "" {
@@ -3093,7 +3191,7 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		var link string
 		if cur := m.viewer.current; cur != nil {
 			link = cur.WebLink
-		} else if sel, ok := m.list.Selected(); ok {
+		} else if sel, ok := m.list.SelectedMessage(); ok {
 			link = sel.WebLink
 		}
 		if link == "" {
@@ -3257,6 +3355,14 @@ func (m Model) runFilterCmd(src string) tea.Cmd {
 }
 
 func (m Model) clearFilter() Model {
+	// Spec 26 §5.6: drop bundleExpanded entries for the synthetic
+	// `filter:*` folder ID we are about to leave, so a subsequent
+	// :filter with the same pattern starts with a clean slate.
+	for fID := range m.bundleExpanded {
+		if strings.HasPrefix(fID, "filter:") {
+			delete(m.bundleExpanded, fID)
+		}
+	}
 	m.filterActive = false
 	m.filterPattern = ""
 	m.filterIDs = nil
@@ -4096,7 +4202,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "thread chord cancelled"
 			return m, nil
 		}
-		if _, ok := m.list.Selected(); !ok {
+		if _, ok := m.list.SelectedMessage(); !ok {
 			m.lastError = fmt.Errorf("stream: no message selected")
 			return m, nil
 		}
@@ -4104,7 +4210,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 	if m.streamChordPending {
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		var focused *store.Message
 		if ok {
 			s := sel
@@ -4120,7 +4226,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// streamChordPending dispatching to dispatchStreamChord
 		// which catches 'T' as a cancel — this branch only fires
 		// when streamChordPending is false, so it's safe).
-		if _, ok := m.list.Selected(); !ok {
+		if _, ok := m.list.SelectedMessage(); !ok {
 			m.lastError = fmt.Errorf("thread: no message selected")
 			return m, nil
 		}
@@ -4136,7 +4242,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "thread chord cancelled"
 			return m, nil
 		}
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4255,15 +4361,45 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.engineActivity = "loading older messages…"
 			return m, m.kickBackfillCmd(folderID, until)
 		}
+	case key.Matches(msg, m.keymap.BundleExpand):
+		// Spec 26 §5.1: Space in the list pane toggles bundle
+		// expand/collapse. On a flat row (or empty list) Space is a
+		// no-op — it does NOT fall through to folder Expand because
+		// folder Expand only fires when the folders pane is focused.
+		if row, ok := m.list.SelectedRow(); ok {
+			if row.IsBundleHeader {
+				m.toggleBundleExpanded(row.BundleAddress)
+				return m, nil
+			}
+			if row.IsBundleMember {
+				addr := strings.ToLower(strings.TrimSpace(row.Message.FromAddress))
+				m.toggleBundleExpanded(addr)
+				m.moveCursorToBundleHeader(addr)
+				return m, nil
+			}
+		}
+		return m, nil
+	case key.Matches(msg, m.keymap.BundleToggle):
+		return m.startBundleToggle()
 	case key.Matches(msg, m.keymap.Open):
-		sel, ok := m.list.Selected()
+		// Spec 26 §5.1: Enter on a *collapsed* bundle header expands
+		// the bundle and leaves the cursor on the header. Second Enter
+		// (now on an expanded header) opens the representative.
+		if row, ok := m.list.SelectedRow(); ok && row.IsBundleHeader {
+			expanded := m.bundleExpandedFor(m.list.FolderID, row.BundleAddress)
+			if !expanded {
+				m.toggleBundleExpanded(row.BundleAddress)
+				return m, nil
+			}
+		}
+		sel, ok := m.list.SelectedMessage()
 		if ok {
 			m.viewer.SetMessage(sel)
 			m.focused = ViewerPane
 			return m, m.openMessageCmd(sel)
 		}
 	case key.Matches(msg, m.keymap.MarkRead):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4271,7 +4407,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.deps.Triage.MarkRead(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.MarkUnread):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4279,7 +4415,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.deps.Triage.MarkUnread(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.ToggleFlag):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4287,7 +4423,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.deps.Triage.ToggleFlag(ctx, accID, src.ID, src.FlagStatus == "flagged")
 		})
 	case key.Matches(msg, m.keymap.Delete):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4295,13 +4431,13 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.deps.Triage.SoftDelete(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.PermanentDelete):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
 		return m.startPermanentDelete(sel)
 	case key.Matches(msg, m.keymap.Archive):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4309,7 +4445,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.deps.Triage.Archive(ctx, accID, src.ID)
 		})
 	case key.Matches(msg, m.keymap.Unsubscribe):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4321,19 +4457,19 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keymap.SetAsideToggle):
 		return m.startStackToggle(store.CategorySetAside)
 	case key.Matches(msg, m.keymap.AddCategory):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
 		return m.startCategoryInput("add", sel)
 	case key.Matches(msg, m.keymap.RemoveCategory):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
 		return m.startCategoryInput("remove", sel)
 	case key.Matches(msg, m.keymap.Move):
-		sel, ok := m.list.Selected()
+		sel, ok := m.list.SelectedMessage()
 		if !ok {
 			return m, nil
 		}
@@ -4822,6 +4958,121 @@ func (m Model) startUnsubscribe(messageID string) (tea.Model, tea.Cmd) {
 	return m, m.resolveUnsubCmd(messageID)
 }
 
+// startBundleToggle wires the B keypress (spec 26 §5.1 / §6). Computes
+// the desired post-state synchronously from the in-memory
+// bundledSenders set, mutates the set immediately so the next render
+// reflects the user's intent, then dispatches the store write via
+// bundleToggleCmd. The toast count is walked synchronously here too,
+// so the §5.4 "collapses N messages" / "no consecutive run" toast
+// shows the precise count as of the current view.
+func (m Model) startBundleToggle() (tea.Model, tea.Cmd) {
+	row, ok := m.list.SelectedRow()
+	if !ok {
+		return m, nil
+	}
+	addr, ok := bundleAddressForSelection(row)
+	if !ok {
+		m.lastError = fmt.Errorf("bundle: message has no sender")
+		return m, nil
+	}
+	_, alreadyBundled := m.bundledSenders[addr]
+	nowBundled := !alreadyBundled
+	if m.bundleInflight == nil {
+		m.bundleInflight = make(map[string]uint64)
+	}
+	m.bundleInflight[addr]++
+	seq := m.bundleInflight[addr]
+	// Optimistic in-memory mutation — the store Cmd will reconcile.
+	if nowBundled {
+		if m.bundledSenders == nil {
+			m.bundledSenders = make(map[string]struct{})
+		}
+		m.bundledSenders[addr] = struct{}{}
+	} else {
+		delete(m.bundledSenders, addr)
+		// Clear any expand-state entries for this address across
+		// folders — un-designating dissolves the bundle everywhere.
+		for fID, byAddr := range m.bundleExpanded {
+			if byAddr == nil {
+				continue
+			}
+			delete(byAddr, addr)
+			if len(byAddr) == 0 {
+				delete(m.bundleExpanded, fID)
+			}
+		}
+	}
+	m.list.SetBundledSenders(m.bundledSenders)
+	m.list.SetBundleExpanded(m.bundleExpanded[m.list.FolderID])
+	// Toast count: walked synchronously so it reflects the immediate
+	// user intent, not a delayed Cmd → Msg round-trip.
+	count := countBundleCollapse(m.list.messages, addr, m.bundleMinCount)
+	switch {
+	case nowBundled && count > 0:
+		m.engineActivity = fmt.Sprintf("▸ bundled %s — collapses %d messages", addr, count)
+	case nowBundled:
+		m.engineActivity = fmt.Sprintf("▸ bundled %s — no consecutive run in current view; will collapse on next match", addr)
+	default:
+		m.engineActivity = fmt.Sprintf("flat %s (was bundled)", addr)
+	}
+	if m.deps.Store == nil || m.deps.Account == nil {
+		// No store / account — toast already shown; treat as a soft
+		// no-op (offline or test-mode path).
+		return m, nil
+	}
+	return m, bundleToggleCmd(context.Background(), m.deps.Store, m.deps.Account.ID, addr, nowBundled, seq)
+}
+
+// toggleBundleExpanded flips the per-folder expand-state for address
+// in the active folder, then pushes the slice to the list model.
+func (m *Model) toggleBundleExpanded(address string) {
+	if address == "" {
+		return
+	}
+	folderID := m.list.FolderID
+	if folderID == "" {
+		return
+	}
+	if m.bundleExpanded == nil {
+		m.bundleExpanded = make(map[string]map[string]bool)
+	}
+	byAddr := m.bundleExpanded[folderID]
+	if byAddr == nil {
+		byAddr = make(map[string]bool)
+		m.bundleExpanded[folderID] = byAddr
+	}
+	if byAddr[address] {
+		delete(byAddr, address)
+	} else {
+		byAddr[address] = true
+	}
+	m.list.SetBundleExpanded(byAddr)
+}
+
+// bundleExpandedFor reports the current expand-state for a sender in
+// a given folder (false default).
+func (m Model) bundleExpandedFor(folderID, address string) bool {
+	byAddr := m.bundleExpanded[folderID]
+	if byAddr == nil {
+		return false
+	}
+	return byAddr[address]
+}
+
+// moveCursorToBundleHeader moves the cursor to the rendered row
+// whose BundleAddress matches addr (used after collapsing from a
+// member row — the member rows vanish, so the only valid landing
+// spot is the now-collapsed header).
+func (m *Model) moveCursorToBundleHeader(address string) {
+	for i := 0; i < m.list.renderedLen(); i++ {
+		row := m.list.rowAt(i)
+		if row.IsBundleHeader && row.BundleAddress == address {
+			m.list.cursor = i
+			return
+		}
+	}
+}
+
 // startMute dispatches muteCmd for the focused message. Works from
 // both the list pane and the viewer pane (spec 19 §5.1). Surfaces a
 // status-bar error when no message is focused or the message has no
@@ -4830,7 +5081,7 @@ func (m Model) startMute() (tea.Model, tea.Cmd) {
 	var msg *store.Message
 	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
 		msg = cur
-	} else if sel, ok := m.list.Selected(); ok {
+	} else if sel, ok := m.list.SelectedMessage(); ok {
 		msg = &sel
 	}
 	if msg == nil {
@@ -5115,7 +5366,7 @@ func (m Model) focusedMessageID() string {
 	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
 		return cur.ID
 	}
-	if sel, ok := m.list.Selected(); ok {
+	if sel, ok := m.list.SelectedMessage(); ok {
 		return sel.ID
 	}
 	return ""

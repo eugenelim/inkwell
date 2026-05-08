@@ -49,7 +49,7 @@ func TestMuteKeyMutesThread(t *testing.T) {
 	require.Equal(t, ListPane, m.focused)
 
 	// Confirm the focused message has a conversation ID.
-	sel, ok := m.list.Selected()
+	sel, ok := m.list.SelectedMessage()
 	require.True(t, ok)
 	require.NotEmpty(t, sel.ConversationID, "test setup: first message must have a conversationID")
 
@@ -78,7 +78,7 @@ func TestMuteKeyMutesThread(t *testing.T) {
 // muted conversation un-mutes it (toggle behaviour).
 func TestMuteKeyUnmutesThread(t *testing.T) {
 	m, st := newMuteTestModel(t)
-	sel, ok := m.list.Selected()
+	sel, ok := m.list.SelectedMessage()
 	require.True(t, ok)
 
 	var acc int64
@@ -110,7 +110,7 @@ func TestMuteKeyUnmutesThread(t *testing.T) {
 func TestMuteKeyNoConvIDShowsError(t *testing.T) {
 	m := newDispatchTestModel(t)
 	// The base messages have no ConversationID (empty string).
-	sel, ok := m.list.Selected()
+	sel, ok := m.list.SelectedMessage()
 	require.True(t, ok)
 	require.Empty(t, sel.ConversationID, "precondition: test message must have empty ConversationID")
 

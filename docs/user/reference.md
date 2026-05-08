@@ -114,6 +114,8 @@ Enter on a stream entry loads messages from that routing destination.
 | `S c`     | Clear routing for sender (back to unclassified)               |
 | `L`       | Toggle Reply Later — add/remove focused message from the Reply Later stack |
 | `P`       | Toggle Set Aside — add/remove focused message from the Set Aside stack |
+| `B`       | Toggle bundle designation on the focused sender (spec 26). On a bundle header, `B` un-designates the sender and dissolves the bundle in place. |
+| `Space`   | Expand/collapse the focused bundle header. On a bundle member, collapses the parent and lands the cursor on the header. No-op on flat rows. |
 | `[`       | Previous tab (when tabs are configured)                       |
 | `]`       | Next tab (when tabs are configured)                           |
 | `;l`      | Bulk add filtered set to Reply Later                          |
@@ -588,6 +590,8 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 | `🚪`               | Sender routed to Screener                                       |
 | `↩`                | Message is in the Reply Later stack                             |
 | `📌`               | Message is in the Set Aside stack                               |
+| `▸` (list pane)    | Bundle header, collapsed (spec 26). The disclosure glyph replaces the flag/calendar slot on bundle rows. |
+| `▾` (list pane)    | Bundle header, expanded — member rows follow below.             |
 | `✓ synced HH:MM`   | Last sync time (top-right)                                      |
 | `syncing folders…` | Engine is working                                               |
 | `syncing more…`    | Engine kicked because list pane hit the cache wall              |
@@ -640,6 +644,9 @@ JSON via `--output json`.
 | `inkwell aside add <id>`                               | Add a message to Set Aside.                         |
 | `inkwell aside remove <id>`                            | Remove a message from Set Aside.                    |
 | `inkwell aside clear`                                  | Clear the entire Set Aside stack (with confirm).    |
+| `inkwell bundle add <email>`                           | Designate a sender for bundling (spec 26).          |
+| `inkwell bundle remove <email>`                        | Remove a bundled-sender designation.                |
+| `inkwell bundle list`                                  | List currently bundled senders.                     |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:
@@ -678,4 +685,4 @@ Restart inkwell after editing.
 
 ---
 
-_Last reviewed against v0.53.0._
+_Last reviewed against v0.54.0._

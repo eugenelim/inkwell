@@ -260,6 +260,15 @@ type ComposeSession struct {
 	ConfirmedAt time.Time // zero while in flight
 }
 
+// BundledSender is one bundled-sender designation (spec 26). The
+// address is stored lowercased; callers (UI, CLI) lowercase before
+// store calls and the store also lowercases as defense-in-depth.
+type BundledSender struct {
+	AccountID int64
+	Address   string
+	AddedAt   time.Time
+}
+
 // SavedSearch persists a named pattern for the sidebar virtual folder.
 //
 // TabOrder is `nil` when the saved search is NOT promoted to the spec

@@ -61,7 +61,7 @@ func TestStreamChordTimeoutNoop(t *testing.T) {
 // row was written.
 func TestStreamChordSiRoutesToImbox(t *testing.T) {
 	m := newDispatchTestModel(t)
-	sel, ok := m.list.Selected()
+	sel, ok := m.list.SelectedMessage()
 	require.True(t, ok)
 	addr := sel.FromAddress
 	require.NotEmpty(t, addr)
@@ -87,7 +87,7 @@ func TestStreamChordSiRoutesToImbox(t *testing.T) {
 // TestStreamChordSkRoutesToScreener — `S k` mnemonic.
 func TestStreamChordSkRoutesToScreener(t *testing.T) {
 	m := newDispatchTestModel(t)
-	sel, _ := m.list.Selected()
+	sel, _ := m.list.SelectedMessage()
 	addr := sel.FromAddress
 
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
@@ -107,7 +107,7 @@ func TestStreamChordSkRoutesToScreener(t *testing.T) {
 // TestStreamChordScClearsRouting — `S c` clears.
 func TestStreamChordScClearsRouting(t *testing.T) {
 	m := newDispatchTestModel(t)
-	sel, _ := m.list.Selected()
+	sel, _ := m.list.SelectedMessage()
 	addr := sel.FromAddress
 	_, err := m.deps.Store.SetSenderRouting(context.Background(), m.deps.Account.ID, addr, "feed")
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestStreamChordScClearsRouting(t *testing.T) {
 // already routed to Imbox produces priorDest=imbox in the routedMsg.
 func TestStreamChordReassignReportsPriorInRoutedMsg(t *testing.T) {
 	m := newDispatchTestModel(t)
-	sel, _ := m.list.Selected()
+	sel, _ := m.list.SelectedMessage()
 	addr := sel.FromAddress
 	_, err := m.deps.Store.SetSenderRouting(context.Background(), m.deps.Account.ID, addr, "imbox")
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestStreamChordReassignReportsPriorInRoutedMsg(t *testing.T) {
 // routeNoopMsg (skipping the list reload).
 func TestStreamChordSiOnAlreadyImboxIsNoop(t *testing.T) {
 	m := newDispatchTestModel(t)
-	sel, _ := m.list.Selected()
+	sel, _ := m.list.SelectedMessage()
 	addr := sel.FromAddress
 	_, err := m.deps.Store.SetSenderRouting(context.Background(), m.deps.Account.ID, addr, "imbox")
 	require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestStreamChordRouteCmdEmptyAddress(t *testing.T) {
 	// Move cursor to the top so the focused message is the empty-
 	// from one (SetMessages preserves the prior selection by ID).
 	m.list.JumpTop()
-	sel, _ := m.list.Selected()
+	sel, _ := m.list.SelectedMessage()
 	require.Equal(t, "no-from-1", sel.ID)
 
 	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})

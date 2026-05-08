@@ -271,6 +271,9 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		ReplyLaterIndicator:      cfg.UI.ReplyLaterIndicator,
 		SetAsideIndicator:        cfg.UI.SetAsideIndicator,
 		FocusQueueLimit:          cfg.UI.FocusQueueLimit,
+		BundleMinCount:           cfg.UI.BundleMinCount,
+		BundleIndicatorCollapsed: cfg.UI.BundleIndicatorCollapsed,
+		BundleIndicatorExpanded:  cfg.UI.BundleIndicatorExpanded,
 		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
 		MinTerminalCols:          cfg.UI.MinTerminalCols,
 		MinTerminalRows:          cfg.UI.MinTerminalRows,
@@ -861,6 +864,8 @@ func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 		PrevTab:          b.PrevTab,
 		ReplyLaterToggle: b.ReplyLaterToggle,
 		SetAsideToggle:   b.SetAsideToggle,
+		BundleToggle:     b.BundleToggle,
+		BundleExpand:     b.BundleExpand,
 	}
 }
 

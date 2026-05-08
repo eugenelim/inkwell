@@ -51,8 +51,8 @@ For the design decisions behind these, see
 
 ```sh
 # Download (replace vX.Y.Z with the latest release).
-gh release download v0.53.0 -p '*macos_arm64*' -D /tmp
-tar -xzf /tmp/inkwell_0.53.0_macos_arm64.tar.gz -C /tmp
+gh release download v0.54.0 -p '*macos_arm64*' -D /tmp
+tar -xzf /tmp/inkwell_0.54.0_macos_arm64.tar.gz -C /tmp
 xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
 sudo mv /tmp/inkwell /usr/local/bin/              # optional
 
@@ -165,7 +165,7 @@ current major surfaces:
 | Routing destinations — Imbox / Feed / Paper Trail / Screener (`S`-chord)   | ✅ v0.51+ |
 | Split inbox tabs (`[` / `]`)                                                | ✅ v0.52+ |
 | Reply Later (`L`) / Set Aside (`P`) stacks                                 | ✅ v0.53+ |
-| Bundle senders (collapse same-sender runs in list)                          | 🚧 in progress |
+| Bundle senders (collapse same-sender runs in list — `B` toggle)             | ✅ v0.54+ |
 | Code-signing + notarization                                                 | 🚧 v1.0   |
 
 Reading the binary's full feature list at any version: see

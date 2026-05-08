@@ -156,6 +156,30 @@ func TestValidateRejectsBadLogLevel(t *testing.T) {
 	require.Contains(t, err.Error(), "logging.level")
 }
 
+func TestValidateBundleMinCountRange(t *testing.T) {
+	c := Defaults()
+	c.UI.BundleMinCount = -1
+	require.Error(t, c.Validate())
+	c.UI.BundleMinCount = 10000
+	require.Error(t, c.Validate())
+	c.UI.BundleMinCount = 0
+	require.NoError(t, c.Validate(), "bundle_min_count=0 (off-switch) is valid")
+	c.UI.BundleMinCount = 2
+	require.NoError(t, c.Validate())
+}
+
+func TestValidateBundleIndicatorWidthClamp(t *testing.T) {
+	c := Defaults()
+	// CJK glyph (2 cells in one rune) is accepted.
+	c.UI.BundleIndicatorCollapsed = "中"
+	require.NoError(t, c.Validate())
+	// Three-cell override is rejected.
+	c.UI.BundleIndicatorCollapsed = "▶▶▶"
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bundle_indicator_collapsed")
+}
+
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
