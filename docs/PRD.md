@@ -265,6 +265,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
+| 30  | `30-done-alias.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready (binding/branding only) |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across
@@ -281,11 +282,12 @@ Specs 22–25 cover the "inbox philosophy" bucket — all shipped
 v0.50.0 through v0.53.0. Spec 26 (bundle senders) is in progress.
 
 Specs 28 (screener for new senders, ROADMAP §0 Bucket 3 row 2 /
-§1.16) and 29 (watch mode, Bucket 3 row 3 / §1.19) are the first
-authored specs from the "power-user automation" bucket — both
-ready for implementation, no dependencies on Bucket 2 work.
-Slot 27 is reserved for the custom-actions framework (Bucket 3
-row 1) which is independently specced.
+§1.16), 29 (watch mode, Bucket 3 row 3 / §1.19), and 30 ("Done"
+alias for archive, Bucket 3 row 4 / §1.23) are the first authored
+specs from the "power-user automation" bucket — all ready for
+implementation, no dependencies on Bucket 2 work. Slot 27 is
+reserved for the custom-actions framework (Bucket 3 row 1) which
+is independently specced.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

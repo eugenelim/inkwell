@@ -69,7 +69,7 @@ Ties verbs together once enough verbs exist.
 | 1     | Custom actions framework (§2)       | 27   | Needs most primitives in B1+B2 (slot reserved). |
 | 2     | Screener (1.16)                     | 28   | Spec drafted (ready for implementation).        |
 | 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
-| 4     | "Done" alias (1.23)                 | —    | Binding/branding only.                          |
+| 4     | "Done" alias (1.23)                 | 30   | Spec drafted (ready for implementation).        |
 
 ### Bucket 4 — Mailbox parity
 
@@ -310,9 +310,9 @@ For users who want first-class support: a `[snippets]` config section mapping na
 
 **Take.** Most TUI users will solve this via their editor's existing template / abbreviation systems. Optional convenience.
 
-### 1.23 "Done" alias for archive — P3
+### 1.23 "Done" alias for archive — Specced (spec 30)
 
-A one-key `e` that aliases archive, branded as "mark done" rather than "archive." Mostly a binding/branding question. Configuration option to alias `archive=done` if the user wants it.
+A one-key `e` that aliases archive, branded as "mark done" rather than "archive." Mostly a binding/branding question. Configuration option (`[ui].archive_label = "archive"|"done"`) flips every user-visible Archive label between the two vocabularies; default keys for the existing `Archive` binding become `["a","e"]`. Spec 30 owns the work; first specced item in Bucket 3 alongside the in-flight specs 27–29.
 
 ### 1.24 Alternative query syntax — P3
 
