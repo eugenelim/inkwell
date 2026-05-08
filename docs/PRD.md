@@ -262,6 +262,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 24  | `24-split-inbox-tabs.md`                           | post-v1, ROADMAP §0 bucket 2 — **shipped v0.52.0** |
 | 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
 | 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — in progress         |
+| 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across
@@ -276,6 +277,10 @@ Specs 16, 18–21 cover the "triage primitives" bucket from
 
 Specs 22–25 cover the "inbox philosophy" bucket — all shipped
 v0.50.0 through v0.53.0. Spec 26 (bundle senders) is in progress.
+
+Spec 29 (watch mode) is the first authored spec from the "power-
+user automation" bucket (ROADMAP §0 Bucket 3, row 3 / §1.19);
+ready for implementation, no dependencies on Bucket 2 work.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

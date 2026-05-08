@@ -68,7 +68,7 @@ Ties verbs together once enough verbs exist.
 | ----- | ----------------------------------- | ---------------------------------------------- |
 | 1     | Custom actions framework (§2)       | Needs most primitives in B1+B2.                |
 | 2     | Screener (1.16)                     | Uses `sender_routing` from B2.                 |
-| 3     | Watch mode (1.19)                   | Small CLI addition.                            |
+| 3     | Watch mode (1.19)                   | Spec 29 — ready. Small CLI addition.           |
 | 4     | "Done" alias (1.23)                 | Binding/branding only.                         |
 
 ### Bucket 4 — Mailbox parity
@@ -286,9 +286,11 @@ When a meeting invite arrives as mail, render the response options inline (`[A]c
 
 v1 drafts are plain text. The platform accepts HTML drafts. We could let users compose in Markdown and convert to HTML on save. Not critical; plain text covers 90% of use cases.
 
-### 1.19 Watch mode — P3
+### 1.19 Watch mode — Spec 29 (ready)
 
 `inkwell messages --filter X --watch` continuously updating. Useful for "show me unread from VIPs" as a sidebar tail. Trivial to implement.
+
+Owner: spec 29.
 
 ### 1.20 Shell completion — P3
 
