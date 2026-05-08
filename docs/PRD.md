@@ -262,7 +262,8 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 24  | `24-split-inbox-tabs.md`                           | post-v1, ROADMAP §0 bucket 2 — **shipped v0.52.0** |
 | 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
 | 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — in progress         |
-| 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready (spec 27 reserved for custom-actions framework) |
+| 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — ready               |
+| 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
