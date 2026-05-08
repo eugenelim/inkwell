@@ -139,6 +139,15 @@ func unwrapBrokenURLs(s string) string {
 // land mid-alphanumeric (rare; most MUAs wrap at `&` / `?`
 // boundaries because RFC-compliant encoders avoid breaking inside
 // percent-encoded triplets) but never merge plain prose.
+//
+// Loose fallback for html2text link format: html2text emits links as
+// `text ( url )`. When an href attribute contains an embedded newline
+// (some HTML email generators split long URLs across source lines),
+// the output becomes `text ( url_part1\nurl_part2 )`. The strict set
+// misses continuations starting with alphanumerics (e.g. base64 data
+// params). As a safe fallback: if the continuation line ends with ` )`
+// and contains no whitespace within the URL body itself, it is the
+// tail of an html2text-format URL and should be joined.
 func isWrappedURLContinuation(prev, next string) bool {
 	if next == "" {
 		return false
@@ -160,6 +169,16 @@ func isWrappedURLContinuation(prev, next string) bool {
 	switch next[0] {
 	case '&', '?', '/', '#', '=', '%', '+', '(', '[':
 		return true
+	}
+	// Loose fallback: next ends with " )" and has no internal whitespace —
+	// it is the closing fragment of an html2text "( url )" link split at a
+	// newline embedded in the href by the sending mail generator.
+	rest := strings.TrimRight(next, " \t")
+	if strings.HasSuffix(rest, ")") {
+		body := strings.TrimRight(rest[:len(rest)-1], " \t")
+		if body != "" && !strings.ContainsAny(body, " \t\n\r") {
+			return true
+		}
 	}
 	return false
 }

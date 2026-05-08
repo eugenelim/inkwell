@@ -263,6 +263,89 @@ func BenchmarkClassifyRealNewsletter(b *testing.B) {
 	}
 }
 
+// TestSanitizeURLAttrsStripsEmbeddedNewlines verifies that sanitizeURLAttrs
+// removes CR/LF/TAB from href attribute values per HTML5 spec.
+func TestSanitizeURLAttrsStripsEmbeddedNewlines(t *testing.T) {
+	rawHTML := `<html><body><a href="https://example.invalid/path?a=1` + "\n" + `b=2">link</a></body></html>`
+	doc, err := html.Parse(strings.NewReader(rawHTML))
+	require.NoError(t, err)
+	sanitizeURLAttrs(doc)
+
+	// Find the <a> node and check its href.
+	var href string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.DataAtom == atom.A {
+			for _, a := range n.Attr {
+				if a.Key == "href" {
+					href = a.Val
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	require.NotEmpty(t, href, "href must be present")
+	require.NotContains(t, href, "\n", "embedded LF must be stripped")
+	require.Contains(t, href, "a=1b=2", "URL parts must be joined without separator")
+}
+
+// TestHrefEmbeddedNewlinePrimaryFix verifies that sanitizeURLAttrs in
+// classifyTables strips embedded newlines from href attributes before
+// html2text processes them, so the full URL survives extraction.
+func TestHrefEmbeddedNewlinePrimaryFix(t *testing.T) {
+	// Microsoft Safe Links URL split across two lines in the href attribute —
+	// a real pattern in some Office 365 mail generators.
+	rawHTML := "<html><body>\n<table role=\"presentation\"><tr><td>\n" +
+		"<a href=\"https://nam.safelinks.protection.outlook.com/?url=https%3A%2F%2Fonedrive.live.com%2F&data=ABC%7C\n" +
+		"DEF&reserved=0\">Accept</a>\n</td></tr></table>\n</body></html>"
+
+	_, links, err := htmlToText(rawHTML, 80, 0, Theme{}, true, 50)
+	require.NoError(t, err)
+	require.NotEmpty(t, links, "expected at least one link")
+	require.Contains(t, links[0].URL, "DEF&reserved=0",
+		"URL must not be truncated at the embedded newline; got: %s", links[0].URL)
+}
+
+// TestHrefEmbeddedNewlineFallback verifies that unwrapBrokenURLs in
+// normalisePlain rejoins URL fragments split by an embedded newline in the
+// html2text output, covering the prettyTables=false / external-converter path.
+func TestHrefEmbeddedNewlineFallback(t *testing.T) {
+	// Simulate the html2text output for a broken href — the URL is split
+	// across two lines in the "( url )" format.
+	splitBody := "Accept ( https://nam.safelinks.protection.outlook.com/?url=https%3A%2F%2Fonedrive.live.com%2F&data=ABC%7C\nDEF&reserved=0 )\n"
+	_, links := normalisePlain(splitBody, 80, 0, 0, Theme{})
+	require.NotEmpty(t, links, "expected at least one link")
+	require.Contains(t, links[0].URL, "DEF&reserved=0",
+		"unwrapBrokenURLs must rejoin the split URL; got: %s", links[0].URL)
+}
+
+// TestOneDriveAccessRequestLinks verifies that clean (no embedded newlines)
+// OneDrive access-request links survive the full render pipeline intact.
+func TestOneDriveAccessRequestLinks(t *testing.T) {
+	raw := `<html><body>
+<table width="600" cellpadding="20" cellspacing="0" border="0">
+<tr><td>
+  <p><strong>Q4 Forecast.xlsx</strong></p>
+  <p>Eugene Lima has requested access.</p>
+  <table width="auto" cellpadding="8" cellspacing="0" border="0"><tr>
+    <td><a href="https://onedrive.live.com/redir?resid=ABCDEF%21789&authkey=%21AaBbCcDdEeFfGg&page=View&action=Accept">Allow access</a></td>
+    <td><a href="https://onedrive.live.com/redir?resid=ABCDEF%21789&authkey=%21AaBbCcDdEeFfGg&page=View&action=Decline">Decline</a></td>
+  </tr></table>
+</td></tr>
+</table>
+</body></html>`
+
+	_, links, err := htmlToText(raw, 80, 0, Theme{}, true, 50)
+	require.NoError(t, err)
+	require.Len(t, links, 2, "expected exactly 2 links")
+	require.Contains(t, links[0].URL, "action=Accept")
+	require.Contains(t, links[1].URL, "action=Decline")
+}
+
 // BenchmarkHTMLToTextRealNewsletter measures end-to-end render cost
 // (classifier + html2text + normalisePlain). Spec 05 §14 budget:
 // <100ms for HTML body render with classifier active.

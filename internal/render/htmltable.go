@@ -31,6 +31,12 @@ func classifyTables(rawHTML string, paneWidth, maxRows int) string {
 	if err != nil {
 		return rawHTML
 	}
+	// Per HTML5 spec, URL attributes (href, src, action) must have control
+	// characters including CR, LF, and TAB stripped. Some HTML email generators
+	// split long href values across lines; those embedded newlines survive
+	// html.Parse unchanged and cause the URL to appear split in html2text's
+	// output, truncating whatever the regex captures at the first newline.
+	sanitizeURLAttrs(doc)
 	classes := map[*html.Node]tableClass{}
 	classifyAll(doc, classes)
 	rewriteAll(doc, classes, paneWidth, maxRows, false)
@@ -39,6 +45,32 @@ func classifyTables(rawHTML string, paneWidth, maxRows int) string {
 		return rawHTML
 	}
 	return buf.String()
+}
+
+// sanitizeURLAttrs strips CR, LF, and TAB from URL-type attributes (href,
+// src, action) on all elements in the subtree rooted at n. This implements
+// the HTML5 spec requirement that URL attribute values be stripped of
+// ASCII control characters before use.
+func sanitizeURLAttrs(n *html.Node) {
+	if n.Type == html.ElementNode {
+		for i, attr := range n.Attr {
+			switch strings.ToLower(attr.Key) {
+			case "href", "src", "action":
+				stripped := strings.Map(func(r rune) rune {
+					if r == '\r' || r == '\n' || r == '\t' {
+						return -1
+					}
+					return r
+				}, attr.Val)
+				if stripped != attr.Val {
+					n.Attr[i].Val = stripped
+				}
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		sanitizeURLAttrs(c)
+	}
 }
 
 type tableClass int
