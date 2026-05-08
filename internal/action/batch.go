@@ -94,6 +94,15 @@ func (e *Executor) BatchExecute(ctx context.Context, accountID int64, actionType
 	return e.batchExecute(ctx, accountID, actionType, messageIDs, nil, false)
 }
 
+// BatchExecuteWithParams is BatchExecute with caller-supplied extra
+// per-message Params merged into each enqueued action. Spec 25
+// uses this to pass `category` for `add_category` /
+// `remove_category` thread / bulk ops without round-tripping
+// through a wider public surface.
+func (e *Executor) BatchExecuteWithParams(ctx context.Context, accountID int64, actionType store.ActionType, messageIDs []string, params map[string]any) ([]BatchResult, error) {
+	return e.batchExecute(ctx, accountID, actionType, messageIDs, params, false)
+}
+
 // batchExecute is the shared implementation. extraParams are merged into
 // each per-message action's Params (used for category operations).
 // skipUndo suppresses the composite undo push (used by the Undo path).

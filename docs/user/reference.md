@@ -95,6 +95,16 @@ saved search.
 | `S c`     | **Clear** routing for the focused sender                      |
 | `]`       | Cycle to the **next** spec 24 tab (list pane only)            |
 | `[`       | Cycle to the **previous** spec 24 tab (list pane only)        |
+| `L`       | Spec 25. Toggle Reply Later on the focused message            |
+| `P`       | Spec 25. Toggle Set Aside (Pin) on the focused message        |
+| `T l`     | Add the entire thread to Reply Later                          |
+| `T L`     | Remove the entire thread from Reply Later                     |
+| `T s`     | Add the entire thread to Set Aside                            |
+| `T S`     | Remove the entire thread from Set Aside                       |
+| `;l`      | Bulk: add to Reply Later (after `:filter`)                    |
+| `;L`      | Bulk: remove from Reply Later                                 |
+| `;s`      | Bulk: add to Set Aside                                        |
+| `;S`      | Bulk: remove from Set Aside                                   |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -349,6 +359,9 @@ sessions older than 24h get garbage-collected on launch.
 | `:tab move <name> <pos>`      | Reorder. `<pos>` is 0-based. |
 | `:tab close`                  | Demote the active tab. |
 | `:tab <name>`                 | Jump to the tab named `<name>`. |
+| `:later`                      | Spec 25. Switch to the Reply Later virtual folder. |
+| `:aside`                      | Switch to the Set Aside virtual folder. |
+| `:focus [N]`                  | Walk the Reply Later queue, opening compose-reply for each message. `N` is an optional 1-indexed start position. |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
@@ -632,6 +645,11 @@ JSON via `--output json`.
 | `inkwell tab add <name>`                         | Promote a saved search to the tab strip.                |
 | `inkwell tab remove <name>`                      | Demote a saved search from the tab strip.               |
 | `inkwell tab move <name> <pos>`                  | Reorder (0-based).                                       |
+| `inkwell later add <message-id>`                 | Spec 25. Tag a message into Reply Later.                |
+| `inkwell later remove <message-id>`              | Untag.                                                   |
+| `inkwell later list [--limit N]`                 | List messages in Reply Later (`--output json`).          |
+| `inkwell later count`                            | Print the message count in Reply Later.                  |
+| `inkwell aside add\|remove\|list\|count`         | Same shape for Set Aside.                                |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:

@@ -173,6 +173,13 @@ type Store interface {
 	// for per-tab unread badges (spec 24 §4).
 	CountUnreadByIDs(ctx context.Context, accountID int64, ids []string) (int, error)
 
+	// Spec 25 stack views — Reply Later / Set Aside. Both call sites
+	// scope to non-Drafts/Trash/Junk folders (matches
+	// MessageIDsInConversation). Mute is NOT applied — stack views
+	// are intentional, like search (spec 19 §4.3 precedent).
+	CountMessagesInCategory(ctx context.Context, accountID int64, category string) (int, error)
+	ListMessagesInCategory(ctx context.Context, accountID int64, category string, limit int) ([]Message, error)
+
 	// Compose sessions (spec 15 §7 / PR 7-ii crash recovery).
 	// PutComposeSession upserts a session row keyed by SessionID;
 	// callers use it both to create the row on compose entry and

@@ -164,6 +164,42 @@ is the same problem as `Mail.Send`: high-trust, easy to get wrong,
 recoverable only via Outlook anyway. We render the daily view as
 context, not as a tool. To act on an event, finish in Outlook.
 
+## Why two stacks (Reply Later / Set Aside)
+
+Inkwell ships two adjacent verbs that the native Outlook clients
+handle poorly: **Reply Later** ("I owe this person a reply, but
+not now") and **Set Aside** ("I want to keep this handy without
+committing to a reply"). They're separate by design: the *verbs*
+are different. Conflating them into a generic "later" pile loses
+the asymmetry between commitment-to-write and reference-shelf
+(HEY's design call; we follow it).
+
+The implementation maps each stack onto a reserved Microsoft
+Graph category — `Inkwell/ReplyLater` and `Inkwell/SetAside` —
+chosen for three reasons:
+
+1. **State syncs across devices.** A message moved into Reply
+   Later on your laptop appears in Reply Later on your phone the
+   next time inkwell pulls a delta sync. No new schema, no new
+   server-side primitive.
+2. **No new write surface.** Categories already round-trip via
+   the existing `add_category` / `remove_category` action queue
+   path (spec 07). Stacks reuse undo (`u`), the action queue's
+   optimistic-apply, and the `~G` pattern operator.
+3. **Visible in Outlook web.** You'll see `Inkwell/ReplyLater`
+   when you open the message in Outlook web. That's intentional
+   — the category is the storage primitive, and any client that
+   tags or untags it participates in the same queue. The
+   slash-prefixed namespace keeps inkwell-managed categories
+   visually distinct from your own.
+
+The behavioural metadata exposure is acknowledged: anyone with
+delegated mailbox access (executive assistants, compliance
+reviewers) can see which messages you've Reply-Later'd. If that
+matters in your environment, the `~G` pattern operator gives you
+the same workflow without the namespace prefix — set up a saved
+search instead.
+
 ---
 
 _Last reviewed against v0.8.0._

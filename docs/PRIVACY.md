@@ -42,6 +42,20 @@ That POST carries the body `List-Unsubscribe=One-Click`
 (RFC 8058 §3.1), a generic `User-Agent: inkwell/<version>`, and
 nothing else. No cookies, no referer.
 
+**Reply Later / Set Aside (spec 25) sync via Graph categories.**
+The two stacks store their state as Microsoft Graph categories on
+each message: `Inkwell/ReplyLater` and `Inkwell/SetAside`. Adding
+a message to either stack PATCHes the message resource on the
+user's mailbox so the state syncs across devices and reappears in
+inkwell on the same account on a different machine. The category
+strings are visible to **anyone with delegated access to the
+mailbox** (executive assistants, compliance reviewers, eDiscovery
+exports). The behavioural metadata exposure is intentional and
+acknowledged: the trade-off is cross-device sync without operating
+inkwell-side servers. Users who don't want this exposure can
+substitute the same workflow with the `~G` pattern operator over
+non-`Inkwell/`-prefixed categories or saved searches.
+
 ## Where data is stored
 
 | Data | Location | Mode | Notes |

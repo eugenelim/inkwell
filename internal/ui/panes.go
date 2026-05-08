@@ -51,6 +51,11 @@ type displayedFolder struct {
 	// Selectable; selecting it loads ListMutedMessages into the list pane.
 	isMuted    bool
 	mutedCount int // distinct muted-conversation count for the badge
+	// Spec 25 stack virtual entries — Reply Later / Set Aside.
+	// Selectable; the dispatcher routes Enter to loadStackMessagesCmd.
+	isReplyLater bool
+	isSetAside   bool
+	stackCount   int // shared count for whichever stack flag is set
 	// isStream marks one of the four spec 23 routing virtual folders
 	// (Imbox / Feed / Paper Trail / Screener). Selectable; selecting
 	// it loads ListMessagesByRouting into the list pane. The
@@ -190,6 +195,10 @@ type FoldersModel struct {
 	// spec 23 routing virtual folders. Always rendered (even at zero)
 	// per §5.4 — divergence from spec 19's hide-at-zero rule.
 	streamCounts map[string]int
+	// Spec 25 stack counts. Each is rendered as a virtual sidebar
+	// entry only when > 0 (matches spec 19 hide-at-zero pattern).
+	replyLaterCount int
+	setAsideCount   int
 }
 
 // NewFolders returns an empty folders pane. The default expansion
@@ -238,6 +247,17 @@ func (m *FoldersModel) SetSavedSearches(s []SavedSearch) {
 // when 0 it is hidden. Called after every mute/unmute operation.
 func (m *FoldersModel) SetMutedCount(count int) {
 	m.mutedConvCount = count
+	m.rebuild()
+}
+
+// SetReplyLaterCount / SetSetAsideCount drive the spec 25 sidebar
+// virtual entries. Each entry renders only when its count > 0.
+func (m *FoldersModel) SetReplyLaterCount(count int) {
+	m.replyLaterCount = count
+	m.rebuild()
+}
+func (m *FoldersModel) SetSetAsideCount(count int) {
+	m.setAsideCount = count
 	m.rebuild()
 }
 
@@ -309,6 +329,21 @@ func (m *FoldersModel) rebuild() {
 				savedCount:   s.Count,
 			})
 		}
+	}
+	// Spec 25 stack virtual entries — Reply Later / Set Aside.
+	// Visible only when count > 0. Order between virtual entries
+	// (when all > 0): Reply Later → Set Aside → Muted (spec 25 §5.3).
+	if m.replyLaterCount > 0 {
+		items = append(items, displayedFolder{
+			isReplyLater: true,
+			stackCount:   m.replyLaterCount,
+		})
+	}
+	if m.setAsideCount > 0 {
+		items = append(items, displayedFolder{
+			isSetAside: true,
+			stackCount: m.setAsideCount,
+		})
 	}
 	// Muted Threads virtual entry — spec 19 §5.4.
 	if m.mutedConvCount > 0 {
@@ -561,10 +596,27 @@ func (m FoldersModel) Selected() (store.Folder, bool) {
 		return store.Folder{}, false
 	}
 	it := m.items[m.cursor]
-	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent || it.isMuted || it.isStream {
+	if it.isSaved || it.isSavedHeader || it.isCalHeader || it.isCalEvent || it.isMuted || it.isStream || it.isReplyLater || it.isSetAside {
 		return store.Folder{}, false
 	}
 	return it.f, true
+}
+
+// SelectedReplyLater / SelectedSetAside report whether the cursor
+// sits on the corresponding spec 25 stack virtual entry. The
+// dispatcher routes Enter to loadStackMessagesCmd when either
+// returns true.
+func (m FoldersModel) SelectedReplyLater() bool {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.items[m.cursor].isReplyLater
+}
+func (m FoldersModel) SelectedSetAside() bool {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.items[m.cursor].isSetAside
 }
 
 // SelectedStream reports the routing destination of the highlighted
@@ -657,6 +709,34 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 			}
 			glyph := streamGlyphForDestination(it.streamDestination, t)
 			line := fmt.Sprintf("%s%s %s  %d", marker, glyph, it.streamDisplayName, it.streamCount)
+			styled := truncate(line, width-1)
+			if i == m.cursor && focused {
+				styled = t.FoldersSel.Render(styled)
+			}
+			rows = append(rows, styled)
+			continue
+		}
+		// Spec 25 stacks — Reply Later / Set Aside virtual folders.
+		if it.isReplyLater || it.isSetAside {
+			marker := "  "
+			if i == m.cursor && focused {
+				marker = "▶ "
+			} else if i == m.cursor {
+				marker = "· "
+			}
+			glyph := "↩"
+			label := "Reply Later"
+			if it.isSetAside {
+				label = "Set Aside"
+				if t.SetAsideIndicator != "" {
+					glyph = t.SetAsideIndicator
+				} else {
+					glyph = "📌"
+				}
+			} else if t.ReplyLaterIndicator != "" {
+				glyph = t.ReplyLaterIndicator
+			}
+			line := fmt.Sprintf("%s%s %s  %d", marker, glyph, label, it.stackCount)
 			styled := truncate(line, width-1)
 			if i == m.cursor && focused {
 				styled = t.FoldersSel.Render(styled)
@@ -1023,23 +1103,42 @@ func (m ListModel) View(t Theme, width, height int, focused bool) string {
 		} else if i == m.cursor {
 			marker = "▸ "
 		}
-		// Indicator slot priority (spec 19 §5.2 + spec 23 §5.5):
-		// 📅 (calendar) > 🔕 (mute) > ⚑ (flag) > 📥/📰/🧾/🚪 (routing) > ' '.
-		// Calendar wins regardless of mute. Inside the muted virtual
-		// folder, mute wins. Inside a routing virtual folder, the
-		// matching routing glyph is always on.
+		// Indicator slot priority (spec 19 §5.2 + spec 23 §5.5 +
+		// spec 25 §5.2): calendar > mute (in __muted__ view only)
+		// > routing (in routing virtual folder) > Reply Later
+		// (in stack views or any view where the row is tagged) >
+		// Set Aside > nothing.
 		invite := "  "
-		if isMeetingMessage(msg) {
+		switch {
+		case isMeetingMessage(msg):
 			invite = "📅 "
-		} else if m.FolderID == mutedSentinelID {
+		case m.FolderID == mutedSentinelID:
 			mi := t.MuteIndicator
 			if mi == "" {
 				mi = "🔕"
 			}
 			invite = mi + " "
-		} else if dest := streamDestinationFromID(m.FolderID); dest != "" {
-			if g := streamGlyphForDestination(dest, t); g != "" {
-				invite = g + " "
+		default:
+			if dest := streamDestinationFromID(m.FolderID); dest != "" {
+				if g := streamGlyphForDestination(dest, t); g != "" {
+					invite = g + " "
+				}
+			}
+			// Spec 25 stack indicator: shown inside stack virtual
+			// folders or whenever the message carries the category.
+			// Reply Later wins over Set Aside.
+			showStack := m.FolderID == replyLaterSentinelID || m.FolderID == setAsideSentinelID
+			if invite == "  " && showStack {
+				switch {
+				case store.IsInCategory(msg.Categories, store.CategoryReplyLater):
+					if g := stackGlyph(store.CategoryReplyLater, t); g != "" {
+						invite = g + " "
+					}
+				case store.IsInCategory(msg.Categories, store.CategorySetAside):
+					if g := stackGlyph(store.CategorySetAside, t); g != "" {
+						invite = g + " "
+					}
+				}
 			}
 		}
 		flag := "  "

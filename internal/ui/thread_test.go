@@ -15,13 +15,15 @@ import (
 type mockThreadExecutor struct {
 	executeVerb   store.ActionType
 	executeMsgID  string
+	executeParams map[string]any
 	moveMsgID     string
 	moveDestAlias string
 }
 
-func (m *mockThreadExecutor) ThreadExecute(_ context.Context, _ int64, verb store.ActionType, focusedMsgID string) (int, []BulkResult, error) {
+func (m *mockThreadExecutor) ThreadExecute(_ context.Context, _ int64, verb store.ActionType, focusedMsgID string, params map[string]any) (int, []BulkResult, error) {
 	m.executeVerb = verb
 	m.executeMsgID = focusedMsgID
+	m.executeParams = params
 	return 1, []BulkResult{{MessageID: focusedMsgID}}, nil
 }
 

@@ -724,6 +724,70 @@ The pattern operator `~o` from spec 23 composes naturally with
 tabs: a tab with pattern `~o feed` shows every message from a
 sender routed to Feed.
 
+## Build a Reply Later queue
+
+The Reply Later stack (spec 25) is a queue of writing-debt — "I owe
+this person a reply, but not now." Press `L` on a focused message
+to add it; `L` again removes it. The stack appears in the sidebar
+when its count > 0:
+
+```
+▾ Mail
+  Inbox          47
+  Sent
+  Archive
+  …
+↩ Reply Later     12
+📌 Set Aside       3
+```
+
+`Enter` on the sidebar entry — or `:later` from the cmd-bar —
+loads the queue into the list pane. Each row carries the `↩`
+indicator. Triage works as usual: `r` mark-read, `d` delete,
+`a` archive, `f` flag.
+
+To walk the queue and reply to each in turn, use Focus & Reply:
+
+```
+:focus           # start at the top of the queue
+:focus 5         # start at position 5 (1-indexed)
+```
+
+Focus mode opens compose-reply for each message; `Esc` exits the
+mode any time. The status bar shows `[focus 3/12]` while active.
+
+The thread chord verbs operate over a whole conversation:
+
+```
+T l       # add the whole thread to Reply Later
+T L       # remove the whole thread from Reply Later
+```
+
+The bulk chord pairs naturally with `:filter`:
+
+```
+:filter ~f boss@example.invalid
+;l        # add every match to Reply Later
+```
+
+## Set things aside for reference
+
+The Set Aside stack (spec 25) is a reference shelf — door codes,
+hotel confirmations, the SKU you might re-buy. Press `P` on the
+focused message (mnemonic: Pin, matches the 📌 indicator) to add
+it; `P` again removes it.
+
+```
+:aside    # switch to the Set Aside virtual folder view
+T s       # add the whole thread
+T S       # remove the whole thread
+```
+
+Stacks round-trip via Microsoft Graph categories
+(`Inkwell/ReplyLater` / `Inkwell/SetAside`), so state syncs across
+devices — you'll see the categories in Outlook web. That's
+intentional cross-device sync.
+
 ## Discover and learn keybindings using the palette
 
 The TUI has a lot of bindings. The fastest way to find one is the

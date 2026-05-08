@@ -12,45 +12,47 @@ import (
 // §2). Each field is the override key string ("d", "ctrl+d", etc.);
 // empty means "leave default".
 type BindingOverrides struct {
-	Quit            string
-	Help            string
-	Cmd             string
-	Search          string
-	Refresh         string
-	FocusFolders    string
-	FocusList       string
-	FocusViewer     string
-	NextPane        string
-	PrevPane        string
-	Up              string
-	Down            string
-	Left            string
-	Right           string
-	PageUp          string
-	PageDown        string
-	Home            string
-	End             string
-	Open            string
-	MarkRead        string
-	MarkUnread      string
-	ToggleFlag      string
-	Delete          string
-	PermanentDelete string
-	Archive         string
-	Move            string
-	AddCategory     string
-	RemoveCategory  string
-	Undo            string
-	Filter          string
-	ClearFilter     string
-	ApplyToFiltered string
-	Unsubscribe     string
-	MuteThread      string
-	ThreadChord     string
-	Palette         string
-	StreamChord     string
-	NextTab         string
-	PrevTab         string
+	Quit             string
+	Help             string
+	Cmd              string
+	Search           string
+	Refresh          string
+	FocusFolders     string
+	FocusList        string
+	FocusViewer      string
+	NextPane         string
+	PrevPane         string
+	Up               string
+	Down             string
+	Left             string
+	Right            string
+	PageUp           string
+	PageDown         string
+	Home             string
+	End              string
+	Open             string
+	MarkRead         string
+	MarkUnread       string
+	ToggleFlag       string
+	Delete           string
+	PermanentDelete  string
+	Archive          string
+	Move             string
+	AddCategory      string
+	RemoveCategory   string
+	Undo             string
+	Filter           string
+	ClearFilter      string
+	ApplyToFiltered  string
+	Unsubscribe      string
+	MuteThread       string
+	ThreadChord      string
+	Palette          string
+	StreamChord      string
+	NextTab          string
+	PrevTab          string
+	ReplyLaterToggle string
+	SetAsideToggle   string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -163,6 +165,13 @@ type KeyMap struct {
 	// third pane-scoped meaning, not a global binding (spec 24 §5.2).
 	NextTab key.Binding
 	PrevTab key.Binding
+
+	// ReplyLaterToggle / SetAsideToggle (spec 25). Add/remove the
+	// focused message from the corresponding inkwell stack
+	// (Inkwell/ReplyLater / Inkwell/SetAside category). Pane-scoped
+	// to list and viewer.
+	ReplyLaterToggle key.Binding
+	SetAsideToggle   key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -223,6 +232,15 @@ func DefaultKeyMap() KeyMap {
 		StreamChord:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "stream chord")),
 		NextTab:        key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
 		PrevTab:        key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
+		// Spec 25 §5.1 specified `L` (Reply Later) and `S` (Set Aside),
+		// noting both as "unused capitals". Spec 23 subsequently
+		// claimed `S` for the stream chord, so this implementation
+		// keeps `L` for ReplyLater but binds Set Aside to `P`
+		// (mnemonic: Pin, matches the 📌 indicator the spec chose).
+		// Documented as a deviation from spec 25 in the spec-25 plan
+		// file iter log.
+		ReplyLaterToggle: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "reply later")),
+		SetAsideToggle:   key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "set aside (pin)")),
 	}
 }
 
@@ -304,6 +322,8 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.StreamChord, o.StreamChord)
 	apply(&km.NextTab, o.NextTab)
 	apply(&km.PrevTab, o.PrevTab)
+	apply(&km.ReplyLaterToggle, o.ReplyLaterToggle)
+	apply(&km.SetAsideToggle, o.SetAsideToggle)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -354,6 +374,8 @@ func findDuplicateBinding(km KeyMap) string {
 		{"thread_chord", km.ThreadChord},
 		{"palette", km.Palette},
 		{"stream_chord", km.StreamChord},
+		{"reply_later_toggle", km.ReplyLaterToggle},
+		{"set_aside_toggle", km.SetAsideToggle},
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

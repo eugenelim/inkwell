@@ -306,7 +306,7 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				if msg == nil {
 					return mm, nil
 				}
-				return mm, mm.runThreadExecuteCmd("mark read", store.ActionMarkRead, msg.ID)
+				return mm, mm.runThreadExecuteCmd("mark read", store.ActionMarkRead, msg.ID, nil)
 			},
 		},
 		{
@@ -317,7 +317,7 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				if msg == nil {
 					return mm, nil
 				}
-				return mm, mm.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, msg.ID)
+				return mm, mm.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, msg.ID, nil)
 			},
 		},
 		{
@@ -328,7 +328,7 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				if msg == nil {
 					return mm, nil
 				}
-				return mm, mm.runThreadExecuteCmd("flag", store.ActionFlag, msg.ID)
+				return mm, mm.runThreadExecuteCmd("flag", store.ActionFlag, msg.ID, nil)
 			},
 		},
 		{
@@ -339,7 +339,7 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 				if msg == nil {
 					return mm, nil
 				}
-				return mm, mm.runThreadExecuteCmd("unflag", store.ActionUnflag, msg.ID)
+				return mm, mm.runThreadExecuteCmd("unflag", store.ActionUnflag, msg.ID, nil)
 			},
 		},
 		{

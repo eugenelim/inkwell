@@ -45,6 +45,11 @@ type Theme struct {
 	FeedIndicator       string
 	PaperTrailIndicator string
 	ScreenerIndicator   string
+
+	// Spec 25 inkwell stack indicators. Empty falls back to the
+	// glyph defaults (`↩` / `📌`) via stackGlyph.
+	ReplyLaterIndicator string
+	SetAsideIndicator   string
 }
 
 // palette is the small set of semantic colors a theme builder picks
@@ -162,5 +167,7 @@ func paletteToTheme(p palette) Theme {
 		FeedIndicator:       "📰",
 		PaperTrailIndicator: "🧾",
 		ScreenerIndicator:   "🚪",
+		ReplyLaterIndicator: "↩",
+		SetAsideIndicator:   "📌",
 	}
 }

@@ -206,7 +206,12 @@ func (e *Executor) Archive(ctx context.Context, accountID int64, messageID strin
 // batch action to all of them. Rejects ActionMove — use ThreadMove for
 // move/archive operations. Returns (count of IDs collected, per-message
 // results, error).
-func (e *Executor) ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string) (int, []BatchResult, error) {
+//
+// Spec 25 §5.8 added the trailing `params` argument so category
+// thread verbs (T l / T L / T s / T S) can carry the `category`
+// param through to each enqueued action. nil params preserves the
+// pre-spec-25 single-arg behaviour.
+func (e *Executor) ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string, params map[string]any) (int, []BatchResult, error) {
 	if verb == store.ActionMove {
 		return 0, nil, fmt.Errorf("thread: use ThreadMove for move/archive operations")
 	}
@@ -224,7 +229,12 @@ func (e *Executor) ThreadExecute(ctx context.Context, accID int64, verb store.Ac
 	if len(ids) == 0 {
 		return 0, nil, nil
 	}
-	results, err := e.BatchExecute(ctx, accID, verb, ids)
+	var results []BatchResult
+	if params != nil {
+		results, err = e.BatchExecuteWithParams(ctx, accID, verb, ids, params)
+	} else {
+		results, err = e.BatchExecute(ctx, accID, verb, ids)
+	}
 	return len(ids), results, err
 }
 

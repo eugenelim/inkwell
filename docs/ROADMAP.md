@@ -57,7 +57,7 @@ Workflow patterns built on the primitives. Users feel these.
 | 1     | Command palette (1.6)               | Owner: spec 22. Discoverability for everything else. |
 | 2     | Routing destinations (1.9)          | Owner: spec 23. `sender_routing` table reused by B3. |
 | 3     | Split inbox tabs (1.7)              | Owner: spec 24. Saved searches promoted to a list-pane tab strip. |
-| 4     | Reply Later / Set Aside (1.10)      | Graph categories — independent.                |
+| 4     | Reply Later / Set Aside (1.10)      | Owner: spec 25. Graph categories — independent. |
 | 5     | Bundle senders (1.11)               | Pure UI grouping.                              |
 
 ### Bucket 3 — Power-user automation
@@ -226,16 +226,13 @@ When the user marks a sender as "this goes to Feed," all future mail from that s
 
 ### 1.10 Reply Later / Set Aside stacks — P2
 
+**Owner: spec 25 (shipped).**
+
 **The concept.** Two adjacent ideas: messages I'll reply to later, and messages I want to keep handy without replying. Each is a stack you can fan out at will.
 
-**TUI translation.** Add two flag-like fields backed by Graph categories:
+**TUI translation.** Two reserved Graph categories — `Inkwell/ReplyLater` and `Inkwell/SetAside` — surfaced as sidebar virtual entries and toggled by a single keypress. `L` adds/removes the focused message from Reply Later; `P` (mnemonic: Pin, matches the 📌 indicator) toggles Set Aside (the spec suggested `S`; deviated because spec 23's stream chord already claimed it). Thread chord verbs `T l` / `T L` / `T s` / `T S` apply over a whole conversation. `:focus [N]` walks the Reply Later queue, opening compose-reply for each message.
 
-- A built-in `_reply_later` category — used as a stack. Capital `R` on the focused message adds it; `:replies` opens a modal with the queue.
-- A built-in `_set_aside` category — same pattern, key `S`.
-
-These differ from regular flags because they have a dedicated overlay rather than just being an indicator.
-
-**Take.** Genuinely improves workflow for senior pros with a backlog. The "Reply Later" pattern in particular hits something the native client handles poorly. Ships as part of the Inbox Philosophy pack.
+**Take.** Genuinely improves workflow for senior pros with a backlog. Stacks round-trip via Graph categories so state syncs across devices.
 
 ### 1.11 Bundle senders — P2
 

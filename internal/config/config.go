@@ -348,6 +348,15 @@ type UIConfig struct {
 	// ASCII letters (i / f / p / k) regardless of any configured
 	// values. For terminals that cannot render emoji.
 	StreamASCIIFallback bool `toml:"stream_ascii_fallback"`
+
+	// Spec 25 inkwell stack indicators. Empty falls back to the
+	// theme defaults (↩ / 📌). Use the ASCII fallback letters
+	// `R` / `P` for terminals without emoji support.
+	ReplyLaterIndicator string `toml:"reply_later_indicator"`
+	SetAsideIndicator   string `toml:"set_aside_indicator"`
+	// FocusQueueLimit caps the spec 25 §5.7 Focus & Reply queue
+	// pre-fetch. Range 1–1000; default 200.
+	FocusQueueLimit int `toml:"focus_queue_limit"`
 }
 
 // StreamIndicatorsConfig is the inline table used by spec 23 §11 for
@@ -361,45 +370,47 @@ type StreamIndicatorsConfig struct {
 
 // BindingsConfig owns the [bindings] section (spec 04).
 type BindingsConfig struct {
-	Quit            string `toml:"quit"`
-	Help            string `toml:"help"`
-	Cmd             string `toml:"cmd"`
-	Search          string `toml:"search"`
-	Refresh         string `toml:"refresh"`
-	FocusFolders    string `toml:"focus_folders"`
-	FocusList       string `toml:"focus_list"`
-	FocusViewer     string `toml:"focus_viewer"`
-	NextPane        string `toml:"next_pane"`
-	PrevPane        string `toml:"prev_pane"`
-	Up              string `toml:"up"`
-	Down            string `toml:"down"`
-	Left            string `toml:"left"`
-	Right           string `toml:"right"`
-	PageUp          string `toml:"page_up"`
-	PageDown        string `toml:"page_down"`
-	Home            string `toml:"home"`
-	End             string `toml:"end"`
-	Open            string `toml:"open"`
-	MarkRead        string `toml:"mark_read"`
-	MarkUnread      string `toml:"mark_unread"`
-	ToggleFlag      string `toml:"toggle_flag"`
-	Delete          string `toml:"delete"`
-	PermanentDelete string `toml:"permanent_delete"`
-	Archive         string `toml:"archive"`
-	Move            string `toml:"move"`
-	AddCategory     string `toml:"add_category"`
-	RemoveCategory  string `toml:"remove_category"`
-	Undo            string `toml:"undo"`
-	Filter          string `toml:"filter"`
-	ClearFilter     string `toml:"clear_filter"`
-	ApplyToFiltered string `toml:"apply_to_filtered"`
-	Unsubscribe     string `toml:"unsubscribe"`
-	MuteThread      string `toml:"mute_thread"`
-	ThreadChord     string `toml:"thread_chord"`
-	Palette         string `toml:"palette"`
-	StreamChord     string `toml:"stream_chord"`
-	NextTab         string `toml:"next_tab"`
-	PrevTab         string `toml:"prev_tab"`
+	Quit             string `toml:"quit"`
+	Help             string `toml:"help"`
+	Cmd              string `toml:"cmd"`
+	Search           string `toml:"search"`
+	Refresh          string `toml:"refresh"`
+	FocusFolders     string `toml:"focus_folders"`
+	FocusList        string `toml:"focus_list"`
+	FocusViewer      string `toml:"focus_viewer"`
+	NextPane         string `toml:"next_pane"`
+	PrevPane         string `toml:"prev_pane"`
+	Up               string `toml:"up"`
+	Down             string `toml:"down"`
+	Left             string `toml:"left"`
+	Right            string `toml:"right"`
+	PageUp           string `toml:"page_up"`
+	PageDown         string `toml:"page_down"`
+	Home             string `toml:"home"`
+	End              string `toml:"end"`
+	Open             string `toml:"open"`
+	MarkRead         string `toml:"mark_read"`
+	MarkUnread       string `toml:"mark_unread"`
+	ToggleFlag       string `toml:"toggle_flag"`
+	Delete           string `toml:"delete"`
+	PermanentDelete  string `toml:"permanent_delete"`
+	Archive          string `toml:"archive"`
+	Move             string `toml:"move"`
+	AddCategory      string `toml:"add_category"`
+	RemoveCategory   string `toml:"remove_category"`
+	Undo             string `toml:"undo"`
+	Filter           string `toml:"filter"`
+	ClearFilter      string `toml:"clear_filter"`
+	ApplyToFiltered  string `toml:"apply_to_filtered"`
+	Unsubscribe      string `toml:"unsubscribe"`
+	MuteThread       string `toml:"mute_thread"`
+	ThreadChord      string `toml:"thread_chord"`
+	Palette          string `toml:"palette"`
+	StreamChord      string `toml:"stream_chord"`
+	NextTab          string `toml:"next_tab"`
+	PrevTab          string `toml:"prev_tab"`
+	ReplyLaterToggle string `toml:"reply_later_toggle"`
+	SetAsideToggle   string `toml:"set_aside_toggle"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

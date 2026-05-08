@@ -37,6 +37,9 @@ func (r *renderer) Headers(m *store.Message, opts BodyOpts) string {
 		writeHeader(&b, t, "Cc", cc)
 	}
 	writeHeader(&b, t, "Date", dateStr)
+	if stacks := stacksLine(m.Categories); stacks != "" {
+		writeHeader(&b, t, "Stacks", stacks)
+	}
 	writeSubject(&b, t, subjectStr)
 
 	if opts.ShowFullHeaders {
@@ -64,6 +67,23 @@ func writeHeader(b *strings.Builder, t Theme, label, value string) {
 	b.WriteByte(' ')
 	b.WriteString(t.HeaderValue.Render(value))
 	b.WriteByte('\n')
+}
+
+// stacksLine builds the spec 25 §5.5 "Stacks:" header value: one
+// glyph + label per inkwell stack the message is in. Empty result
+// emits no line (the caller skips the writeHeader).
+func stacksLine(cats []string) string {
+	var parts []string
+	if store.IsInCategory(cats, store.CategoryReplyLater) {
+		parts = append(parts, "↩ Reply Later")
+	}
+	if store.IsInCategory(cats, store.CategorySetAside) {
+		parts = append(parts, "📌 Set Aside")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ")
 }
 
 func writeSubject(b *strings.Builder, t Theme, subject string) {

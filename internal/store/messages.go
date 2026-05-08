@@ -406,13 +406,17 @@ func buildListSQL(q MessageQuery) (string, []any) {
 		args = append(args, q.ReceivedBefore.Unix())
 	}
 	if len(q.Categories) > 0 {
-		// JSON1: any-of match.
-		// EXISTS (SELECT 1 FROM json_each(categories) WHERE value IN (...))
-		ph := strings.Repeat(",?", len(q.Categories))[1:]
-		where = append(where, "EXISTS (SELECT 1 FROM json_each(categories) WHERE value IN ("+ph+"))")
+		// JSON1: any-of match. Spec 25 §3.1 widens this from
+		// case-sensitive `value IN (?,?)` to case-insensitive
+		// `value = ? COLLATE NOCASE` clauses OR'd together so a
+		// category tagged `inkwell/replylater` in Outlook web
+		// matches the canonical `Inkwell/ReplyLater`.
+		clauses := make([]string, 0, len(q.Categories))
 		for _, c := range q.Categories {
+			clauses = append(clauses, "value = ? COLLATE NOCASE")
 			args = append(args, c)
 		}
+		where = append(where, "EXISTS (SELECT 1 FROM json_each(categories) WHERE "+strings.Join(clauses, " OR ")+")")
 	}
 	if q.ExcludeMuted {
 		// NOT EXISTS anti-join: messages with NULL/empty conversation_id

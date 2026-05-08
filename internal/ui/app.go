@@ -149,7 +149,7 @@ type BulkResult struct {
 // Verb must be a store.ActionType — use store.ActionMarkRead etc.
 // Implementations route through action.Executor.ThreadExecute / ThreadMove.
 type ThreadExecutor interface {
-	ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string) (int, []BulkResult, error)
+	ThreadExecute(ctx context.Context, accID int64, verb store.ActionType, focusedMsgID string, params map[string]any) (int, []BulkResult, error)
 	ThreadMove(ctx context.Context, accID int64, focusedMsgID, destFolderID, destAlias string) (int, []BulkResult, error)
 }
 
@@ -265,6 +265,12 @@ type Deps struct {
 	// in-package defaults (enabled, max_name_width=16, wraps).
 	Tabs                TabsConfig
 	SavedSearchCacheTTL time.Duration
+
+	// Spec 25 — Reply Later / Set Aside stacks. Indicator overrides
+	// (empty falls back to ↩ / 📌) and the focus-mode queue cap.
+	ReplyLaterIndicator string
+	SetAsideIndicator   string
+	FocusQueueLimit     int
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -743,6 +749,19 @@ type Model struct {
 	streamChordPending bool
 	streamChordToken   uint64
 
+	// Spec 25 Focus & Reply mode (§5.7). Walk the Reply Later queue,
+	// opening the compose-reply UI for each message. Queue is
+	// pre-fetched at :focus invocation and frozen for the session.
+	// focusComposePending is true while a compose modal is open;
+	// focusPrevMode is the prior tick's m.mode used by the
+	// compose-exit observer.
+	focusModeActive     bool
+	focusQueueIDs       []string
+	focusIndex          int
+	focusReturnFolderID string
+	focusComposePending bool
+	focusPrevMode       Mode
+
 	// Spec 24 split-inbox tabs. tabs is the ordered list from
 	// Manager.Tabs; activeTab is -1 when no tab is focused (cold
 	// start, or a regular folder is selected). tabState parallels
@@ -801,6 +820,12 @@ func New(deps Deps) (Model, error) {
 	}
 	if deps.MuteIndicator != "" {
 		theme.MuteIndicator = deps.MuteIndicator
+	}
+	if deps.ReplyLaterIndicator != "" {
+		theme.ReplyLaterIndicator = deps.ReplyLaterIndicator
+	}
+	if deps.SetAsideIndicator != "" {
+		theme.SetAsideIndicator = deps.SetAsideIndicator
 	}
 	if deps.StreamASCIIFallback {
 		theme.ImboxIndicator = "i"
@@ -932,7 +957,36 @@ func (m Model) Init() tea.Cmd {
 // Update implements the Bubble Tea contract. The function is
 // mode-dispatched (spec 04 §4): SignIn / Confirm / Command / Search /
 // Normal.
+// Update is the public Bubble Tea entry point. It wraps the
+// internal updateInternal so spec 25's compose-exit observer can
+// snapshot the prior tick's mode before the case block runs and
+// advance the focus queue when the transition fires.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	prevMode := m.focusPrevMode
+	out, cmd := m.updateInternal(msg)
+	mm := out.(Model)
+	// Compose-exit observer (spec 25 §5.7 step 4): when the prior
+	// tick ended in ComposeMode and this tick is back in
+	// NormalMode while focus mode is active, advance the queue.
+	if mm.focusModeActive && mm.focusComposePending && prevMode == ComposeMode && mm.mode == NormalMode {
+		mm.focusComposePending = false
+		mm.focusIndex++
+		mm.focusPrevMode = mm.mode
+		next, advCmd := mm.focusActivate()
+		next.focusPrevMode = next.mode
+		if cmd != nil {
+			return next, tea.Batch(cmd, advCmd)
+		}
+		return next, advCmd
+	}
+	mm.focusPrevMode = mm.mode
+	return mm, cmd
+}
+
+// updateInternal carries the actual switch over msg types. Renamed
+// from Update so the public Update can wrap with the spec 25
+// compose-exit observer (§5.7).
+func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -1022,13 +1076,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.FolderID = pick.ID
 			m.folders.SelectByID(pick.ID)
-			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd())
+			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd())
 		}
-		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd())
+		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd())
 
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
 			m.list.SetMessages(msg.Messages)
+			// Spec 25 §5.4: stack views are cross-folder by nature
+			// (Reply Later messages can live in any folder). When
+			// the result spans >1 folder, populate folderNameByID
+			// so the list pane renders the FOLDER column (spec 21
+			// reuse). Cleared on next folder switch.
+			if IsStackSentinelID(msg.FolderID) {
+				seen := make(map[string]struct{}, len(msg.Messages))
+				for _, mm := range msg.Messages {
+					seen[mm.FolderID] = struct{}{}
+				}
+				if len(seen) > 1 {
+					nameMap := make(map[string]string, len(seen))
+					for id := range seen {
+						if f, ok := m.foldersByID[id]; ok {
+							nameMap[id] = f.DisplayName
+						} else {
+							nameMap[id] = "???"
+						}
+					}
+					m.list.folderNameByID = nameMap
+				} else {
+					m.list.folderNameByID = nil
+				}
+			}
+		}
+		// Spec 25 §10.4: every MessagesLoadedMsg for a non-stack
+		// folder may have arrived after a sync delta with category
+		// changes from Outlook web; refresh stack badges. Cheap.
+		if !IsStackSentinelID(msg.FolderID) && msg.FolderID != "" {
+			return m, m.refreshStackCountsCmd()
 		}
 		return m, nil
 
@@ -1255,10 +1339,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingBulk != "" {
 			action := m.pendingBulk
 			m.pendingBulk = ""
-			m.pendingBulkCategory = "" // always clear after confirm or cancel
 			if msg.Confirm {
-				return m, m.runBulkCmd(action)
+				cmd := m.runBulkCmd(action)
+				m.pendingBulkCategory = "" // clear AFTER runBulkCmd captured the value
+				return m, cmd
 			}
+			m.pendingBulkCategory = "" // cancel: clear
 		}
 		// Folder delete confirmation (spec 18): pendingFolderDelete
 		// carries the target. y fires Triage.DeleteFolder.
@@ -1477,10 +1563,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Filter set is now stale; clear it and reload the prior folder.
 		m = m.clearFilter()
+		// Spec 25 §10.4: refresh stack counts after every bulk
+		// category mutation. The category-touching bulk verbs land
+		// here; the cheap two-COUNT refresh keeps sidebar badges
+		// truthful.
+		stackRefresh := m.refreshStackCountsCmd()
 		if m.priorFolderID != "" {
-			return m, m.loadMessagesCmd(m.priorFolderID)
+			return m, tea.Batch(m.loadMessagesCmd(m.priorFolderID), stackRefresh)
 		}
-		return m, nil
+		return m, stackRefresh
 
 	case savedSearchesUpdatedMsg:
 		m.savedSearches = msg.searches
@@ -1488,7 +1579,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case savedSearchBgRefreshMsg:
-		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.refreshStreamCountsCmd(), m.backgroundRefreshTimerCmd())
+		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd(), m.backgroundRefreshTimerCmd())
 
 	case ruleEditDoneMsg:
 		m.mode = NormalMode
@@ -1695,6 +1786,86 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamCountsUpdatedMsg:
 		m.folders.SetStreamCounts(msg.counts)
 		return m, nil
+
+	case stackToggleMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("stack: %w", msg.err)
+			return m, nil
+		}
+		m.engineActivity = formatStackToggleToast(m.theme, msg)
+		// Reload list when inside a stack view (the row may vanish)
+		// or any other folder (categories changed). Refresh sidebar
+		// stack counts.
+		var reload tea.Cmd
+		switch {
+		case IsStackSentinelID(m.list.FolderID):
+			cat := stackCategoryFromID(m.list.FolderID)
+			reload = m.loadStackMessagesCmd(cat, m.list.FolderID)
+		case m.list.FolderID == mutedSentinelID:
+			reload = m.loadMutedMessagesCmd()
+		case IsStreamSentinelID(m.list.FolderID):
+			reload = m.loadByRoutingCmd(streamDestinationFromID(m.list.FolderID))
+		case m.filterActive:
+			reload = m.runFilterCmd(m.filterPattern)
+		default:
+			if m.list.FolderID != "" {
+				reload = m.loadMessagesCmd(m.list.FolderID)
+			}
+		}
+		return m, tea.Batch(reload, m.refreshStackCountsCmd(), m.clearTransientCmd())
+
+	case stackCountsUpdatedMsg:
+		m.folders.SetReplyLaterCount(msg.replyLater)
+		m.folders.SetSetAsideCount(msg.setAside)
+		return m, nil
+
+	case focusQueueLoadedMsg:
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("focus: %w", msg.err)
+			return m, nil
+		}
+		if len(msg.ids) == 0 {
+			m.engineActivity = "focus: Reply Later is empty"
+			return m, m.clearTransientCmd()
+		}
+		if msg.startIndex >= len(msg.ids) {
+			m.engineActivity = fmt.Sprintf("focus: queue has only %d messages", len(msg.ids))
+			return m, m.clearTransientCmd()
+		}
+		m.focusModeActive = true
+		m.focusQueueIDs = msg.ids
+		m.focusIndex = msg.startIndex
+		m.focusReturnFolderID = msg.prevFolder
+		m.focusComposePending = false
+		mm, cmd := m.focusActivate()
+		return mm, cmd
+
+	case focusOpenIndexMsg:
+		if !m.focusModeActive {
+			return m, nil
+		}
+		if msg.id == "" {
+			// Skip missing message; advance.
+			m.focusIndex++
+			mm, cmd := m.focusActivate()
+			return mm, cmd
+		}
+		// Open the message: load it into the viewer + start compose.
+		fetchCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		stored, err := m.deps.Store.GetMessage(fetchCtx, msg.id)
+		if err != nil || stored == nil {
+			m.focusIndex++
+			mm, cmd := m.focusActivate()
+			return mm, cmd
+		}
+		m.viewer.SetMessage(*stored)
+		m.focused = ViewerPane
+		m.focusComposePending = true
+		// startCompose enters ComposeMode; the compose-exit observer
+		// at the top of Update will advance the queue when mode
+		// returns to NormalMode.
+		return m.startCompose(*stored)
 
 	case tabsLoadedMsg:
 		if msg.err != nil {
@@ -2396,6 +2567,13 @@ func (m Model) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Spec 25 §5.7 step 6: Esc exits focus mode immediately when
+	// no compose modal is active. Compose modals own their own Esc
+	// (handled by the compose dispatcher BEFORE this function fires).
+	if m.focusModeActive && !m.focusComposePending && keyMsg.Type == tea.KeyEsc {
+		mm, cmd := m.focusEnd()
+		return mm, cmd
+	}
 	// Spec 05 §12 / PR 10: digits 1-9 open the corresponding numbered
 	// link directly from the viewer pane. These are intercepted BEFORE
 	// the global FocusFolders/FocusList/FocusViewer bindings (which
@@ -2803,6 +2981,23 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRoute(args[1:])
 	case "tab":
 		return m.dispatchTabCmd(args[1:])
+	case "later":
+		// Spec 25 §5.10 — switch to the Reply Later virtual folder.
+		m.list.FolderID = replyLaterSentinelID
+		m.list.ResetLimit()
+		m.focused = ListPane
+		m.searchActive = false
+		m.searchQuery = ""
+		return m, m.loadStackMessagesCmd(store.CategoryReplyLater, replyLaterSentinelID)
+	case "aside":
+		m.list.FolderID = setAsideSentinelID
+		m.list.ResetLimit()
+		m.focused = ListPane
+		m.searchActive = false
+		m.searchQuery = ""
+		return m, m.loadStackMessagesCmd(store.CategorySetAside, setAsideSentinelID)
+	case "focus":
+		return m.startFocusMode(args[1:])
 	case "unfilter":
 		prior := m.priorFolderID
 		m = m.clearFilter()
@@ -3542,6 +3737,14 @@ func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 		} else {
 			verb = "remove category from"
 		}
+	case "add_reply_later":
+		verb = "add to Reply Later"
+	case "remove_reply_later":
+		verb = "remove from Reply Later"
+	case "add_set_aside":
+		verb = "add to Set Aside"
+	case "remove_set_aside":
+		verb = "remove from Set Aside"
 	}
 	var sb strings.Builder
 	firstLine := fmt.Sprintf("%s %d messages", titleCase(verb), count)
@@ -3613,6 +3816,10 @@ func (m Model) runBulkCmd(action string) tea.Cmd {
 		case "add_category":
 			results, err = m.deps.Bulk.BulkAddCategory(ctx, accountID, ids, category)
 		case "remove_category":
+			results, err = m.deps.Bulk.BulkRemoveCategory(ctx, accountID, ids, category)
+		case "add_reply_later", "add_set_aside":
+			results, err = m.deps.Bulk.BulkAddCategory(ctx, accountID, ids, category)
+		case "remove_reply_later", "remove_set_aside":
 			results, err = m.deps.Bulk.BulkRemoveCategory(ctx, accountID, ids, category)
 		default:
 			return ErrorMsg{Err: fmt.Errorf("runBulkCmd: unknown action %q", action)}
@@ -3753,6 +3960,23 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			return m, m.loadByRoutingCmd(dest)
 		}
+		// Spec 25 stack virtual folders — Reply Later / Set Aside.
+		if m.folders.SelectedReplyLater() {
+			m.list.FolderID = replyLaterSentinelID
+			m.list.ResetLimit()
+			m.focused = ListPane
+			m.searchActive = false
+			m.searchQuery = ""
+			return m, m.loadStackMessagesCmd(store.CategoryReplyLater, replyLaterSentinelID)
+		}
+		if m.folders.SelectedSetAside() {
+			m.list.FolderID = setAsideSentinelID
+			m.list.ResetLimit()
+			m.focused = ListPane
+			m.searchActive = false
+			m.searchQuery = ""
+			return m, m.loadStackMessagesCmd(store.CategorySetAside, setAsideSentinelID)
+		}
 		// Saved-search row: run its pattern via the existing filter
 		// machinery. Selection auto-focuses the list pane (parity
 		// with regular folder navigation).
@@ -3845,6 +4069,20 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.folderPicker.Reset(folders, m.recentFolderIDs)
 			m.mode = FolderPickerMode
 			return m, nil
+		case "l":
+			// Spec 25 §5.9: ;l bulk-add to Reply Later.
+			m.pendingBulkCategory = store.CategoryReplyLater
+			return m.confirmBulk("add_reply_later", len(m.filterIDs))
+		case "L":
+			// ;L bulk-remove from Reply Later.
+			m.pendingBulkCategory = store.CategoryReplyLater
+			return m.confirmBulk("remove_reply_later", len(m.filterIDs))
+		case "s":
+			m.pendingBulkCategory = store.CategorySetAside
+			return m.confirmBulk("add_set_aside", len(m.filterIDs))
+		case "S":
+			m.pendingBulkCategory = store.CategorySetAside
+			return m.confirmBulk("remove_set_aside", len(m.filterIDs))
 		}
 		// Unknown chord follow-up: clear pending, fall through.
 	}
@@ -3888,7 +4126,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.threadChordToken++
 		m.threadChordPending = true
-		m.engineActivity = "thread: r/R/f/F/d/D/a/m  esc cancel"
+		m.engineActivity = "thread: r/R/f/F/d/D/a/m/l/L/s/S  esc cancel"
 		return m, threadChordTimeout(m.threadChordToken)
 	}
 	if m.threadChordPending {
@@ -3904,13 +4142,13 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch string(msg.Runes) {
 		case "r":
-			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, sel.ID)
+			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, sel.ID, nil)
 		case "R":
-			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, sel.ID)
+			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, sel.ID, nil)
 		case "f":
-			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, sel.ID)
+			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, sel.ID, nil)
 		case "F":
-			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, sel.ID)
+			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, sel.ID, nil)
 		case "a":
 			return m, m.runThreadMoveCmd("archive", sel.ID, "", "archive")
 		case "d":
@@ -3932,6 +4170,22 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.folderPicker.Reset(folders, m.recentFolderIDs)
 			m.mode = FolderPickerMode
 			return m, nil
+		case "l":
+			return m, m.runThreadExecuteCmd("add to Reply Later",
+				store.ActionAddCategory, sel.ID,
+				map[string]any{"category": store.CategoryReplyLater})
+		case "L":
+			return m, m.runThreadExecuteCmd("remove from Reply Later",
+				store.ActionRemoveCategory, sel.ID,
+				map[string]any{"category": store.CategoryReplyLater})
+		case "s":
+			return m, m.runThreadExecuteCmd("add to Set Aside",
+				store.ActionAddCategory, sel.ID,
+				map[string]any{"category": store.CategorySetAside})
+		case "S":
+			return m, m.runThreadExecuteCmd("remove from Set Aside",
+				store.ActionRemoveCategory, sel.ID,
+				map[string]any{"category": store.CategorySetAside})
 		}
 		// Unrecognised second key — cancel silently.
 		return m, nil
@@ -4062,6 +4316,10 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startUnsubscribe(sel.ID)
 	case key.Matches(msg, m.keymap.MuteThread):
 		return m.startMute()
+	case key.Matches(msg, m.keymap.ReplyLaterToggle):
+		return m.startStackToggle(store.CategoryReplyLater)
+	case key.Matches(msg, m.keymap.SetAsideToggle):
+		return m.startStackToggle(store.CategorySetAside)
 	case key.Matches(msg, m.keymap.AddCategory):
 		sel, ok := m.list.Selected()
 		if !ok {
@@ -4759,7 +5017,10 @@ type threadPreFetchDoneMsg struct {
 
 // runThreadExecuteCmd dispatches a verb over all messages in the
 // focused message's conversation via ThreadExecutor.ThreadExecute.
-func (m Model) runThreadExecuteCmd(verb string, actionType store.ActionType, focusedMsgID string) tea.Cmd {
+// params is forwarded into the per-message action (spec 25 §5.8 —
+// nil for the pre-spec-25 verbs, a `{"category": "Inkwell/..."}`
+// map for the four new T l / T L / T s / T S chord verbs).
+func (m Model) runThreadExecuteCmd(verb string, actionType store.ActionType, focusedMsgID string, params map[string]any) tea.Cmd {
 	if m.deps.Thread == nil {
 		return nil
 	}
@@ -4770,7 +5031,7 @@ func (m Model) runThreadExecuteCmd(verb string, actionType store.ActionType, foc
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		total, results, err := m.deps.Thread.ThreadExecute(ctx, accountID, actionType, focusedMsgID)
+		total, results, err := m.deps.Thread.ThreadExecute(ctx, accountID, actionType, focusedMsgID, params)
 		var ok, fail int
 		var firstErr error
 		for _, r := range results {
@@ -5217,6 +5478,10 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keymap.MuteThread):
 		return m.startMute()
+	case key.Matches(msg, m.keymap.ReplyLaterToggle):
+		return m.startStackToggle(store.CategoryReplyLater)
+	case key.Matches(msg, m.keymap.SetAsideToggle):
+		return m.startStackToggle(store.CategorySetAside)
 	case key.Matches(msg, m.keymap.AddCategory):
 		if cur := m.viewer.current; cur != nil {
 			return m.startCategoryInput("add", *cur)
@@ -5327,7 +5592,7 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.threadChordToken++
 		m.threadChordPending = true
-		m.engineActivity = "thread: r/R/f/F/d/D/a/m  esc cancel"
+		m.engineActivity = "thread: r/R/f/F/d/D/a/m/l/L/s/S  esc cancel"
 		return m, threadChordTimeout(m.threadChordToken)
 	}
 	if m.threadChordPending {
@@ -5343,13 +5608,13 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch string(msg.Runes) {
 		case "r":
-			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, cur.ID)
+			return m, m.runThreadExecuteCmd("mark read", store.ActionMarkRead, cur.ID, nil)
 		case "R":
-			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, cur.ID)
+			return m, m.runThreadExecuteCmd("mark unread", store.ActionMarkUnread, cur.ID, nil)
 		case "f":
-			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, cur.ID)
+			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, cur.ID, nil)
 		case "F":
-			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, cur.ID)
+			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, cur.ID, nil)
 		case "a":
 			return m, m.runThreadMoveCmd("archive", cur.ID, "", "archive")
 		case "d":
@@ -5371,6 +5636,22 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.folderPicker.Reset(folders, m.recentFolderIDs)
 			m.mode = FolderPickerMode
 			return m, nil
+		case "l":
+			return m, m.runThreadExecuteCmd("add to Reply Later",
+				store.ActionAddCategory, cur.ID,
+				map[string]any{"category": store.CategoryReplyLater})
+		case "L":
+			return m, m.runThreadExecuteCmd("remove from Reply Later",
+				store.ActionRemoveCategory, cur.ID,
+				map[string]any{"category": store.CategoryReplyLater})
+		case "s":
+			return m, m.runThreadExecuteCmd("add to Set Aside",
+				store.ActionAddCategory, cur.ID,
+				map[string]any{"category": store.CategorySetAside})
+		case "S":
+			return m, m.runThreadExecuteCmd("remove from Set Aside",
+				store.ActionRemoveCategory, cur.ID,
+				map[string]any{"category": store.CategorySetAside})
 		}
 		return m, nil
 	}
@@ -5723,6 +6004,11 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		if refreshCmd := m.refreshTabCountsCmd(); refreshCmd != nil {
 			cmds = append(cmds, refreshCmd)
 		}
+		// Refresh stack counts — sync delta may have brought
+		// category changes from Outlook web (spec 25 §10.4).
+		if refreshCmd := m.refreshStackCountsCmd(); refreshCmd != nil {
+			cmds = append(cmds, refreshCmd)
+		}
 		return m, tea.Batch(cmds...)
 	}
 	return m, nil
@@ -5897,10 +6183,18 @@ func (m Model) View() string {
 	}
 
 	oooActive := m.mailboxSettings != nil && m.mailboxSettings.AutoReplyStatus != "" && m.mailboxSettings.AutoReplyStatus != "disabled"
+	activity := m.engineActivity
+	if hint := focusStatusBarHint(m); hint != "" {
+		if activity == "" {
+			activity = hint
+		} else {
+			activity = hint + "  " + activity
+		}
+	}
 	statusBar := m.status.View(m.theme, m.width, StatusInputs{
 		LastSync:     m.lastSyncAt,
 		Throttled:    m.throttledFor,
-		Activity:     m.engineActivity,
+		Activity:     activity,
 		LastErr:      m.lastError,
 		OOOActive:    oooActive,
 		OOOIndicator: m.deps.OOOIndicator,

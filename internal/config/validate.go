@@ -40,6 +40,9 @@ func (c *Config) Validate() error {
 	if c.Tabs.MaxNameWidth < 4 {
 		errs = append(errs, "tabs.max_name_width must be ≥ 4")
 	}
+	if c.UI.FocusQueueLimit < 1 || c.UI.FocusQueueLimit > 1000 {
+		errs = append(errs, "ui.focus_queue_limit must be between 1 and 1000")
+	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":
 	default:

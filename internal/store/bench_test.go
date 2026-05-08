@@ -304,6 +304,88 @@ func BenchmarkCountMessagesByRouting(b *testing.B) {
 	}
 }
 
+// openStackBenchStore seeds n messages with `tagged` of them
+// pre-tagged with the supplied category (Inkwell/ReplyLater or
+// Inkwell/SetAside). Spec 25 §7 fixture: 100k msgs / 500 tagged.
+// Tagged in the initial seed (single batch pass) rather than via a
+// re-upsert so the 100k-seed benches set up in one pass.
+func openStackBenchStore(b *testing.B, n, tagged int, category string) (Store, int64, Folder) {
+	b.Helper()
+	dir := b.TempDir()
+	path := filepath.Join(dir, "mail.db")
+	s, err := Open(path, DefaultOptions())
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = s.Close() })
+	acc, err := s.PutAccount(context.Background(), Account{TenantID: "t", ClientID: "c", UPN: "bench@x.invalid"})
+	if err != nil {
+		b.Fatal(err)
+	}
+	f := Folder{ID: "folder-inbox", AccountID: acc, DisplayName: "Inbox", WellKnownName: "inbox", LastSyncedAt: time.Now()}
+	if err := s.UpsertFolder(context.Background(), f); err != nil {
+		b.Fatal(err)
+	}
+	if n > 0 {
+		base := time.Now()
+		const batch = 1000
+		buf := make([]Message, 0, batch)
+		for i := 0; i < n; i++ {
+			m := SyntheticMessage(acc, f.ID, i, base)
+			if i < tagged {
+				m.Categories = []string{category}
+			}
+			buf = append(buf, m)
+			if len(buf) == batch {
+				if err := s.UpsertMessagesBatch(context.Background(), buf); err != nil {
+					b.Fatal(err)
+				}
+				buf = buf[:0]
+			}
+		}
+		if len(buf) > 0 {
+			if err := s.UpsertMessagesBatch(context.Background(), buf); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	return s, acc, f
+}
+
+// BenchmarkCountMessagesInCategory covers spec 25 §7: ≤10ms p95 for
+// CountMessagesInCategory over 100k messages with 500 tagged.
+func BenchmarkCountMessagesInCategory(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _ := openStackBenchStore(b, n, 500, CategoryReplyLater)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.CountMessagesInCategory(context.Background(), acc, CategoryReplyLater); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkListMessagesInCategory covers spec 25 §7: ≤10ms p95 for
+// ListMessagesInCategory(limit=100) over the same fixture.
+func BenchmarkListMessagesInCategory(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _ := openStackBenchStore(b, n, 500, CategoryReplyLater)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.ListMessagesInCategory(context.Background(), acc, CategoryReplyLater, 100); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkSidebarBucketRefresh covers spec 23 §9: ≤20ms p95 for a
 // single batched CountMessagesByRoutingAll call producing all four
 // destination counts.
@@ -362,6 +444,14 @@ func TestBudgetsHonoured(t *testing.T) {
 		// when a counter table is justified by user pain.
 		{"CountMessagesByRouting", 100 * time.Millisecond, BenchmarkCountMessagesByRouting},
 		{"SidebarBucketRefresh", 250 * time.Millisecond, BenchmarkSidebarBucketRefresh},
+		// Spec 25 §7 targets 10ms; like the spec 23 routing counts,
+		// the JSON1 EXISTS row scan over 100k rows runs at ~100ms
+		// without a partial index. The benches themselves still
+		// run (`go test -bench`); they're intentionally NOT in this
+		// test gate because the per-iteration setup (100k seed +
+		// 500 tagged) blows the 120s test timeout the `make
+		// regress` script enforces. Spec 25 §7 acknowledges the
+		// partial-index follow-up.
 	}
 	// Allow up to 1.5x the spec budget before failing — CI hardware
 	// varies, and CLAUDE.md §6 says ">50% regression" is the gate.
