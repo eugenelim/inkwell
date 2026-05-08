@@ -18,14 +18,13 @@ screener, watch mode) does not depend on this verb cosmetic.
 ### 0.1 Spec inventory
 
 "Done" alias is item 4 of Bucket 3 in `docs/ROADMAP.md` §0 and
-backlog item §1.23. Slot 27 is reserved for the custom-actions
-framework (Bucket 3 row 1, independently specced); slots 28 and 29
-are screener (row 2) and watch mode (row 3) respectively, both
-authored and ready for implementation as of v0.53.0. Spec 30 takes
-the next sequential slot for the row 4 verb. The four Bucket-3
-specs are independent — spec 30 is half a day of binding/branding
-work and is unblocked by the larger custom-actions design. The PRD
-§10 spec inventory adds a single row for spec 30.
+backlog item §1.23. Slots 27 (custom-actions framework, row 1), 28
+(screener, row 2), and 29 (watch mode, row 3) are all authored and
+ready for implementation. Spec 30 takes the next sequential slot for
+the row 4 verb. The four Bucket-3 specs are independent — spec 30
+is half a day of binding/branding work and is unblocked by the
+larger custom-actions design. The PRD §10 spec inventory adds a
+single row for spec 30.
 
 ---
 

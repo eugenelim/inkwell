@@ -281,13 +281,12 @@ Specs 16, 18–21 cover the "triage primitives" bucket from
 Specs 22–25 cover the "inbox philosophy" bucket — all shipped
 v0.50.0 through v0.53.0. Spec 26 (bundle senders) is in progress.
 
-Specs 28 (screener for new senders, ROADMAP §0 Bucket 3 row 2 /
-§1.16), 29 (watch mode, Bucket 3 row 3 / §1.19), and 30 ("Done"
-alias for archive, Bucket 3 row 4 / §1.23) are the first authored
-specs from the "power-user automation" bucket — all ready for
-implementation, no dependencies on Bucket 2 work. Slot 27 is
-reserved for the custom-actions framework (Bucket 3 row 1) which
-is independently specced.
+Specs 27 (custom actions framework, ROADMAP §0 Bucket 3 row 1 /
+§2), 28 (screener for new senders, Bucket 3 row 2 / §1.16), 29
+(watch mode, Bucket 3 row 3 / §1.19), and 30 ("Done" alias for
+archive, Bucket 3 row 4 / §1.23) are the first authored specs from
+the "power-user automation" bucket — all ready for implementation,
+no dependencies on Bucket 2 work.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

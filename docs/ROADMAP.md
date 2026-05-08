@@ -66,7 +66,7 @@ Ties verbs together once enough verbs exist.
 
 | Order | Item                                | Spec | Status                                          |
 | ----- | ----------------------------------- | ---- | ----------------------------------------------- |
-| 1     | Custom actions framework (§2)       | 27   | Needs most primitives in B1+B2 (slot reserved). |
+| 1     | Custom actions framework (§2)       | 27   | Spec drafted (ready for implementation).        |
 | 2     | Screener (1.16)                     | 28   | Spec drafted (ready for implementation).        |
 | 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
 | 4     | "Done" alias (1.23)                 | 30   | Spec drafted (ready for implementation).        |
