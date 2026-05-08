@@ -380,6 +380,9 @@ sessions older than 24h get garbage-collected on launch.
 | `:later`                      | Toggle Reply Later for the focused message                      |
 | `:aside`                      | Toggle Set Aside for the focused message                        |
 | `:focus`                      | Enter focus mode — fan through Reply Later stack one by one     |
+| `:actions` / `:actions list`  | List configured custom actions (spec 27)                        |
+| `:actions show <name>`        | Show a custom action's resolved sequence                        |
+| `:actions run <name>`         | Run a custom action against the focused message                 |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
@@ -647,6 +650,10 @@ JSON via `--output json`.
 | `inkwell bundle add <email>`                           | Designate a sender for bundling (spec 26).          |
 | `inkwell bundle remove <email>`                        | Remove a bundled-sender designation.                |
 | `inkwell bundle list`                                  | List currently bundled senders.                     |
+| `inkwell action list`                                  | List custom actions configured in `actions.toml` (spec 27). |
+| `inkwell action show <name>`                           | Show a custom action's resolved sequence.           |
+| `inkwell action run <name> --message <id>`             | Execute a custom action against a specific message. |
+| `inkwell action validate`                              | Load + validate `actions.toml` without running anything. |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:
@@ -685,4 +692,32 @@ Restart inkwell after editing.
 
 ---
 
-_Last reviewed against v0.55.0._
+## Custom actions (spec 27)
+
+User-authored recipes loaded from `~/.config/inkwell/actions.toml` (path overridable via `[custom_actions].file`). Each `[[custom_action]]` declares a name, optional single-key binding, optional `confirm = "auto" | "always" | "never"`, and a `sequence = [...]` of step tables. The catalogue is read once at startup; edits require a restart (no hot reload). Use `inkwell action validate` to dry-run a recipe file.
+
+**Op catalogue (22 ops, v1.1):**
+
+| Group | Ops |
+| --- | --- |
+| Triage | `mark_read`, `mark_unread`, `flag`, `unflag`, `archive`, `soft_delete`, `permanent_delete` (destructive — forces confirm), `move`, `add_category`, `remove_category` |
+| Per-sender / per-thread | `set_sender_routing` (literal `imbox`/`feed`/`paper_trail`/`screener`; **not undoable by `u`**), `set_thread_muted` (default `value = true`; **not undoable**), `thread_add_category`, `thread_remove_category`, `thread_archive`, `unsubscribe` |
+| Filter / bulk | `filter`, `move_filtered`, `permanent_delete_filtered` (destructive) |
+| Control flow | `prompt_value` (modal mid-sequence; binds the user's reply into `{{.UserInput}}`), `advance_cursor`, `open_url` |
+
+Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`.
+
+**Template variables** (Go `text/template` syntax — `{{.Name}}` not `{name}`):
+
+`{{.From}}`, `{{.FromName}}`, `{{.SenderDomain}}`, `{{.To}}`, `{{.Subject}}`, `{{.ConversationID}}`, `{{.MessageID}}`, `{{.Date}}`, `{{.Folder}}`, `{{.UserInput}}`. The roadmap's draft single-brace alias syntax (`{sender}`, `{subject}`, …) is rewritten with a deprecation warning at load.
+
+**Safety opt-ins:**
+
+- `allow_folder_template = true` — required when a `move` / `move_filtered` destination references message data (e.g. `"Clients/{{.SenderDomain}}"`).
+- `allow_url_template = true` — required when an `open_url` URL templates message data (PII exfil guard, T-CA3 in the threat model).
+
+**Single-key bindings only.** Chord-style strings (`"<C-x> n"`, whitespace) are rejected. The catalogue's `key` participates in the global duplicate-detector — collisions with `[bindings]` defaults abort startup.
+
+**Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
+
+_Last reviewed against v0.56.0._

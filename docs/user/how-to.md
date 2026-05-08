@@ -777,4 +777,60 @@ CLI changes apply on the next `Ctrl+R` refresh inside a running TUI.
 
 ---
 
-_Last reviewed against v0.55.0._
+## Author a custom action
+
+Custom actions chain primitive ops into a single named verb (spec 27). Recipes live in `~/.config/inkwell/actions.toml`; the file is loaded once at startup. Edits require a binary restart (the `:actions reload` shortcut is intentionally not in v1.1; iterate via `inkwell action validate`).
+
+**Three example recipes** to drop into your `actions.toml`:
+
+```toml
+# 1) Newsletter triage: mark read, route the sender to Feed, archive,
+#    advance to the next row.
+[[custom_action]]
+name = "newsletter_done"
+key = "n"
+description = "Newsletter triage: mark read, route to Feed, archive."
+sequence = [
+  { op = "mark_read" },
+  { op = "set_sender_routing", destination = "feed" },
+  { op = "archive" },
+  { op = "advance_cursor" },
+]
+
+# 2) Move every message from this sender into a folder you name now.
+[[custom_action]]
+name = "sender_to_folder"
+key = "T"
+description = "Move all-from-sender to a folder I'll name."
+confirm = "always"
+sequence = [
+  { op = "prompt_value", prompt = "Move all from {{.From}} to folder:" },
+  { op = "move_filtered", pattern = "~f {{.From}}", destination = "{{.UserInput}}" },
+]
+
+# 3) Add the focused thread to Reply Later.
+[[custom_action]]
+name = "reply_later_thread"
+key = "L"
+description = "Add the entire thread to Reply Later."
+sequence = [
+  { op = "thread_add_category", category = "Inkwell/ReplyLater" },
+]
+```
+
+**Workflow:**
+
+1. Edit `~/.config/inkwell/actions.toml`.
+2. Run `inkwell action validate` — surfaces every parse / validation error with file:line.
+3. Restart inkwell.
+4. Press the action's `key`, or run `:actions run <name>`, or pick it from the palette (`Ctrl+K` → "Custom actions" section).
+
+**Confirm policy:** the default `auto` prompts before any sequence containing a destructive op (`permanent_delete*`) or a `*_filtered` step. `confirm = "always"` always prompts; `confirm = "never"` runs immediately (rejected at load when paired with a destructive op).
+
+**Templating safety:** templates that reference `{{.From}}`, `{{.SenderDomain}}`, etc. inside a `move` destination require `allow_folder_template = true` on the action. Templates inside an `open_url` URL require `allow_url_template = true` (PII exfil guard).
+
+**Undo:** `u` reverses queue-routed steps one at a time, in dispatch order. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT reversible by `u`; the result toast flags them with `[non-undoable]` so you know what stays applied. To "undo" routing, re-route via `S` or `:route clear`.
+
+---
+
+_Last reviewed against v0.56.0._

@@ -225,6 +225,18 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		logger.Warn("mailbox settings: initial fetch failed", "err", err)
 	}
 
+	// Spec 27 — load custom actions catalogue and wire its dispatch
+	// surface into the UI Deps. A missing actions.toml is not an
+	// error (zero recipes loaded). Validation failures abort startup.
+	caApp := &headlessApp{store: st, graph: gc, account: acc, logger: logger}
+	caCat, caDeps, err := loadCustomActions(ctx, cfg, caApp, logger)
+	if err != nil {
+		return fmt.Errorf("custom_actions: %w", err)
+	}
+	// Re-bind ExecDeps fields that depend on the live engine /
+	// services (the headless wiring above gives us a safe default).
+	caDeps.Unsubscribe = caUnsubAdapter{svc: newUnsubAdapter(st, gc, version)}
+
 	// UI
 	model, err := ui.New(ui.Deps{
 		Auth:                  a,
@@ -274,6 +286,8 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		BundleMinCount:           cfg.UI.BundleMinCount,
 		BundleIndicatorCollapsed: cfg.UI.BundleIndicatorCollapsed,
 		BundleIndicatorExpanded:  cfg.UI.BundleIndicatorExpanded,
+		CustomActions:            caCat,
+		CustomActionDeps:         caDeps,
 		TransientStatusTTL:       cfg.UI.TransientStatusTTL,
 		MinTerminalCols:          cfg.UI.MinTerminalCols,
 		MinTerminalRows:          cfg.UI.MinTerminalRows,

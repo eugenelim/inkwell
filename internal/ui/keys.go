@@ -351,6 +351,80 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	return km, nil
 }
 
+// findDuplicateBindingWith extends findDuplicateBinding with a
+// custom-action key set (spec 27 §4.6). Returns "" / "" / "" when
+// there is no collision; otherwise (kmField, customName, theKey)
+// names both colliders. The custom set is keyed by action name and
+// each value is the user-typed key string.
+//
+// Call ordering in cmd_run.go (spec 27 §4.6 step 1–6):
+//  1. Load config.toml; resolve [bindings].
+//  2. ApplyBindingOverrides → final KeyMap.
+//  3. findDuplicateBinding(km) — intra-KeyMap collisions.
+//  4. Load actions.toml. Build customKeys map (name → key).
+//  5. findDuplicateBindingWith(km, customKeys) — KeyMap↔custom
+//     collisions and intra-customKeys collisions.
+//  6. Wire the catalogue into ui.Deps.
+func findDuplicateBindingWith(km KeyMap, custom map[string]string) (kmField, customName, theKey string) {
+	if dup := findDuplicateBinding(km); dup != "" {
+		return dup, "", dup
+	}
+	// Build a reverse index of every KeyMap binding's keys so we can
+	// detect collisions with custom keys in O(1).
+	kmKeys := keyMapStrings(km)
+	seen := map[string]string{} // key → custom action name
+	for name, k := range custom {
+		if k == "" {
+			continue
+		}
+		if field, hit := kmKeys[k]; hit {
+			return field, name, k
+		}
+		if other, dup := seen[k]; dup {
+			return "", other + " / " + name, k
+		}
+		seen[k] = name
+	}
+	return "", "", ""
+}
+
+// keyMapStrings returns a map from key string → KeyMap field name
+// for every binding in km. Used by findDuplicateBindingWith.
+func keyMapStrings(km KeyMap) map[string]string {
+	out := map[string]string{}
+	type entry struct {
+		name string
+		b    key.Binding
+	}
+	entries := []entry{
+		{"Quit", km.Quit}, {"Help", km.Help}, {"Cmd", km.Cmd},
+		{"Search", km.Search}, {"Refresh", km.Refresh},
+		{"FocusFolders", km.FocusFolders}, {"FocusList", km.FocusList}, {"FocusViewer", km.FocusViewer},
+		{"NextPane", km.NextPane}, {"PrevPane", km.PrevPane},
+		{"PageUp", km.PageUp}, {"PageDown", km.PageDown},
+		{"Home", km.Home}, {"End", km.End}, {"Open", km.Open},
+		{"Delete", km.Delete}, {"PermanentDelete", km.PermanentDelete},
+		{"Archive", km.Archive}, {"Move", km.Move},
+		{"AddCategory", km.AddCategory}, {"RemoveCategory", km.RemoveCategory},
+		{"Undo", km.Undo},
+		{"Filter", km.Filter}, {"ApplyToFiltered", km.ApplyToFiltered},
+		{"Unsubscribe", km.Unsubscribe},
+		{"MuteThread", km.MuteThread},
+		{"ThreadChord", km.ThreadChord},
+		{"Palette", km.Palette},
+		{"StreamChord", km.StreamChord},
+		{"ReplyLaterToggle", km.ReplyLaterToggle},
+		{"SetAsideToggle", km.SetAsideToggle},
+		{"BundleToggle", km.BundleToggle},
+	}
+	for _, e := range entries {
+		for _, k := range e.b.Keys() {
+			out[k] = e.name
+		}
+	}
+	return out
+}
+
 // findDuplicateBinding scans the KeyMap for any single key string
 // bound to >1 action and returns the offender, or "". Keys-on-
 // different-panes are NOT duplicates here (e.g. `r` is reply in the

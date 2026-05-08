@@ -42,6 +42,14 @@ type Config struct {
 	MailboxSettings MailboxSettingsConfig `toml:"mailbox_settings"`
 	Compose         ComposeConfig         `toml:"compose"`
 	CLI             CLIConfig             `toml:"cli"`
+	CustomActions   CustomActionsConfig   `toml:"custom_actions"`
+}
+
+// CustomActionsConfig owns the [custom_actions] section (spec 27).
+// Path overrides the default ~/.config/inkwell/actions.toml location;
+// missing-file is not an error (the framework loads zero recipes).
+type CustomActionsConfig struct {
+	File string `toml:"file"`
 }
 
 // CLIConfig owns the [cli] section (spec 14). Controls output format,

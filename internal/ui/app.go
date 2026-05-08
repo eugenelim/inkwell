@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eugenelim/inkwell/internal/compose"
+	"github.com/eugenelim/inkwell/internal/customaction"
 	"github.com/eugenelim/inkwell/internal/pattern"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -279,6 +280,15 @@ type Deps struct {
 	BundleMinCount           int
 	BundleIndicatorCollapsed string
 	BundleIndicatorExpanded  string
+
+	// Spec 27 — custom actions framework. CustomActions is the
+	// pre-loaded catalogue from actions.toml. Empty / nil means the
+	// user has no recipes; UI surfaces (palette, help, :actions verb)
+	// gracefully omit the section. CustomActionDeps is the dispatch
+	// surface customaction.Run consumes — wired by cmd_run.go from
+	// the Triage / Bulk / Thread / Unsubscribe / Folders adapters.
+	CustomActions    *customaction.Catalogue
+	CustomActionDeps customaction.ExecDeps
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -803,6 +813,20 @@ type Model struct {
 	bundleMinCount int
 	bundleIndCol   string
 	bundleIndExp   string
+
+	// Spec 27 — custom actions framework. customActions is the
+	// post-load catalogue (immutable for the session). customActionDeps
+	// is the dispatch surface. customActionContinuation holds the
+	// in-flight continuation when a prompt_value modal is open;
+	// customActionPromptBuf is the modal's input buffer;
+	// customActionPromptHeader is the rendered prompt template
+	// (PII-bearing — never logged, only rendered to the modal).
+	customActions            *customaction.Catalogue
+	customActionDeps         customaction.ExecDeps
+	customActionContinuation *customaction.Continuation
+	customActionPromptBuf    string
+	customActionPromptHeader string
+	customActionRunning      string // action name; non-empty while a sequence is in flight
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -922,6 +946,8 @@ func New(deps Deps) (Model, error) {
 		bundleMinCount:      bundleMinCount,
 		bundleIndCol:        deps.BundleIndicatorCollapsed,
 		bundleIndExp:        deps.BundleIndicatorExpanded,
+		customActions:       deps.CustomActions,
+		customActionDeps:    deps.CustomActionDeps,
 	}, nil
 }
 
@@ -1822,6 +1848,41 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetBundleExpanded(m.bundleExpanded[m.list.FolderID])
 		return m, nil
 
+	case customActionDoneMsg:
+		// Spec 27 §4.4: Run / Resume return either a finished Result
+		// (Continuation == nil) or a paused Result with Continuation
+		// non-nil pointing at the next batch.
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("custom action %q: %w", m.customActionRunning, msg.err)
+			m.customActionRunning = ""
+			return m, nil
+		}
+		// Render the toast.
+		m.engineActivity = renderCustomActionToast(msg.result.ActionName, msg.result)
+		// Advance-cursor sentinel: any OK step with op=advance_cursor
+		// nudges the list cursor down 1 row after dispatch.
+		for _, r := range msg.result.Steps {
+			if r.Op == customaction.OpAdvanceCursor && r.Status == customaction.StepOK {
+				m.list.Down()
+			}
+		}
+		if msg.result.Continuation != nil {
+			// Pause on prompt_value: open the modal.
+			m.customActionContinuation = msg.result.Continuation
+			m.customActionPromptHeader = renderPromptHeader(msg.result, &msg.result.Continuation.Context)
+			m.customActionPromptBuf = ""
+			m.mode = CustomActionPromptMode
+			return m, nil
+		}
+		// Sequence complete (or fully failed).
+		m.customActionRunning = ""
+		// Reload messages so the list pane reflects any side effects
+		// from the just-finished sequence.
+		if m.list.FolderID != "" && !m.searchActive {
+			return m, m.loadMessagesCmd(m.list.FolderID)
+		}
+		return m, nil
+
 	case threadChordTimeoutMsg:
 		if msg.token == m.threadChordToken {
 			m.threadChordPending = false
@@ -2115,9 +2176,41 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateAttachPick(msg)
 	case PaletteMode:
 		return m.updatePalette(msg)
+	case CustomActionPromptMode:
+		return m.updateCustomActionPrompt(msg)
 	default:
 		return m.updateNormal(msg)
 	}
+}
+
+// updateCustomActionPrompt drives the prompt_value modal (spec 27 §4.7).
+// Enter submits the buffer + resumes the continuation; Esc cancels;
+// printable runes append; Backspace deletes.
+func (m Model) updateCustomActionPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.Type {
+	case tea.KeyEnter:
+		input := m.customActionPromptBuf
+		return m.resumeCustomAction(input)
+	case tea.KeyEsc:
+		return m.cancelCustomAction("cancelled")
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(m.customActionPromptBuf) > 0 {
+			runes := []rune(m.customActionPromptBuf)
+			m.customActionPromptBuf = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	case tea.KeyRunes:
+		m.customActionPromptBuf += string(keyMsg.Runes)
+		return m, nil
+	case tea.KeySpace:
+		m.customActionPromptBuf += " "
+		return m, nil
+	}
+	return m, nil
 }
 
 // updateFullscreenBody handles input while the body is in fullscreen
@@ -3077,6 +3170,8 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "route":
 		return m.dispatchRoute(args[1:])
+	case "actions":
+		return m.dispatchActions(args[1:])
 	case "tab":
 		return m.dispatchTabCmd(args[1:])
 	case "later":
@@ -4295,6 +4390,13 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Unrecognised second key — cancel silently.
 		return m, nil
+	}
+	// Spec 27 §4.6: scan the custom-action keymap before the static
+	// KeyMap switch. The catalogue's ByKey map is post-load-resolved
+	// against the user's [bindings] overrides — collisions surface at
+	// startup. No runtime collision risk here.
+	if mm, cmd, hit := m.dispatchCustomActionKey(keyMsgString(msg)); hit {
+		return mm, cmd
 	}
 	switch {
 	case key.Matches(msg, m.keymap.NextTab):
@@ -6403,6 +6505,11 @@ func (m Model) View() string {
 		}
 		body := title + "\n\n" + m.theme.HelpKey.Render(verb+":") + " " + m.categoryBuf + "▎\n\n" +
 			m.theme.Dim.Render("Enter to apply  ·  Esc to cancel")
+		box := m.theme.Modal.Render(body)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	}
+	if m.mode == CustomActionPromptMode {
+		body := renderCustomActionPromptModal(m.theme, m.customActionPromptHeader, m.customActionPromptBuf)
 		box := m.theme.Modal.Render(body)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}

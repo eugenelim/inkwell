@@ -1,6 +1,7 @@
 # Spec 27 — Custom actions framework
 
-**Status:** Ready for implementation.
+**Shipped:** v0.56.0
+**Status:** Shipped.
 **Depends on:** Spec 02 (store schema — read-only here; no migration),
 Spec 04 (TUI shell — `Mode` enum, command-bar, `KeyMap` plumbing,
 `BindingOverrides`, help overlay), Spec 07 (`action.Executor` —

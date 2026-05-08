@@ -63,6 +63,7 @@ non-`Inkwell/`-prefixed categories or saved searches.
 | OAuth access + refresh tokens | macOS Keychain (encrypted at rest by the OS) | Keychain ACL | Never written to filesystem in plaintext. CLAUDE.md §7 rule 2. |
 | Cached mail (envelopes, bodies, attachments) | `~/Library/Application Support/inkwell/mail.db` | 0600 | SQLite DB. Verified by `internal/store/security_test.go::TestDatabaseFileMode`. |
 | Local-only metadata tables in `mail.db` | same file as above | 0600 | `muted_conversations` (spec 19), `sender_routing` (spec 23), `saved_searches.tab_order` (spec 24), `bundled_senders` (spec 26). All per-account, FK-cascade on account delete. None of this is sent to Graph. |
+| Custom action recipes | `~/.config/inkwell/actions.toml` (override via `[custom_actions].file`) | user-set | TOML file authored by the user (spec 27). Read at startup; never written to. Templates render against the focused-message context but the user's typed `prompt_value` response is never logged at any level. |
 | Configuration | `~/Library/Application Support/inkwell/config.toml` | user-set | TOML; user-readable, no secrets. |
 | Logs | `~/Library/Logs/inkwell/inkwell.log` | 0600 | Bodies, tokens, and PII are scrubbed by the log redaction layer (`internal/log/redact.go`). 8 redaction tests verify the contract. |
 | Drafts in progress | `~/Library/Caches/inkwell/drafts/<uuid>.eml` | 0600 | Cleaned up after Graph confirms draft creation. Verified by `internal/compose/security_test.go::TestDraftTempfileMode`. |

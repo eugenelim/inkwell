@@ -50,6 +50,10 @@ const (
 	AttachPickMode
 	// PaletteMode is the spec 22 Ctrl+K command palette overlay.
 	PaletteMode
+	// CustomActionPromptMode is the spec 27 prompt_value modal — a
+	// single-line input modal opened mid-sequence that binds the
+	// user's typed string into the action's Context.UserInput.
+	CustomActionPromptMode
 )
 
 // composeEditorDoneMsg is returned by tea.ExecProcess when the user's

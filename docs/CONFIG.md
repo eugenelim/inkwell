@@ -447,6 +447,20 @@ Controls the in-modal compose pane (spec 15 F-1). Drafts are created server-side
 
 ---
 
+## `[custom_actions]`
+
+Spec 27. Points the loader at the user's `actions.toml` recipe file.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `file` | string | `""` | filesystem path | Override path to the custom actions TOML. Empty falls back to `~/.config/inkwell/actions.toml`. Missing file is not an error — the framework loads zero recipes. Validation failures abort startup with the offending file:line. |
+
+The recipe schema (op catalogue, template variables, confirm policies) lives in `docs/user/reference.md` and `docs/user/how-to.md` because it is a separate file format from `config.toml`.
+
+**Owner spec:** 27.
+
+---
+
 ## Example complete config
 
 A user's `~/.config/inkwell/config.toml` overriding defaults:

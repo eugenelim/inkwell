@@ -70,6 +70,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLaterCmd(rc))
 	cmd.AddCommand(newAsideCmd(rc))
 	cmd.AddCommand(newBundleCmd(rc))
+	cmd.AddCommand(newActionCmd(rc))
 	// Default action when no subcommand is given: launch the TUI.
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return runRoot(c, rc) }
 	return cmd

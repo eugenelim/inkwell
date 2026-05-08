@@ -66,7 +66,7 @@ Ties verbs together once enough verbs exist.
 
 | Order | Item                                | Spec | Status                                          |
 | ----- | ----------------------------------- | ---- | ----------------------------------------------- |
-| 1     | Custom actions framework (§2)       | 27   | Spec drafted (ready for implementation).        |
+| 1     | Custom actions framework (§2)       | 27   | Shipped v0.56.0.                                 |
 | 2     | Screener (1.16)                     | 28   | Spec drafted (ready for implementation).        |
 | 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
 | 4     | "Done" alias (1.23)                 | 30   | Spec drafted (ready for implementation).        |
@@ -338,7 +338,7 @@ The user-trained approach is probably the right answer for this audience. Heuris
 
 ---
 
-## 2. Custom actions framework
+## 2. Custom actions framework — Shipped v0.56.0 (spec 27)
 
 ### 2.1 The idea
 

@@ -262,7 +262,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 24  | `24-split-inbox-tabs.md`                           | post-v1, ROADMAP §0 bucket 2 — **shipped v0.52.0** |
 | 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
 | 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — **shipped v0.55.0** |
-| 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — ready               |
+| 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — **shipped v0.56.0** |
 | 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
 | 30  | `30-done-alias.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready (binding/branding only) |
@@ -281,12 +281,10 @@ Specs 16, 18–21 cover the "triage primitives" bucket from
 Specs 22–26 cover the "inbox philosophy" bucket — all shipped
 v0.50.0 through v0.55.0.
 
-Specs 27 (custom actions framework, ROADMAP §0 Bucket 3 row 1 /
-§2), 28 (screener for new senders, Bucket 3 row 2 / §1.16), 29
-(watch mode, Bucket 3 row 3 / §1.19), and 30 ("Done" alias for
-archive, Bucket 3 row 4 / §1.23) are the first authored specs from
-the "power-user automation" bucket — all ready for implementation,
-no dependencies on Bucket 2 work.
+Spec 27 (custom actions framework, ROADMAP §0 Bucket 3 row 1 / §2)
+is the first Bucket-3 entry, **shipped v0.56.0**. Specs 28 (screener,
+§1.16), 29 (watch mode, §1.19), and 30 ("Done" alias, §1.23) are
+authored and ready; no dependencies on Bucket 2 work.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 
