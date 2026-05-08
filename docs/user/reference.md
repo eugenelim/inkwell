@@ -21,6 +21,7 @@ recipes, see [`how-to.md`](how-to.md).
 | `:`            | Open command bar                      |
 | `/`            | Search (FTS over local cache)         |
 | `?`            | Open the help overlay (every binding) |
+| `Ctrl+K`       | Open the command palette (fuzzy-search every action, folder, saved search) |
 | `Esc`          | Cancel mode / clear search            |
 
 ## Folders pane (when focused)
@@ -46,6 +47,24 @@ Saved searches (configured in `[[saved_searches]]` or via `:rule save`) show
 under a "Saved Searches" section with a `☆` glyph. Enter on one runs its
 pattern via the filter machinery. `e` opens the edit modal for the focused
 saved search.
+
+**Streams section** (spec 23): four routing destinations appear below Saved Searches:
+
+| Entry           | Glyph | Shows messages routed to…              |
+| --------------- | ----- | -------------------------------------- |
+| Imbox           | 📥    | your primary stream                    |
+| Feed            | 📰    | newsletters, digests, subscriptions    |
+| Paper Trail     | 🧾    | receipts, confirmations, transactional |
+| Screener        | 🚪    | unrecognised senders                   |
+
+Enter on a stream entry loads messages from that routing destination.
+
+**Stacks section** (spec 25): Reply Later and Set Aside entries appear below Streams, showing their current message count. Enter on one loads the stack.
+
+| Entry        | Glyph | Meaning                                      |
+| ------------ | ----- | -------------------------------------------- |
+| Reply Later  | ↩     | Messages you have flagged to reply to later  |
+| Set Aside    | 📌    | Messages pinned for reference                |
 
 | Key       | Action (Saved Searches section)                     |
 | --------- | --------------------------------------------------- |
@@ -88,23 +107,19 @@ saved search.
 | `T a`     | Archive the entire thread                                     |
 | `T m`     | Move whole thread (opens folder picker)                       |
 | `S`       | Begin stream chord — route the focused message's sender (see below) |
-| `S i`     | Route sender to **Imbox**                                     |
-| `S f`     | Route sender to **Feed**                                      |
-| `S p`     | Route sender to **Paper Trail**                               |
-| `S k`     | Route sender to **Screener** (mnemonic: s**k**reener)         |
-| `S c`     | **Clear** routing for the focused sender                      |
-| `]`       | Cycle to the **next** spec 24 tab (list pane only)            |
-| `[`       | Cycle to the **previous** spec 24 tab (list pane only)        |
-| `L`       | Spec 25. Toggle Reply Later on the focused message            |
-| `P`       | Spec 25. Toggle Set Aside (Pin) on the focused message        |
-| `T l`     | Add the entire thread to Reply Later                          |
-| `T L`     | Remove the entire thread from Reply Later                     |
-| `T s`     | Add the entire thread to Set Aside                            |
-| `T S`     | Remove the entire thread from Set Aside                       |
-| `;l`      | Bulk: add to Reply Later (after `:filter`)                    |
-| `;L`      | Bulk: remove from Reply Later                                 |
-| `;s`      | Bulk: add to Set Aside                                        |
-| `;S`      | Bulk: remove from Set Aside                                   |
+| `S i`     | Route sender to Imbox                                         |
+| `S f`     | Route sender to Feed                                          |
+| `S p`     | Route sender to Paper Trail                                   |
+| `S s`     | Route sender to Screener                                      |
+| `S c`     | Clear routing for sender (back to unclassified)               |
+| `L`       | Toggle Reply Later — add/remove focused message from the Reply Later stack |
+| `P`       | Toggle Set Aside — add/remove focused message from the Set Aside stack |
+| `[`       | Previous tab (when tabs are configured)                       |
+| `]`       | Next tab (when tabs are configured)                           |
+| `;l`      | Bulk add filtered set to Reply Later                          |
+| `;L`      | Bulk remove filtered set from Reply Later                     |
+| `;s`      | Bulk add filtered set to Set Aside                            |
+| `;S`      | Bulk remove filtered set from Set Aside                       |
 | `u`       | Undo the most recent triage action (mark, flag, delete, archive) |
 | `/`       | Enter search mode                                             |
 
@@ -158,7 +173,9 @@ disabled because of a real-tenant 400 regression on the bare
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `M`       | Toggle mute on the focused message's conversation thread      |
 | `T`       | Begin thread chord — acts on the whole conversation (see Messages pane table above) |
-| `S`       | Begin stream chord — route the focused sender (see Messages pane table above) |
+| `S`       | Begin stream chord — route the focused message's sender (same sub-verbs as Messages pane) |
+| `L`       | Toggle Reply Later for the focused message                    |
+| `P`       | Toggle Set Aside for the focused message                      |
 | `u`       | Undo the most recent triage action                            |
 | `o`       | Open message in system browser (OWA deep-link / webLink)      |
 | `O`       | Open the URL picker (lists every URL the renderer extracted)  |
@@ -181,6 +198,10 @@ the three-pane layout.
 recipients with "+ N more". On a 50-attendee thread, the body
 gets the room. Press `H` to expand To / Cc / Bcc on their own
 lines.
+
+**Stacks header**: when a message is in the Reply Later or Set Aside
+stack (or both), a `Stacks: ↩ Reply Later · 📌 Set Aside` line
+appears between Date and Subject in the compact header block.
 
 **Clickable URLs**: every URL in a rendered message body — inline
 and in the trailing `Links:` block — is wrapped in OSC 8 hyperlink
@@ -349,19 +370,14 @@ sessions older than 24h get garbage-collected on launch.
 | `:rule show <name>`           | Show a saved search's pattern in the status bar                 |
 | `:rule edit <name>`           | Open the edit modal (rename, change pattern/pinned)             |
 | `:rule delete <name>`         | Delete a saved search (with confirm)                            |
-| `:route assign <addr> <dest>` | Spec 23. Route a sender to imbox / feed / paper_trail / screener. Reassigns retroactively (past mail follows). |
-| `:route clear <addr>`         | Clear routing for a sender (returns them to unrouted). |
-| `:route show <addr>`          | Print the current routing for a sender in the status bar. |
-| `:route list`                 | Print a summary count of all four routing destinations in the status bar. |
-| `:tab list`                   | Spec 24. List configured tabs in the status bar. |
-| `:tab add <name>`             | Promote saved search `<name>` to the tab strip (appends at end). |
-| `:tab remove <name>`          | Demote a saved search from the tab strip. |
-| `:tab move <name> <pos>`      | Reorder. `<pos>` is 0-based. |
-| `:tab close`                  | Demote the active tab. |
-| `:tab <name>`                 | Jump to the tab named `<name>`. |
-| `:later`                      | Spec 25. Switch to the Reply Later virtual folder. |
-| `:aside`                      | Switch to the Set Aside virtual folder. |
-| `:focus [N]`                  | Walk the Reply Later queue, opening compose-reply for each message. `N` is an optional 1-indexed start position. |
+| `:route <email> <dest>`       | Route sender to a destination: `imbox`, `feed`, `paper_trail`, `screener`, or `clear` |
+| `:tab list`                   | Show all configured tabs in the status bar                      |
+| `:tab add <name> <pattern>`   | Add a saved search as a list-pane tab                           |
+| `:tab remove <name>`          | Remove a tab (does not delete the saved search)                 |
+| `:tab move <name> <position>` | Reorder a tab (1-based)                                         |
+| `:later`                      | Toggle Reply Later for the focused message                      |
+| `:aside`                      | Toggle Set Aside for the focused message                        |
+| `:focus`                      | Enter focus mode — fan through Reply Later stack one by one     |
 | `:help` / `:?`                | Open the help overlay (same as `?`)                             |
 
 Plain-text patterns without a `~` operator are treated as a CONTAINS
@@ -393,8 +409,11 @@ Use `--sort=relevance` when BM25 ranking matters more than recency:
 
 Flags can be combined: `--all --sort=relevance <query>`.
 
-Search is local-only (FTS5 against the SQLite cache) in v0.8.
-Server-side `$search` merge is post-v0.8.
+Search uses a hybrid strategy: FTS5 against the local SQLite cache
+runs first (sub-100ms), followed by a Graph `$search` round-trip
+that merges any server-side hits not yet in the cache. Use
+`--local-only` (CLI) or the `/--local-only` prefix (TUI) to skip
+the server leg entirely (offline-safe).
 
 ## Calendar mode (`:cal` or `c` from Folders pane)
 
@@ -487,7 +506,7 @@ Argument-bearing:
 | `~y <class>`     | inference class  | `~y focused`                         |
 | `~v <conv-id>`   | conversation     | `~v <id>`                            |
 | `~m <folder>`    | folder           | `~m Inbox`                           |
-| `~o <dest>`      | routing destination (spec 23) | `~o feed`, `~o paper_trail`, `~o none` for unrouted senders |
+| `~o <dest>`      | routing dest     | `~o imbox`, `~o feed`, `~o paper_trail`, `~o screener` |
 
 Argument-less:
 
@@ -537,58 +556,21 @@ Duration units: `s`, `m` (minutes), `h`, `d`, `w`, `mo` (≈30 days),
 
 ## Modes
 
-| Mode        | How you enter        | How you exit                                     |
-| ----------- | -------------------- | ------------------------------------------------ |
-| Normal      | (default)            | —                                                |
-| Command     | `:`                  | `Enter` (run) or `Esc`                           |
-| Search      | `/`                  | `Enter` (run) or `Esc`                           |
-| Palette     | `Ctrl+K`             | `Esc` (cancel) or `Enter` (run highlighted) — see "Command palette" below |
-| SignIn      | auth flow            | `Esc`                                            |
-| Confirm     | destructive prompts  | `y` (confirm) or `n` / `Esc` (cancel)            |
-| Calendar    | `:cal` / `:calendar` / `c` (Folders pane) | `Esc` or `q` (`j`/`k` nav, `w` week-grid, `Enter` opens detail) |
-| CalendarDetail | `Enter` on a calendar event | `Esc` or `q` (`o` Outlook, `l` meeting URL) |
-| Settings    | `:settings`                      | `Esc` or `q` (`o` to edit OOF)        |
-| OOO         | `:ooo` / `:oof` / `:outofoffice` | `Esc` or `q` (`Space` cycles status, `Enter` saves) |
-| FolderPicker | `m` (list / viewer)              | `Esc` (cancel) or `Enter` (move)      |
-
-## Command palette (`Ctrl+K`)
-
-A fuzzy-find modal that exposes every action — keybinding, `:`
-command verb, saved search, sidebar folder — in one overlay. The
-right-hand column shows the live binding for each row, so the
-palette doubles as a passive cheatsheet: every time you open it,
-you can glance at the shortcut next to the action you just used and
-learn the muscle-memory key.
-
-| Key                | What it does                                          |
-| ------------------ | ----------------------------------------------------- |
-| `Ctrl+K`           | Open the palette (from Normal mode)                   |
-| `↑` / `↓`          | Move cursor                                            |
-| `Ctrl+P` / `Ctrl+N` | Same as `↑` / `↓` (readline / fzf parity)             |
-| `Enter`            | Run the highlighted row                                |
-| `Tab`              | For rows that need an argument (Move, Filter, Add category, Jump to folder, Saved search edit/delete), open the existing argument flow (folder picker, command-bar pre-fill, etc.) |
-| `Esc`              | Close without acting                                   |
-| `Backspace`        | Delete one rune from the buffer (no-op at empty)       |
-
-Sigils scope the result list:
-
-| Sigil | Scope                                                              |
-| ----- | ------------------------------------------------------------------ |
-| (none) | Mixed — commands + folders + saved searches                        |
-| `#`    | Folders only                                                       |
-| `@`    | Saved searches only                                                |
-| `>`    | Commands only (rules out accidental folder/saved-search matches)   |
-
-`/` is **not** a sigil — typing `/` after `Ctrl+K` inserts a literal
-slash. The `/` global search key stays bound to spec 06's full-text
-search, reachable from Normal mode.
-
-When the buffer is empty, the palette surfaces recently-used
-commands first (in-process MRU, capped at 8). Recents reset every
-time you restart inkwell.
-
-To disable the palette, set `palette = ""` in `[bindings]`. The
-`:` cmd-bar and `?` help overlay are independent and stay available.
+| Mode           | How you enter                             | How you exit                                     |
+| -------------- | ----------------------------------------- | ------------------------------------------------ |
+| Normal         | (default)                                 | —                                                |
+| Command        | `:`                                       | `Enter` (run) or `Esc`                           |
+| Search         | `/`                                       | `Enter` (run) or `Esc`                           |
+| Palette        | `Ctrl+K`                                  | `Enter` (run) or `Esc`                           |
+| SignIn         | auth flow                                 | `Esc`                                            |
+| Confirm        | destructive prompts                       | `y` (confirm) or `n` / `Esc` (cancel)            |
+| ThreadChord    | `T` (list / viewer)                       | sub-verb key or `Esc` / timeout                  |
+| StreamChord    | `S` (list / viewer)                       | sub-verb key (`i`/`f`/`p`/`s`/`c`) or `Esc` / timeout |
+| Calendar       | `:cal` / `:calendar` / `c` (Folders pane) | `Esc` or `q`                                     |
+| CalendarDetail | `Enter` on a calendar event               | `Esc` or `q` (`o` Outlook, `l` meeting URL)      |
+| Settings       | `:settings`                               | `Esc` or `q` (`o` to edit OOF)                   |
+| OOO            | `:ooo` / `:oof` / `:outofoffice`          | `Esc` or `q` (`Space` cycles status, `Enter` saves) |
+| FolderPicker   | `m` (list / viewer)                       | `Esc` (cancel) or `Enter` (move)                 |
 
 ## Indicators
 
@@ -600,6 +582,12 @@ To disable the palette, set `palette = ""` in `[bindings]`. The
 | `▾` / `▸`          | Folder expanded / collapsed                                     |
 | `☆`                | Saved search                                                    |
 | `📅`               | Calendar-invite message (heuristic by subject prefix)           |
+| `📥`               | Sender routed to Imbox                                          |
+| `📰`               | Sender routed to Feed                                           |
+| `🧾`               | Sender routed to Paper Trail                                    |
+| `🚪`               | Sender routed to Screener                                       |
+| `↩`                | Message is in the Reply Later stack                             |
+| `📌`               | Message is in the Set Aside stack                               |
 | `✓ synced HH:MM`   | Last sync time (top-right)                                      |
 | `syncing folders…` | Engine is working                                               |
 | `syncing more…`    | Engine kicked because list pane hit the cache wall              |
@@ -635,21 +623,23 @@ JSON via `--output json`.
 | `inkwell filter '<pattern>' --all`               | Same, with a `folders` count map added to output (shows which folders were touched). |
 | `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
 | `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |
-| `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                      |
-| `inkwell route assign <addr> <dest>`             | Spec 23. Route a sender to imbox/feed/paper_trail/screener. |
-| `inkwell route clear <addr>`                     | Clear routing for a sender.                              |
-| `inkwell route list`                             | List all routings.                                       |
-| `inkwell route list --destination feed`          | Filter by destination.                                   |
-| `inkwell route show <addr>`                      | Print the current routing for one sender.                |
-| `inkwell tab list`                               | Spec 24. List the configured split-inbox tabs (with matched + unread counts). |
-| `inkwell tab add <name>`                         | Promote a saved search to the tab strip.                |
-| `inkwell tab remove <name>`                      | Demote a saved search from the tab strip.               |
-| `inkwell tab move <name> <pos>`                  | Reorder (0-based).                                       |
-| `inkwell later add <message-id>`                 | Spec 25. Tag a message into Reply Later.                |
-| `inkwell later remove <message-id>`              | Untag.                                                   |
-| `inkwell later list [--limit N]`                 | List messages in Reply Later (`--output json`).          |
-| `inkwell later count`                            | Print the message count in Reply Later.                  |
-| `inkwell aside add\|remove\|list\|count`         | Same shape for Set Aside.                                |
+| `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                     |
+| `inkwell route assign <email> <dest>`                  | Set sender routing: `imbox`, `feed`, `paper_trail`, `screener`. |
+| `inkwell route clear <email>`                          | Remove routing for a sender.                        |
+| `inkwell route list`                                   | List all routing entries.                           |
+| `inkwell route show <email>`                           | Show routing for one sender.                        |
+| `inkwell tab list`                                     | List configured list-pane tabs.                     |
+| `inkwell tab add <name> <pattern>`                     | Add a saved search as a tab.                        |
+| `inkwell tab remove <name>`                            | Remove a tab (keeps the saved search).              |
+| `inkwell tab move <name> <position>`                   | Reorder a tab (1-based position).                   |
+| `inkwell later list`                                   | List messages in the Reply Later stack.             |
+| `inkwell later add <id>`                               | Add a message to Reply Later.                       |
+| `inkwell later remove <id>`                            | Remove a message from Reply Later.                  |
+| `inkwell later clear`                                  | Clear the entire Reply Later stack (with confirm).  |
+| `inkwell aside list`                                   | List messages in the Set Aside stack.               |
+| `inkwell aside add <id>`                               | Add a message to Set Aside.                         |
+| `inkwell aside remove <id>`                            | Remove a message from Set Aside.                    |
+| `inkwell aside clear`                                  | Clear the entire Set Aside stack (with confirm).    |
 
 `--output json` works on every command above. Pipe into `jq` for
 ad-hoc analysis:
@@ -657,15 +647,12 @@ ad-hoc analysis:
 ```sh
 inkwell messages --folder Inbox --unread --output json | jq '.[] | .subject'
 inkwell filter '~A & ~d <30d' --output json | jq '.matched'
+inkwell route list --output json | jq '.[] | select(.destination == "feed")'
 ```
 
 `--apply` is **mandatory** for destructive bulk operations. Without
 it, `inkwell filter` is dry-run regardless of any config setting.
 `--yes` skips the confirmation prompt for `delete`.
-
-Deferred to v0.10+: `inkwell calendar`, `inkwell ooo`, `inkwell rule`
-(saved-search CRUD), `inkwell message reply` / `forward` (drafts),
-`inkwell message save-attachment`.
 
 ## Configuration
 
@@ -691,4 +678,4 @@ Restart inkwell after editing.
 
 ---
 
-_Last reviewed against v0.8.0._
+_Last reviewed against v0.53.0._
