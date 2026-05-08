@@ -1,6 +1,6 @@
 module github.com/eugenelim/inkwell
 
-go 1.25.10
+go 1.25.3
 
 require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.1
