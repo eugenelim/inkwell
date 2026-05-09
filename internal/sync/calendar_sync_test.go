@@ -19,19 +19,24 @@ import (
 func TestSyncCalendarUpsertsAndDeletesEvents(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
 
-	// Pre-seed an event that the delta response will @remove.
-	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	// Pre-seed an event that the delta response will @remove. Use a
+	// time inside the default lookback window (now is the conservative
+	// choice — the prune step deletes events strictly older than
+	// truncateToDay(now) - lookbackDays).
+	inWindow := time.Now().UTC().Add(time.Hour)
 	require.NoError(t, st.PutEvent(context.Background(), store.Event{
-		ID: "ev-stale", AccountID: acc, Start: now, End: now.Add(time.Hour),
+		ID: "ev-stale", AccountID: acc, Start: inWindow, End: inWindow.Add(time.Hour),
 	}))
 
+	freshStart := inWindow.Format("2006-01-02T15:04:05.0000000")
+	freshEnd := inWindow.Add(time.Hour).Format("2006-01-02T15:04:05.0000000")
 	srv.Handle("/me/calendarView/delta", func(w http.ResponseWriter, _ *http.Request) {
 		resp := map[string]any{
 			"value": []map[string]any{
 				{
 					"id": "ev-new", "subject": "Fresh event",
-					"start":    map[string]any{"dateTime": "2026-05-01T10:00:00.0000000"},
-					"end":      map[string]any{"dateTime": "2026-05-01T11:00:00.0000000"},
+					"start":    map[string]any{"dateTime": freshStart},
+					"end":      map[string]any{"dateTime": freshEnd},
 					"isAllDay": false,
 					"organizer": map[string]any{
 						"emailAddress": map[string]any{"name": "Bob", "address": "bob@example.invalid"},
@@ -68,6 +73,12 @@ func TestSyncCalendarUpsertsAndDeletesEvents(t *testing.T) {
 func TestSyncCalendar410ResetsAndReFetches(t *testing.T) {
 	eng, srv, st, acc := newSyncTest(t)
 
+	// Use a time inside the default lookback window so the event is not
+	// pruned right after upsert when the test runs on a date past the
+	// hardcoded fixture date.
+	inWindow := time.Now().UTC().Add(time.Hour)
+	freshStart := inWindow.Format("2006-01-02T15:04:05.0000000")
+	freshEnd := inWindow.Add(time.Hour).Format("2006-01-02T15:04:05.0000000")
 	callCount := 0
 	srv.Handle("/me/calendarView/delta", func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
@@ -80,8 +91,8 @@ func TestSyncCalendar410ResetsAndReFetches(t *testing.T) {
 		resp := map[string]any{
 			"value": []map[string]any{{
 				"id": "ev-fresh", "subject": "Refetched",
-				"start":    map[string]any{"dateTime": "2026-05-01T10:00:00.0000000"},
-				"end":      map[string]any{"dateTime": "2026-05-01T11:00:00.0000000"},
+				"start":    map[string]any{"dateTime": freshStart},
+				"end":      map[string]any{"dateTime": freshEnd},
 				"isAllDay": false,
 				"organizer": map[string]any{
 					"emailAddress": map[string]any{"name": "", "address": ""},
