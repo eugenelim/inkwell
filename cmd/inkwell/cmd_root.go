@@ -66,6 +66,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUnmuteCmd(rc))
 	cmd.AddCommand(newThreadCmd(rc))
 	cmd.AddCommand(newRouteCmd(rc))
+	cmd.AddCommand(newScreenerCmd(rc))
 	cmd.AddCommand(newTabCmd(rc))
 	cmd.AddCommand(newLaterCmd(rc))
 	cmd.AddCommand(newAsideCmd(rc))

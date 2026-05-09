@@ -161,17 +161,22 @@ func buildPredicateValue(f Field, raw string) (PredicateValue, error) {
 	return parseStringValue(raw), nil
 }
 
-// parseRoutingValue validates a `~o <dest>` argument against the
-// fixed five-value set (spec 23 §4.4). The hyphenated form
-// `paper-trail` is rejected — only the underscore form
-// `paper_trail` is accepted. The literal `none` matches senders
-// with no row in sender_routing.
+// parseRoutingValue validates a `~o <dest>` argument. Six accepted
+// inputs collapse to five AST values: the four destination column
+// values from spec 23 (`imbox`, `feed`, `paper_trail`, `screener`)
+// plus the literal `none` for senders with no sender_routing row.
+// Spec 28 §4.5 adds `pending` as a parser-level alias that
+// canonicalises to `none` at parse time so downstream evaluators
+// (eval_local / eval_filter / eval_search / eval_memory) stay
+// unchanged. The hyphenated form `paper-trail` is rejected.
 func parseRoutingValue(raw string) (RoutingValue, error) {
 	switch raw {
 	case "imbox", "feed", "paper_trail", "screener", "none":
 		return RoutingValue{Destination: raw}, nil
+	case "pending":
+		return RoutingValue{Destination: "none"}, nil
 	}
-	return RoutingValue{}, fmt.Errorf("unknown routing destination %q; expected one of imbox, feed, paper_trail, screener, none", raw)
+	return RoutingValue{}, fmt.Errorf("unknown routing destination %q; expected one of imbox, feed, paper_trail, screener, none, pending", raw)
 }
 
 // parseStringValue extracts the wildcard kind and stripped raw value.

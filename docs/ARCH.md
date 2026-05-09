@@ -349,6 +349,13 @@ action queue because they have no Graph round-trip:
   entirely. Microsoft's `inferenceClassificationOverride` is
   intentionally unused (spec 23 §2.2): it's prospective-only and
   binary, mismatched against routing's retroactive four-bucket model.
+- **Screener** (spec 28) does not add a third surface — it reuses
+  spec 23's `routeCmd` for both the pane-scoped `Y`/`N` shortcuts
+  and the `:screener accept|reject` cmd-bar verbs. The gate is a
+  read-only filter layer over `sender_routing` plus the
+  `__screened_out__` sentinel; concurrent `Y` keypresses serialise
+  via the SQLite write lock and the `(account_id, email_address)`
+  PK conflict-target.
 
 Saved searches (spec 11) are also local-only state but predate the
 queue concept and are managed via `savedsearch.Manager`. Categorise

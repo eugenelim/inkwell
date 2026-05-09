@@ -304,6 +304,139 @@ func BenchmarkCountMessagesByRouting(b *testing.B) {
 	}
 }
 
+// BenchmarkListMessagesScreenerFilter covers spec 28 §8: ≤15ms p95
+// for ListMessages with ApplyScreenerFilter=true over a 100k+500-
+// routed fixture, returning up to 100 rows.
+func BenchmarkListMessagesScreenerFilter(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, f, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.ListMessages(context.Background(), MessageQuery{
+			AccountID:           acc,
+			FolderID:            f.ID,
+			Limit:               100,
+			ExcludeMuted:        true,
+			ApplyScreenerFilter: true,
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkListPendingSenders covers spec 28 §8: ≤15ms p95 for the
+// per-sender Screener queue load with the message-count cap subquery.
+func BenchmarkListPendingSenders(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.ListPendingSenders(context.Background(), acc, 200, 999, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkListPendingMessages covers spec 28 §8: ≤10ms p95 for
+// the per-message Screener queue load.
+func BenchmarkListPendingMessages(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.ListPendingMessages(context.Background(), acc, 200, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkListScreenedOutMessages mirrors BenchmarkListMessagesByRouting
+// for the spec 28 sentinel.
+func BenchmarkListScreenedOutMessages(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.ListScreenedOutMessages(context.Background(), acc, 200, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkCountPendingSenders covers spec 28 §8: ≤10ms p95 for
+// the distinct pending-sender count.
+func BenchmarkCountPendingSenders(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.CountPendingSenders(context.Background(), acc, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkCountScreenedOutMessages covers spec 28 §8: ≤5ms p95.
+func BenchmarkCountScreenedOutMessages(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.CountScreenedOutMessages(context.Background(), acc, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkSidebarStreamsRefreshWithScreener covers spec 28 §8:
+// ≤25ms p95 cumulative for the gate-on sidebar refresh path —
+// CountMessagesByRoutingAll (spec 23) + CountPendingSenders +
+// CountScreenedOutMessages summed.
+func BenchmarkSidebarStreamsRefreshWithScreener(b *testing.B) {
+	n := 100_000
+	if testing.Short() {
+		n = 5_000
+	}
+	s, acc, _, _ := openRoutingBenchStore(b, n, 500)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.CountMessagesByRoutingAll(context.Background(), acc, true); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := s.CountPendingSenders(context.Background(), acc, true); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := s.CountScreenedOutMessages(context.Background(), acc, true); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // openStackBenchStore seeds n messages with `tagged` of them
 // pre-tagged with the supplied category (Inkwell/ReplyLater or
 // Inkwell/SetAside). Spec 25 §7 fixture: 100k msgs / 500 tagged.

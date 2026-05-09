@@ -55,6 +55,8 @@ type BindingOverrides struct {
 	SetAsideToggle   string
 	BundleToggle     string
 	BundleExpand     string
+	ScreenerAccept   string
+	ScreenerReject   string
 }
 
 // KeyMap is the application-wide keyboard contract. The UI's Update
@@ -186,6 +188,14 @@ type KeyMap struct {
 	// different panes, never both. Deliberately excluded from the
 	// duplicate-binding scan for the same reason.
 	BundleExpand key.Binding
+	// ScreenerAccept / ScreenerReject (spec 28 §5.4). Pane-scoped to
+	// the Screener virtual folder when [screener].enabled is true.
+	// `Y` is equivalent to the `S i` chord (admit to Imbox); `N` is
+	// equivalent to `S k` (screen out). Both are no-ops outside the
+	// Screener pane. ScreenerReject overlaps NewFolder (spec 18) on
+	// capital `N` — pane scoping disambiguates at dispatch time.
+	ScreenerAccept key.Binding
+	ScreenerReject key.Binding
 }
 
 // DefaultKeyMap returns the spec §5 default bindings. Tests use this;
@@ -257,6 +267,12 @@ func DefaultKeyMap() KeyMap {
 		SetAsideToggle:   key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "set aside (pin)")),
 		BundleToggle:     key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "bundle sender")),
 		BundleExpand:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "expand bundle")),
+		// Spec 28 §5.4. ScreenerReject overlaps NewFolder on `N` —
+		// pane scoping (Screener virtual folder vs. folder pane)
+		// disambiguates at dispatch time. The duplicate-binding scan
+		// excludes ScreenerReject (see findDuplicateBinding).
+		ScreenerAccept: key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "screener accept")),
+		ScreenerReject: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "screener reject")),
 	}
 }
 
@@ -342,6 +358,8 @@ func ApplyBindingOverrides(km KeyMap, o BindingOverrides) (KeyMap, error) {
 	apply(&km.SetAsideToggle, o.SetAsideToggle)
 	apply(&km.BundleToggle, o.BundleToggle)
 	apply(&km.BundleExpand, o.BundleExpand)
+	apply(&km.ScreenerAccept, o.ScreenerAccept)
+	apply(&km.ScreenerReject, o.ScreenerReject)
 	// Reject duplicate bindings — two actions on the same key would
 	// silently lose one. Common typo: copy-paste the same value
 	// across two fields.
@@ -474,6 +492,15 @@ func findDuplicateBinding(km KeyMap) string {
 		// Pane dispatch resolves: list-pane Space toggles bundle expand;
 		// folders-pane Space toggles folder expand. Same precedent as
 		// MarkRead/Reply sharing `r` (above).
+		{"screener_accept", km.ScreenerAccept},
+		// `screener_reject` (capital N) intentionally NOT in this set —
+		// it shares N with NewFolder (spec 18). Pane dispatch resolves:
+		// list-pane N (when displayed folder is __screener__ AND
+		// [screener].enabled) screens-out the focused sender; folder-
+		// pane N opens the new-folder modal. Same precedent as
+		// `bundle_expand`. Removing this exclusion comment without
+		// re-checking the spec 28 §5.4 collision audit will turn
+		// TestKeymapScreenerRejectExcludedFromDuplicateScan red.
 	}
 	for _, c := range checks {
 		if dup := check(c.name, c.b); dup != "" {

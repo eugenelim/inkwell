@@ -200,6 +200,33 @@ matters in your environment, the `~G` pattern operator gives you
 the same workflow without the namespace prefix — set up a saved
 search instead.
 
+## Why the Screener is local-only
+
+The Screener (spec 28) is HEY's first-contact gate adapted to a
+TUI mail client. When `[screener].enabled = true`, mail from
+senders you haven't decided about is hidden from default folder
+views and surfaces in a dedicated queue where you press `Y`
+(admit) or `N` (screen out) one sender at a time.
+
+The decision is **private**: nothing is sent to the sender,
+nothing is sent to a third party, and nothing is reported to
+Microsoft Graph. The gate is a read-only filter layer over the
+spec 23 `sender_routing` table — pending senders are senders
+without a row; screened-out senders are rows with
+`destination = 'screener'`. No new schema, no new Graph scope.
+
+**What inkwell does NOT do:** suppress native-OS notifications
+for screened-out senders. HEY's original design pairs the
+in-product Screener with notification suppression at the OS
+level. The TUI has no notification surface to own — you keep
+native Outlook (or your platform's mail client) running for
+push notifications. If you need notification suppression for
+screened-out senders, configure it in your native client's
+per-sender rules. This is a deliberate scope boundary, not a
+deferred feature: per PRD §3.2 inkwell's product boundary is
+"the keyboard-driven mail client", not "everything mail-shaped
+on your machine."
+
 ---
 
-_Last reviewed against v0.8.0._
+_Last reviewed against v0.57.0._

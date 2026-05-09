@@ -588,6 +588,7 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 		},
 	}
 	rows = append(rows, buildRoutingPaletteRows(m, msg)...)
+	rows = append(rows, buildScreenerPaletteRows(m, msg)...)
 	rows = append(rows, []PaletteRow{
 		{
 			ID: "rule_save", Title: "Saved search: save current filter…",

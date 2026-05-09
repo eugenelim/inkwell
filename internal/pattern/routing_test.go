@@ -66,6 +66,61 @@ func TestCompileRoutingOperatorTwoStage(t *testing.T) {
 		"server search must not contain the routing predicate")
 }
 
+// TestParseRoutingPendingAlias verifies spec 28 §4.5 — `~o pending`
+// canonicalises to `none` at parse time so downstream evaluators
+// don't have to know about the alias.
+func TestParseRoutingPendingAlias(t *testing.T) {
+	got, err := Parse("~o pending")
+	require.NoError(t, err)
+	pred, ok := got.(Predicate)
+	require.True(t, ok)
+	require.Equal(t, FieldRouting, pred.Field)
+	rv, ok := pred.Value.(RoutingValue)
+	require.True(t, ok)
+	require.Equal(t, "none", rv.Destination, "pending canonicalises to none")
+
+	// Same AST node value as `~o none`.
+	got2, err := Parse("~o none")
+	require.NoError(t, err)
+	pred2 := got2.(Predicate)
+	require.Equal(t, pred.Value, pred2.Value, "pending and none compile to the same AST value")
+}
+
+// TestCompileRoutingPendingLocalOnly mirrors `~o none` —
+// LocalOnly strategy, identical SQL.
+func TestCompileRoutingPendingLocalOnly(t *testing.T) {
+	cPending, err := Compile("~o pending", CompileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, StrategyLocalOnly, cPending.Strategy)
+	cNone, err := Compile("~o none", CompileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, cNone.Plan.LocalSQL, cPending.Plan.LocalSQL,
+		"pending and none must compile to identical SQL")
+	require.Equal(t, cNone.Plan.LocalArgs, cPending.Plan.LocalArgs)
+}
+
+// TestRoutingPendingErrorMessageMentionsPending is a cheap
+// regression — the error string must list `pending` so users who
+// typo know it's a valid spelling too.
+func TestRoutingPendingErrorMessageMentionsPending(t *testing.T) {
+	_, err := Parse("~o foo")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pending")
+}
+
+// TestRoutingPendingRejectedByFilterAndSearch verifies the alias
+// inherits the existing two-stage rejection rule for ~o.
+func TestRoutingPendingRejectedByFilterAndSearch(t *testing.T) {
+	root, err := Parse("~o pending")
+	require.NoError(t, err)
+	_, err = EmitFilter(root)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrUnsupported))
+	_, err = EmitSearch(root)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrUnsupported))
+}
+
 func TestCompileRoutingOperatorRejectedByFilterAndSearch(t *testing.T) {
 	root, err := Parse("~o feed")
 	require.NoError(t, err)

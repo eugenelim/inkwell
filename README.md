@@ -51,8 +51,8 @@ For the design decisions behind these, see
 
 ```sh
 # Download (replace vX.Y.Z with the latest release).
-gh release download v0.56.1 -p '*macos_arm64*' -D /tmp
-tar -xzf /tmp/inkwell_0.56.1_macos_arm64.tar.gz -C /tmp
+gh release download v0.57.0 -p '*macos_arm64*' -D /tmp
+tar -xzf /tmp/inkwell_0.57.0_macos_arm64.tar.gz -C /tmp
 xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
 sudo mv /tmp/inkwell /usr/local/bin/              # optional
 
@@ -167,6 +167,7 @@ current major surfaces:
 | Reply Later (`L`) / Set Aside (`P`) stacks                                 | ✅ v0.53+ |
 | Bundle senders (collapse same-sender runs in list — `B` toggle)             | ✅ v0.54+ |
 | Custom actions framework (chain ops via `actions.toml` + `inkwell action`)  | ✅ v0.56+ |
+| Screener for new senders (HEY-style first-contact gate, opt-in)             | ✅ v0.57+ |
 | Code-signing + notarization                                                 | 🚧 v1.0   |
 
 Reading the binary's full feature list at any version: see

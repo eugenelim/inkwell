@@ -154,6 +154,15 @@ type Store interface {
 	CountMessagesByRouting(ctx context.Context, accountID int64, destination string, excludeMuted bool) (int, error)
 	CountMessagesByRoutingAll(ctx context.Context, accountID int64, excludeMuted bool) (map[string]int, error)
 
+	// Spec 28 Screener queries (read-only). All honour excludeMuted
+	// matching spec 19 §5.3 default-folder behaviour.
+	ListPendingSenders(ctx context.Context, accountID int64, limit, capPerSender int, excludeMuted bool) ([]PendingSender, error)
+	ListPendingMessages(ctx context.Context, accountID int64, limit int, excludeMuted bool) ([]Message, error)
+	ListScreenedOutMessages(ctx context.Context, accountID int64, limit int, excludeMuted bool) ([]Message, error)
+	CountPendingSenders(ctx context.Context, accountID int64, excludeMuted bool) (int, error)
+	CountScreenedOutMessages(ctx context.Context, accountID int64, excludeMuted bool) (int, error)
+	CountMessagesFromPendingSenders(ctx context.Context, accountID int64, excludeMuted bool) (int, error)
+
 	// MessageIDsInConversation returns IDs of all messages in a conversation
 	// for the account. When includeAllFolders is false, messages in
 	// Drafts, Deleted Items, and Junk are excluded (TUI default). When

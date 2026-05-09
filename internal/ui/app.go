@@ -289,6 +289,22 @@ type Deps struct {
 	// the Triage / Bulk / Thread / Unsubscribe / Folders adapters.
 	CustomActions    *customaction.Catalogue
 	CustomActionDeps customaction.ExecDeps
+
+	// Spec 28 — Screener config materialised at boot. ScreenerEnabled
+	// is the gate flag; ScreenerGrouping is "sender" or "message";
+	// ScreenerExcludeMuted defaults true; ScreenerMaxCountPerSender
+	// caps the per-sender display count. ScreenerHintDismissed and
+	// ScreenerLastSeenEnabled mirror the [ui] one-shot flags so
+	// ui.New can detect the gate-flip first-launch transition
+	// (§5.3.1) and render the §5.3.2 hint exactly once. ConfigPath
+	// is the on-disk TOML path used for config.WriteUIFlag.
+	ScreenerEnabled           bool
+	ScreenerGrouping          string
+	ScreenerExcludeMuted      bool
+	ScreenerMaxCountPerSender int
+	ScreenerHintDismissed     bool
+	ScreenerLastSeenEnabled   bool
+	ConfigPath                string
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -827,6 +843,20 @@ type Model struct {
 	customActionPromptBuf    string
 	customActionPromptHeader string
 	customActionRunning      string // action name; non-empty while a sequence is in flight
+
+	// Spec 28 — Screener mirror fields, materialised at boot from
+	// cfg.Screener (CLAUDE.md §9: no hot reload — config changes
+	// require restart). The TUI never reads cfg.Screener outside
+	// ui.New; the §5.3.1 confirmation modal may override
+	// screenerEnabled to false for the session if the user picks N.
+	screenerEnabled           bool
+	screenerGrouping          string
+	screenerExcludeMuted      bool
+	screenerMaxCountPerSender int
+	screenerHintDismissed     bool
+	screenerLastSeenEnabled   bool
+	screenerHintPending       bool   // true after a successful gate-flip; first list-pane render shows the §5.3.2 hint
+	screenerConfigPath        string // honour the path used by config writes (set by Deps.ConfigPath)
 }
 
 // New constructs the root model. Returns a typed error if the
@@ -909,7 +939,7 @@ func New(deps Deps) (Model, error) {
 	list := NewList()
 	list.SetBundleMinCount(bundleMinCount)
 	list.SetBundleIndicators(deps.BundleIndicatorCollapsed, deps.BundleIndicatorExpanded)
-	return Model{
+	m := Model{
 		deps:                deps,
 		paneWidths:          DefaultPaneWidths(),
 		focused:             ListPane,
@@ -948,7 +978,31 @@ func New(deps Deps) (Model, error) {
 		bundleIndExp:        deps.BundleIndicatorExpanded,
 		customActions:       deps.CustomActions,
 		customActionDeps:    deps.CustomActionDeps,
-	}, nil
+	}
+	// Spec 28 — Screener materialisation. ScreenerExcludeMuted and
+	// ScreenerMaxCountPerSender default to (true, 999) when the
+	// caller did not populate them (test fixtures, headless paths).
+	m.screenerEnabled = deps.ScreenerEnabled
+	m.screenerGrouping = deps.ScreenerGrouping
+	if m.screenerGrouping == "" {
+		m.screenerGrouping = "sender"
+	}
+	m.screenerExcludeMuted = deps.ScreenerExcludeMuted
+	if deps.ScreenerMaxCountPerSender == 0 && !deps.ScreenerExcludeMuted {
+		// Bare-minimum Deps shape (test fixtures, etc.) → fill the
+		// safe defaults rather than ship a screener queue with
+		// muted-thread leakage.
+		m.screenerExcludeMuted = true
+	}
+	m.screenerMaxCountPerSender = deps.ScreenerMaxCountPerSender
+	if m.screenerMaxCountPerSender <= 0 {
+		m.screenerMaxCountPerSender = 999
+	}
+	m.screenerHintDismissed = deps.ScreenerHintDismissed
+	m.screenerLastSeenEnabled = deps.ScreenerLastSeenEnabled
+	m.screenerConfigPath = deps.ConfigPath
+	m.folders.SetScreenerSidebarState(m.screenerEnabled, 0, 0)
+	return m, nil
 }
 
 // tabsConfigOrDefault fills in zero-valued fields with the spec 24
@@ -1015,6 +1069,18 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.deps.Account != nil && m.deps.Store != nil {
 		cmds = append(cmds, loadBundledSendersCmd(context.Background(), m.deps.Store, m.deps.Account.ID))
+	}
+	// Spec 28 §5.3.1: gate-flip detection and confirmation modal.
+	// Single read-only count + maybe a one-line config writer; never
+	// blocks (UI Cmd goroutine).
+	if cmd := m.detectScreenerGateFlipCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	// Initial sidebar refresh (gate-on path only). When off, this
+	// returns nil and the spec 23 streamCounts path drives the
+	// __screener__ count.
+	if cmd := m.refreshScreenerSidebarCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
 }
@@ -1141,9 +1207,9 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.FolderID = pick.ID
 			m.folders.SelectByID(pick.ID)
-			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd())
+			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd())
 		}
-		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd())
+		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd())
 
 	case MessagesLoadedMsg:
 		if msg.FolderID == m.list.FolderID {
@@ -1177,6 +1243,26 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.list.folderNameByID = nil
 				}
 			}
+		}
+		// Spec 28 §5.3.2: fire the post-enable hint exactly once.
+		if m.screenerHintPending && !m.screenerHintDismissed {
+			m.engineActivity = "screener: gate on. 'Screener' now shows pending senders; previously-routed senders moved to 'Screened Out'. Y / N on a focused sender admits / screens-out."
+			m.screenerHintPending = false
+			m.screenerHintDismissed = true
+			path := m.screenerConfigPath
+			logger := m.deps.Logger
+			persist := func() tea.Msg {
+				if path != "" {
+					if err := writeUIFlagBool(path, "screener_hint_dismissed", true); err != nil && logger != nil {
+						logger.Warn("screener: persist hint marker", "err", err)
+					}
+				}
+				return nil
+			}
+			if !IsStackSentinelID(msg.FolderID) && msg.FolderID != "" {
+				return m, tea.Batch(persist, m.refreshStackCountsCmd())
+			}
+			return m, persist
 		}
 		// Spec 25 §10.4: every MessagesLoadedMsg for a non-stack
 		// folder may have arrived after a sync delta with category
@@ -1544,6 +1630,39 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.runBulkWithIDsCmd("permanent_delete", ids)
 		}
+		// Spec 28 §5.3.1 gate-flip modal. Y proceeds (writes
+		// last-seen marker, arms the §5.3.2 hint); N/Esc keeps the
+		// gate off for the session and leaves the marker unchanged
+		// so the modal re-fires next launch.
+		if msg.Topic == "screener_gate_flip" {
+			if msg.Confirm {
+				m.screenerLastSeenEnabled = true
+				m.screenerHintPending = !m.screenerHintDismissed
+				path := m.screenerConfigPath
+				logger := m.deps.Logger
+				return m, tea.Batch(func() tea.Msg {
+					if path != "" {
+						if err := writeUIFlagBool(path, "screener_last_seen_enabled", true); err != nil && logger != nil {
+							logger.Warn("screener: persist last-seen marker", "err", err)
+						}
+					}
+					return nil
+				}, m.refreshScreenerSidebarCmd())
+			}
+			// User said no — keep the gate off this session. Spec
+			// 28 §5.3.1: the first list-pane render that happened
+			// concurrently with this modal may have already
+			// applied ApplyScreenerFilter=true; re-issue the load
+			// for the current folder so the user immediately sees
+			// the gate-off view.
+			m.screenerEnabled = false
+			m.folders.SetScreenerSidebarState(false, 0, 0)
+			m.engineActivity = "screener: gate kept off this session (re-launch to re-prompt)"
+			if m.list.FolderID != "" && !IsStreamSentinelID(m.list.FolderID) && !IsStackSentinelID(m.list.FolderID) && m.list.FolderID != mutedSentinelID {
+				return m, m.loadMessagesCmd(m.list.FolderID)
+			}
+			return m, nil
+		}
 		return m, nil
 
 	case filterAppliedMsg:
@@ -1649,7 +1768,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case savedSearchBgRefreshMsg:
-		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.refreshStreamCountsCmd(), m.refreshStackCountsCmd(), m.backgroundRefreshTimerCmd())
+		return m, tea.Batch(m.refreshSavedSearchCountsCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd(), m.backgroundRefreshTimerCmd())
 
 	case ruleEditDoneMsg:
 		m.mode = NormalMode
@@ -1800,7 +1919,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			reloadCmd = m.loadMessagesCmd(m.list.FolderID)
 		}
-		return m, tea.Batch(reloadCmd, m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.clearTransientCmd())
+		return m, tea.Batch(reloadCmd, m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.clearTransientCmd())
 
 	case mutedCountUpdatedMsg:
 		m.folders.SetMutedCount(msg.count)
@@ -1907,7 +2026,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.list.FolderID == mutedSentinelID:
 			reload = m.loadMutedMessagesCmd()
 		case IsStreamSentinelID(m.list.FolderID):
-			reload = m.loadByRoutingCmd(streamDestinationFromID(m.list.FolderID))
+			reload = m.reloadStreamCmd()
 		case m.filterActive:
 			reload = m.runFilterCmd(m.filterPattern)
 		default:
@@ -1915,7 +2034,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 				reload = m.loadMessagesCmd(m.list.FolderID)
 			}
 		}
-		return m, tea.Batch(reload, m.refreshStreamCountsCmd(), m.clearTransientCmd())
+		return m, tea.Batch(reload, m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.clearTransientCmd())
 
 	case routeNoopMsg:
 		m.engineActivity = formatRouteNoopToast(msg.address, msg.kind, msg.dest)
@@ -1932,6 +2051,56 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamCountsUpdatedMsg:
 		m.folders.SetStreamCounts(msg.counts)
+		return m, nil
+
+	case screenerSidebarUpdatedMsg:
+		m.folders.SetScreenerSidebarState(m.screenerEnabled, msg.Pending, msg.ScreenedOut)
+		return m, nil
+
+	case screenerGateFlipModalMsg:
+		// Spec 28 §5.3.1. Render Confirm-mode modal naming the
+		// affected message + sender counts. Y advances the marker
+		// and proceeds; N/Esc keeps the gate off for the session.
+		prompt := fmt.Sprintf(
+			"Enable Screener?\n\nThis will hide %d messages from %d senders from your default Inbox view. They remain accessible from the Screener virtual folder.\n\nPress Y to enable, N to leave the gate off this session. (Esc behaves as N.)",
+			msg.MessagesFromPending, msg.PendingSenders)
+		m.confirm = m.confirm.Ask(prompt, "screener_gate_flip")
+		m.mode = ConfirmMode
+		return m, nil
+
+	case screenerGateConfirmedSilentlyMsg:
+		// Skip path: marker advanced silently. Arm the §5.3.2 hint
+		// for the next list-pane render unless the user has already
+		// dismissed it permanently.
+		m.screenerLastSeenEnabled = true
+		if !m.screenerHintDismissed {
+			m.screenerHintPending = true
+		}
+		return m, nil
+
+	case pendingSendersLoadedMsg:
+		// Spec 28 §5.1 per-sender mode. Map PendingSender → Message
+		// so the existing list pane renders one row per representative.
+		// Subsequent Y/N keypresses act on the representative's
+		// from_address.
+		msgs := make([]store.Message, 0, len(msg.Senders))
+		for _, ps := range msg.Senders {
+			subject := ps.LatestSubject
+			if ps.MessageCount > 1 {
+				subject = fmt.Sprintf("(%d) %s", ps.MessageCount, ps.LatestSubject)
+			}
+			msgs = append(msgs, store.Message{
+				ID:          ps.LatestMessageID,
+				FromAddress: ps.EmailAddress,
+				FromName:    ps.DisplayName,
+				Subject:     subject,
+				ReceivedAt:  ps.LatestReceived,
+				IsRead:      false,
+				Importance:  "normal",
+			})
+		}
+		m.list.FolderID = msg.FolderID
+		m.list.SetMessages(msgs)
 		return m, nil
 
 	case stackToggleMsg:
@@ -1951,7 +2120,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.list.FolderID == mutedSentinelID:
 			reload = m.loadMutedMessagesCmd()
 		case IsStreamSentinelID(m.list.FolderID):
-			reload = m.loadByRoutingCmd(streamDestinationFromID(m.list.FolderID))
+			reload = m.reloadStreamCmd()
 		case m.filterActive:
 			reload = m.runFilterCmd(m.filterPattern)
 		default:
@@ -3170,6 +3339,8 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "route":
 		return m.dispatchRoute(args[1:])
+	case "screener":
+		return m.dispatchScreener(args[1:])
 	case "actions":
 		return m.dispatchActions(args[1:])
 	case "tab":
@@ -4150,16 +4321,38 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadMutedMessagesCmd()
 		}
 		// Routing virtual folders — Imbox / Feed / Paper Trail /
-		// Screener (spec 23 §5.4). Same shape as muted: select the
-		// sentinel ID, reset limit, focus the list pane, dispatch
-		// the routing-scoped load.
+		// Screener (spec 23 §5.4) plus the spec 28 §5.2 Screened-Out
+		// sentinel. Same shape as muted: select the sentinel ID,
+		// reset limit, focus the list pane, dispatch the
+		// routing-scoped load.
 		if dest := m.folders.SelectedStream(); dest != "" {
-			m.list.FolderID = streamSentinelIDForDestination(dest)
+			sentinel := m.folders.SelectedStreamSentinelID()
+			if sentinel == "" {
+				sentinel = streamSentinelIDForDestination(dest)
+			}
+			m.list.FolderID = sentinel
 			m.list.ResetLimit()
 			m.focused = ListPane
 			m.searchActive = false
 			m.searchQuery = ""
-			return m, m.loadByRoutingCmd(dest)
+			// Spec 28 §5.1: when the gate is on, __screener__
+			// content rebinds to "pending senders" / "pending
+			// messages" depending on grouping. __screened_out__
+			// loads the spec 23 v1 screener-routed mail.
+			switch sentinel {
+			case screenerSentinelID:
+				if m.screenerEnabled {
+					if m.screenerGrouping == "message" {
+						return m, m.loadPendingMessagesCmd()
+					}
+					return m, m.loadPendingSendersCmd()
+				}
+				return m, m.loadByRoutingCmd(dest)
+			case screenedOutSentinelID:
+				return m, m.loadScreenedOutMessagesCmd()
+			default:
+				return m, m.loadByRoutingCmd(dest)
+			}
 		}
 		// Spec 25 stack virtual folders — Reply Later / Set Aside.
 		if m.folders.SelectedReplyLater() {
@@ -4483,6 +4676,22 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, m.keymap.BundleToggle):
 		return m.startBundleToggle()
+	case key.Matches(msg, m.keymap.ScreenerAccept):
+		// Spec 28 §5.4. Pane-scoped to the Screener virtual folder
+		// while the gate is on. Outside the Screener pane the key is
+		// unbound (no fallthrough). Equivalent to `S i` chord.
+		if !m.screenerEnabled || m.list.FolderID != screenerSentinelID {
+			return m, nil
+		}
+		return m.dispatchScreenerVerb("imbox")
+	case key.Matches(msg, m.keymap.ScreenerReject):
+		// Spec 28 §5.4. Same gating as ScreenerAccept; equivalent to
+		// `S k`. Pane scope disambiguates from spec 18 NewFolder
+		// which also defaults to capital N (folder-pane only).
+		if !m.screenerEnabled || m.list.FolderID != screenerSentinelID {
+			return m, nil
+		}
+		return m.dispatchScreenerVerb("screener")
 	case key.Matches(msg, m.keymap.Open):
 		// Spec 26 §5.1: Enter on a *collapsed* bundle header expands
 		// the bundle and leaves the cursor on the header. Second Enter
@@ -6251,6 +6460,7 @@ func (m Model) loadFoldersCmd() tea.Cmd {
 
 func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
 	limit := m.list.LoadLimit()
+	applyScreener := m.screenerEnabled
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -6259,10 +6469,11 @@ func (m Model) loadMessagesCmd(folderID string) tea.Cmd {
 			accountID = m.deps.Account.ID
 		}
 		msgs, err := m.deps.Store.ListMessages(ctx, store.MessageQuery{
-			AccountID:    accountID,
-			FolderID:     folderID,
-			Limit:        limit,
-			ExcludeMuted: true, // spec 19 §5.3: normal folder views hide muted threads
+			AccountID:           accountID,
+			FolderID:            folderID,
+			Limit:               limit,
+			ExcludeMuted:        true, // spec 19 §5.3: normal folder views hide muted threads
+			ApplyScreenerFilter: applyScreener,
 		})
 		if err != nil {
 			return ErrorMsg{Err: err}
@@ -6348,8 +6559,12 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		}
 		// Refresh routing-bucket counts — a sync that delivered new
 		// messages from already-routed senders shifts the badges
-		// (spec 23 §5.4).
+		// (spec 23 §5.4). Spec 28 also refreshes the screener
+		// pending/screened counts on the same cadence.
 		if refreshCmd := m.refreshStreamCountsCmd(); refreshCmd != nil {
+			cmds = append(cmds, refreshCmd)
+		}
+		if refreshCmd := m.refreshScreenerSidebarCmd(); refreshCmd != nil {
 			cmds = append(cmds, refreshCmd)
 		}
 		// Refresh tab badges — same sync may have shifted unread

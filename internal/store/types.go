@@ -306,6 +306,30 @@ type MessageQuery struct {
 	// views pass true; explicit search / filter paths pass false so the
 	// user can still find muted threads when they intentionally look.
 	ExcludeMuted bool
+	// ApplyScreenerFilter (spec 28 §4.1) suppresses messages whose
+	// sender is in the Pending state (no sender_routing row) or the
+	// Screened-Out state (sender_routing row with destination =
+	// 'screener'). Equivalent to anding with `! (~o none | ~o
+	// screener)` from the pattern language. NULL / empty
+	// from_address rows are NEVER suppressed (defensive — drafts and
+	// synthesised list-server messages can lack a From). Default
+	// false preserves spec 23 behaviour. The TUI passes true only
+	// on default folder views when [screener].enabled is true;
+	// search / filter / CLI paths always pass false.
+	ApplyScreenerFilter bool
+}
+
+// PendingSender (spec 28 §4.3) is one row per pending sender —
+// senders with at least one message in the local store and no
+// sender_routing row. The envelope fields come from the most-recent
+// message from that sender.
+type PendingSender struct {
+	EmailAddress    string    // lowercased + trimmed
+	DisplayName     string    // most recent message's from_name
+	LatestSubject   string    // most recent message's subject
+	LatestReceived  time.Time // most recent received_at
+	MessageCount    int       // total messages from this sender (capped at config max)
+	LatestMessageID string    // most recent message's id (for Open / preview)
 }
 
 // OrderField names the sort key of [MessageQuery].

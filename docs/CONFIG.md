@@ -116,6 +116,8 @@ Controls the terminal UI.
 | `bundle_min_count` | int | `2` | 0–9999 | Spec 26 §5.3. Minimum size of a consecutive same-sender run before it collapses into a bundle row. `0` disables bundling entirely while preserving designations. |
 | `bundle_indicator_collapsed` | string | `"▸"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on a collapsed bundle row. Use `">"` for ASCII-only terminals. |
 | `bundle_indicator_expanded` | string | `"▾"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on an expanded bundle row. Use `"v"` for ASCII-only terminals. |
+| `screener_hint_dismissed` | bool | `false` | `true` / `false` | Spec 28 §5.3.2. One-shot flag set the first time the user dismisses the post-enable Screener hint with `Esc`. Auto-written by `config.WriteUIFlag`; manual edits are honoured. |
+| `screener_last_seen_enabled` | bool | `false` | `true` / `false` | Spec 28 §5.3.1. Marker the first-launch detection compares against `[screener].enabled` to decide whether to render the gate-flip confirmation modal. Auto-written when the user confirms the gate. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
 | `confirm_destructive_default` | string | `"no"` | `yes`, `no` | Default selection on confirmation prompts. `no` is safer; `yes` saves a keystroke for users who want it. |
 | `min_terminal_cols` | int | `80` | 60–200 | Below this width, render a "terminal too small" message. |
@@ -418,6 +420,8 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `set_aside_toggle` | `"P"` | Spec 25. Toggle the focused message in the Set Aside stack (Inkwell/SetAside category). Mnemonic: Pin (matches the 📌 indicator). Spec text suggested `S`; deviated because spec 23's stream chord already claimed `S`. |
 | `bundle_toggle` | `"B"` | Spec 26 §5.1. List-pane only. Toggle per-sender bundle designation on the focused message's address. |
 | `bundle_expand` | `" "` | Spec 26 §5.1. List-pane only, when the focused row is a bundle header. Toggles expand/collapse. Shares Space with `expand` (folders pane) by intent — pane dispatch resolves which fires. |
+| `screener_accept` | `"Y"` | Spec 28 §5.4. Pane-scoped to the Screener virtual folder while `[screener].enabled` is true. Equivalent to the `S i` chord — admit the focused sender to Imbox. |
+| `screener_reject` | `"N"` | Spec 28 §5.4. Pane-scoped to the Screener virtual folder while `[screener].enabled` is true. Equivalent to the `S k` chord — screen out the focused sender. Overlaps `new_folder` (spec 18) on capital N; pane scoping disambiguates at dispatch time. |
 | `palette` | `"ctrl+k"` | Open the spec 22 command palette (fuzzy-find every action; right-aligned binding column doubles as a passive cheatsheet). Set to `""` to disable. |
 | `help` | `"?"` | Open the help overlay (every binding). |
 
@@ -458,6 +462,21 @@ Spec 27. Points the loader at the user's `actions.toml` recipe file.
 The recipe schema (op catalogue, template variables, confirm policies) lives in `docs/user/reference.md` and `docs/user/how-to.md` because it is a separate file format from `config.toml`.
 
 **Owner spec:** 27.
+
+---
+
+## `[screener]`
+
+Spec 28. The first-contact gate: when enabled, mail from senders not in `sender_routing` OR routed to `'screener'` is hidden from default folder views and surfaces in the Screener / Screened-Out virtual folders. Off by default — flipping the flag without a routing pass first is the most common surprise; the gate-flip confirmation modal (§5.3.1) renders at the next launch when there are pending messages to hide.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | `true` / `false` | Master gate flag. When true, default folder views call `ListMessages` with `ApplyScreenerFilter=true` and the `__screener__` sentinel content shifts from "screener-routed senders" to "pending senders." |
+| `grouping` | string | `"sender"` | `"sender"` / `"message"` | Screener queue rendering. `"sender"` shows one row per pending sender (with a count badge); `"message"` shows one row per pending message — useful for triaging individual messages before committing to a per-sender routing. |
+| `exclude_muted` | bool | `true` | `true` / `false` | Excludes muted-thread messages from the Screener queue. Mute is a stronger signal than "no decision yet"; treating it as such avoids muted threads popping back demanding a decision. |
+| `max_count_per_sender` | int | `999` | 1–9999 | Cap on the per-sender message-count display in the Screener queue. Counts above this render as `999+`. Performance safeguard — the SQL count subquery short-circuits at `cap+1`. |
+
+**Owner spec:** 28.
 
 ---
 

@@ -60,6 +60,8 @@ func Defaults() *Config {
 			BundleMinCount:           2,
 			BundleIndicatorCollapsed: "▸",
 			BundleIndicatorExpanded:  "▾",
+			ScreenerHintDismissed:    false,
+			ScreenerLastSeenEnabled:  false,
 		},
 		Bindings: BindingsConfig{
 			Quit:         "q",
@@ -107,6 +109,8 @@ func Defaults() *Config {
 			PrevTab:          "[",
 			ReplyLaterToggle: "L",
 			SetAsideToggle:   "P",
+			ScreenerAccept:   "Y",
+			ScreenerReject:   "N",
 		},
 		Rendering: RenderingConfig{
 			ShowFullHeaders:          false,
@@ -209,6 +213,12 @@ func Defaults() *Config {
 			ProgressBars:            "auto",
 			JSONCompact:             false,
 			ExportDefaultDir:        ".",
+		},
+		Screener: ScreenerConfig{
+			Enabled:           false,
+			Grouping:          "sender",
+			ExcludeMuted:      true,
+			MaxCountPerSender: 999,
 		},
 	}
 }

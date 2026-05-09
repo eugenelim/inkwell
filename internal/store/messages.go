@@ -435,6 +435,23 @@ func buildListSQL(q MessageQuery) (string, []any) {
 		)`)
 		args = append(args, q.AccountID)
 	}
+	if q.ApplyScreenerFilter {
+		// Spec 28 §4.1. Only Approved senders' mail returns. Messages
+		// with NULL or empty from_address are NEVER suppressed (drafts
+		// / synthesised list-server messages predate any routing
+		// decision and the user should still see them).
+		where = append(where, `(
+			from_address IS NULL
+			OR from_address = ''
+			OR EXISTS (
+				SELECT 1 FROM sender_routing sr
+				WHERE sr.account_id    = ?
+				  AND sr.email_address = lower(trim(from_address))
+				  AND sr.destination IN ('imbox', 'feed', 'paper_trail')
+			)
+		)`)
+		args = append(args, q.AccountID)
+	}
 
 	order := "received_at DESC"
 	switch q.OrderBy {

@@ -43,6 +43,32 @@ type Config struct {
 	Compose         ComposeConfig         `toml:"compose"`
 	CLI             CLIConfig             `toml:"cli"`
 	CustomActions   CustomActionsConfig   `toml:"custom_actions"`
+	Screener        ScreenerConfig        `toml:"screener"`
+}
+
+// ScreenerConfig owns the [screener] section (spec 28).
+//
+// Off by default. When Enabled is true, mail from senders not in
+// sender_routing OR routed to 'screener' is hidden from default
+// folder views and surfaces in the Screener / Screened-Out
+// virtual folders.
+type ScreenerConfig struct {
+	// Enabled is the master gate flag. When true, default folder
+	// views call ListMessages with ApplyScreenerFilter=true and the
+	// __screener__ sentinel content shifts from "screener-routed
+	// senders" to "pending senders" (per spec 28 §1, §5.1, §5.5).
+	Enabled bool `toml:"enabled"`
+	// Grouping controls Screener queue rendering: "sender" (default)
+	// shows one row per pending sender; "message" shows one row per
+	// pending message. Per spec 28 §5.1.
+	Grouping string `toml:"grouping"`
+	// ExcludeMuted, when true (default), excludes muted-thread
+	// messages from the Screener queue. Per spec 28 §5.7.
+	ExcludeMuted bool `toml:"exclude_muted"`
+	// MaxCountPerSender caps the per-sender message-count display
+	// in the Screener queue (counts above render as "999+").
+	// Performance safeguard — see spec 28 §4.4. Default 999.
+	MaxCountPerSender int `toml:"max_count_per_sender"`
 }
 
 // CustomActionsConfig owns the [custom_actions] section (spec 27).
@@ -379,6 +405,16 @@ type UIConfig struct {
 	// expanded bundle row (spec 26 §5.2). Default "▾"; ASCII
 	// fallback "v". Validated to ≤2 display cells at config load.
 	BundleIndicatorExpanded string `toml:"bundle_indicator_expanded"`
+
+	// ScreenerHintDismissed (spec 28 §5.3.2) is set to true the
+	// first time the user dismisses the post-enable hint with Esc.
+	// Auto-written via config.WriteUIFlag.
+	ScreenerHintDismissed bool `toml:"screener_hint_dismissed"`
+	// ScreenerLastSeenEnabled (spec 28 §5.3.1) is the marker the
+	// gate-flip confirmation modal compares against `[screener].enabled`
+	// to detect a first-launch transition. Auto-written when the
+	// user confirms the gate.
+	ScreenerLastSeenEnabled bool `toml:"screener_last_seen_enabled"`
 }
 
 // StreamIndicatorsConfig is the inline table used by spec 23 §11 for
@@ -435,6 +471,12 @@ type BindingsConfig struct {
 	SetAsideToggle   string `toml:"set_aside_toggle"`
 	BundleToggle     string `toml:"bundle_toggle"`
 	BundleExpand     string `toml:"bundle_expand"`
+	// ScreenerAccept / ScreenerReject (spec 28 §5.4) are pane-scoped
+	// to the Screener virtual folder when the gate is enabled.
+	// Defaults Y / N. ScreenerReject overlaps NewFolder (spec 18) on
+	// capital N — pane scoping disambiguates at dispatch time.
+	ScreenerAccept string `toml:"screener_accept"`
+	ScreenerReject string `toml:"screener_reject"`
 }
 
 // RenderingConfig owns the [rendering] section (spec 05).

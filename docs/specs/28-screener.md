@@ -1,6 +1,7 @@
 # Spec 28 — Screener for new senders
 
-**Status:** Ready for implementation.
+**Shipped:** v0.57.0.
+**Status:** Shipped.
 **Depends on:** Spec 02 (store + `messages` / `sender_routing`
 queries), Spec 04 (TUI shell + folder sidebar), Spec 08 (pattern
 language — `~o` operator already shipped, this spec adds the

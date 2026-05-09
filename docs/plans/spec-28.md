@@ -1,7 +1,7 @@
 # Spec 28 — Screener for new senders
 
 ## Status
-not-started
+done
 
 ## DoD checklist
 
@@ -154,6 +154,109 @@ Mirrors `docs/specs/28-screener.md` §8.
 | Sidebar refresh of all five Streams (gate on) | ≤25ms p95 cumulative | — | `BenchmarkSidebarStreamsRefreshWithScreener` | not measured |
 
 ## Iteration log
+
+### Iter 2 — 2026-05-09 — implementation shipped as v0.57.0
+
+- Slice: full implementation per §10 DoD across 11 files (config
+  layer, store layer, pattern alias, UI sentinel + sidebar +
+  KeyMap + dispatch, modal + hint, palette, cmd-bar, CLI).
+- Files added: `internal/config/write_ui_flag.go` (+ test);
+  `internal/store/screener.go` (+ test); `internal/ui/screener.go`
+  (+ test); `cmd/inkwell/cmd_screener.go` (+ test). Files
+  modified: `internal/config/{config,defaults}.go`,
+  `internal/store/{types,messages,store}.go`,
+  `internal/pattern/{parser.go,routing_test.go}`,
+  `internal/ui/{keys,panes,palette_commands,app}.go`,
+  `cmd/inkwell/{cmd_run,cmd_root}.go`,
+  `internal/store/bench_test.go`.
+- Implementation notes:
+  - Config writer (`config.WriteUIFlag`) atomic temp-file +
+    rename, mode 0600, preserves other sections. Closes the
+    spec 11/23 latent hint-dismissal claim.
+  - Store screener.go: 6 methods (`ListPendingSenders`,
+    `ListPendingMessages`, `ListScreenedOutMessages`,
+    `CountPendingSenders`, `CountScreenedOutMessages`,
+    `CountMessagesFromPendingSenders`). `ListPendingSenders`
+    SQL caps `MessageCount` via `LIMIT cap+1` so a noisy sender
+    with 50k messages doesn't dominate. `MessageQuery.ApplyScreenerFilter`
+    extends `buildListSQL` with the EXISTS-IN-approved fragment;
+    NULL/empty `from_address` exempted.
+  - Pattern parser: `~o pending` canonicalises to `none` at
+    parse time so eval_local / eval_filter / eval_search /
+    eval_memory stay unchanged.
+  - UI: sentinel `__screened_out__` added; `FoldersModel`
+    gains gate-aware sidebar rendering (`SetScreenerSidebarState`).
+    `Y` / `N` pane-scoped to `__screener__` while
+    `m.screenerEnabled`; ScreenerReject excluded from
+    `findDuplicateBinding` scan due to N overlap with NewFolder
+    (pinned by `TestKeymapScreenerRejectExcludedFromDuplicateScan`).
+    Default folder views pass `ApplyScreenerFilter = m.screenerEnabled`.
+  - Gate-flip detection at boot via `detectScreenerGateFlipCmd`:
+    when transitioning false→true with M>0 pending messages,
+    `ConfirmMode` modal renders before the first list-pane
+    refresh. Y advances `[ui].screener_last_seen_enabled` and
+    arms the §5.3.2 hint; N keeps the gate off this session and
+    re-issues `loadMessagesCmd` so the user sees the gate-off
+    view immediately.
+  - Cmd-bar `:screener accept|reject|list|history|status` and
+    palette rows (`screener_accept` / `screener_reject` /
+    `screener_open` / `screener_history`) wired with title swaps
+    when the gate is off.
+  - CLI: `cmd_screener.go` registers the six subcommands. Pure-
+    stdlib TTY detection (`os.Stdin.Stat() & os.ModeCharDevice`)
+    avoids adding `golang.org/x/term` as a dependency.
+    `pre-approve` accepts `--from-stdin` OR `--from-file <path>`
+    (mutually exclusive); CRLF / BOM / `#` comment / blank-line
+    handling per §7.
+- Tests added: 12 store unit tests (filter clauses + 6 method
+  paths + ordering / cap / mute interactions); 4 pattern alias
+  tests (pending→none canonicalisation, LocalOnly compile,
+  filter/search rejection); 11 config writer tests (fresh
+  file, append, replace, preserves sections, mode 0600, no-op
+  when equal, invalid keys); 16 UI tests (Y/N dispatch, pane
+  scoping, sidebar gate-on/off rendering, gate-flip modal,
+  decline keeps gate off, palette rows + title swap,
+  cmd-bar verbs, history-gating); 8 CLI tests (preApproveStream
+  parsing rules, mutual exclusion, registration); 1 keymap
+  duplicate-scan exclusion test. 7 new benchmarks under §8
+  budgets on M5: ListMessagesScreenerFilter ≈640µs (gate 15ms),
+  ListPendingSenders ≈10ms, ListPendingMessages ≈1.5ms,
+  ListScreenedOutMessages ≈2.4ms, CountPendingSenders ≈3.9ms,
+  CountScreenedOutMessages ≈1.3ms, SidebarStreamsRefreshWithScreener
+  ≈18ms cumulative (gate 25ms).
+- Self-review: ran a final adversarial pass that surfaced 2
+  CRITICAL (no UI tests, missing `TestKeymapScreenerRejectExcludedFromDuplicateScan`)
+  + 5 MAJOR (missing sidebar bench, modal-ordering race,
+  list-pane label, doc sweep undone). All addressed: 16 UI
+  tests landed, the duplicate-scan-exclusion test added, the
+  sidebar bench added, the gate-flip race fixed via re-issuing
+  `loadMessagesCmd` on the N branch, and the doc sweep
+  completed (§12.6 table).
+- Doc sweep: spec Shipped line `v0.57.0`; PRD §10 row updated;
+  ROADMAP Bucket-3 row 2 + §1.16 backlog heading flipped to
+  Shipped v0.57.0; spec 23 §10.1 / §14 forward-link to spec 28
+  added (closes the spec 23 §14 v1 UX limit); CONFIG.md gains
+  `[screener]` section + `[bindings].screener_*` rows + `[ui]`
+  marker keys; ARCH.md §"action queue" updated; PRIVACY.md row
+  added; user/reference.md gains `Y`/`N` shortcuts row, `~o
+  pending` operator alias mention, `:screener` cmd-bar verbs,
+  `inkwell screener` CLI rows, footer bumped to v0.57.0;
+  user/how-to.md gains three recipes ("Turn on the Screener,"
+  "Pre-approve senders from a contacts dump," "Recover from a
+  wrong Screener decision"), footer bumped; user/explanation.md
+  gains "Why the Screener is local-only" with the
+  notification-suppression non-goal, footer bumped to v0.57.0;
+  README status table row + download example.
+- Critique: the implementation is the minimum-viable wiring
+  documented in §10 DoD. No new schema, no new Graph scope,
+  no new threat-model surface (§9 §11). Two pre-existing
+  calendar-sync tests unrelated to spec 28 were already fixed
+  in v0.56.1. The `[ui].screener_hint_dismissed` and
+  `[ui].screener_last_seen_enabled` markers are persisted via
+  the new `config.WriteUIFlag` writer, which back-fills the
+  spec 11 / spec 23 latent claim.
+- Next: spec 28 is shipped. Spec 29 (Watch mode) and spec 30
+  ("Done" alias) remain as the next Bucket 3 items.
 
 ### Iter 0 — 2026-05-08 — spec drafted
 

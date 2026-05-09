@@ -103,3 +103,16 @@ func TestApplyBindingOverridesAllowsPaneScopedDuplicates(t *testing.T) {
 	_, err := ApplyBindingOverrides(DefaultKeyMap(), BindingOverrides{})
 	require.NoError(t, err)
 }
+
+// TestKeymapScreenerRejectExcludedFromDuplicateScan pins the spec
+// 28 §5.4 collision audit. ScreenerReject defaults to capital N,
+// which overlaps NewFolder (spec 18). Pane scoping disambiguates
+// at dispatch time, so findDuplicateBinding excludes ScreenerReject
+// from its checks list. A future contributor who removes that
+// exclusion will turn this test red and be forced to re-read the
+// audit comment.
+func TestKeymapScreenerRejectExcludedFromDuplicateScan(t *testing.T) {
+	km, err := ApplyBindingOverrides(DefaultKeyMap(), BindingOverrides{})
+	require.NoError(t, err)
+	require.Empty(t, findDuplicateBinding(km), "ScreenerReject must not collide with NewFolder in the duplicate scan")
+}

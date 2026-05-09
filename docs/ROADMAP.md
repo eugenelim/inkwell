@@ -67,7 +67,7 @@ Ties verbs together once enough verbs exist.
 | Order | Item                                | Spec | Status                                          |
 | ----- | ----------------------------------- | ---- | ----------------------------------------------- |
 | 1     | Custom actions framework (§2)       | 27   | Shipped v0.56.0.                                 |
-| 2     | Screener (1.16)                     | 28   | Spec drafted (ready for implementation).        |
+| 2     | Screener (1.16)                     | 28   | Shipped v0.57.0.                                |
 | 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
 | 4     | "Done" alias (1.23)                 | 30   | Spec drafted (ready for implementation).        |
 
@@ -270,7 +270,7 @@ Server-side rules run on every incoming message; persist server-side; visible ac
 
 Microsoft Graph already provides `inferenceClassification` (Focused / Other). Surface it as a tab in the list pane and filter accordingly. Cheap, immediate value. Richer auto-categorisation (Promotions, Updates, Forums) is research-grade — see §3 and §1.21.
 
-### 1.16 Screener for new senders — Spec 28 (ready)
+### 1.16 Screener for new senders — Shipped v0.57.0 (spec 28)
 
 **The concept.** New senders aren't admitted to the main flow until you say so. Their mail sits in a separate Screener queue until accepted, then routes per §1.9.
 

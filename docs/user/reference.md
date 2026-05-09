@@ -112,6 +112,8 @@ Enter on a stream entry loads messages from that routing destination.
 | `S p`     | Route sender to Paper Trail                                   |
 | `S s`     | Route sender to Screener                                      |
 | `S c`     | Clear routing for sender (back to unclassified)               |
+| `Y`       | Spec 28 §5.4 — admit the focused sender to Imbox. Pane-scoped: only fires inside the Screener virtual folder while `[screener].enabled` is true. Equivalent to `S i`. |
+| `N`       | Spec 28 §5.4 — screen out the focused sender. Pane-scoped: only fires inside the Screener virtual folder while `[screener].enabled` is true. Equivalent to `S k`. |
 | `L`       | Toggle Reply Later — add/remove focused message from the Reply Later stack |
 | `P`       | Toggle Set Aside — add/remove focused message from the Set Aside stack |
 | `B`       | Toggle bundle designation on the focused sender (spec 26). On a bundle header, `B` un-designates the sender and dissolves the bundle in place. |
@@ -373,6 +375,11 @@ sessions older than 24h get garbage-collected on launch.
 | `:rule edit <name>`           | Open the edit modal (rename, change pattern/pinned)             |
 | `:rule delete <name>`         | Delete a saved search (with confirm)                            |
 | `:route <email> <dest>`       | Route sender to a destination: `imbox`, `feed`, `paper_trail`, `screener`, or `clear` |
+| `:screener accept <email>`    | Spec 28 §7.1. Admit a sender. `--to imbox\|feed\|paper_trail` overrides the default Imbox destination. |
+| `:screener reject <email>`    | Spec 28 §7.1. Screen out a sender (alias for `:route <email> screener`).        |
+| `:screener list`              | Navigate to the Screener virtual folder (`__screener__`).        |
+| `:screener history`           | Navigate to the Screened-Out virtual folder (`__screened_out__`). Requires `[screener].enabled = true`. |
+| `:screener status`            | Toast the current screener configuration (gate state, grouping, mute exclusion). |
 | `:tab list`                   | Show all configured tabs in the status bar                      |
 | `:tab add <name> <pattern>`   | Add a saved search as a list-pane tab                           |
 | `:tab remove <name>`          | Remove a tab (does not delete the saved search)                 |
@@ -511,7 +518,7 @@ Argument-bearing:
 | `~y <class>`     | inference class  | `~y focused`                         |
 | `~v <conv-id>`   | conversation     | `~v <id>`                            |
 | `~m <folder>`    | folder           | `~m Inbox`                           |
-| `~o <dest>`      | routing dest     | `~o imbox`, `~o feed`, `~o paper_trail`, `~o screener` |
+| `~o <dest>`      | routing dest     | `~o imbox`, `~o feed`, `~o paper_trail`, `~o screener`, `~o none` (no row), `~o pending` (alias for `none`, spec 28 §4.5) |
 
 Argument-less:
 
@@ -635,6 +642,13 @@ JSON via `--output json`.
 | `inkwell route clear <email>`                          | Remove routing for a sender.                        |
 | `inkwell route list`                                   | List all routing entries.                           |
 | `inkwell route show <email>`                           | Show routing for one sender.                        |
+| `inkwell screener list`                                | Spec 28 §7. List Pending senders. `--grouping=message` lists messages instead. |
+| `inkwell screener accept <email>`                      | Admit a sender. `--to imbox\|feed\|paper_trail` overrides the default Imbox. |
+| `inkwell screener reject <email>`                      | Screen out a sender (alias for `route assign <email> screener`). |
+| `inkwell screener history`                             | List Screened-Out senders.                          |
+| `inkwell screener pre-approve --from-stdin < file`     | Bulk-admit senders from stdin (one address per line; `#` comments and blank lines skipped). |
+| `inkwell screener pre-approve --from-file <path>`      | Bulk-admit senders from a file. Mutually exclusive with `--from-stdin`. |
+| `inkwell screener status`                              | Print the gate / grouping / counts.                 |
 | `inkwell tab list`                                     | List configured list-pane tabs.                     |
 | `inkwell tab add <name> <pattern>`                     | Add a saved search as a tab.                        |
 | `inkwell tab remove <name>`                            | Remove a tab (keeps the saved search).              |
@@ -721,4 +735,4 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.56.1._
+_Last reviewed against v0.57.0._

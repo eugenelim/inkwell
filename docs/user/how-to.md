@@ -630,6 +630,95 @@ inkwell filter '~o feed' --output json | jq '.[] | .subject'
 
 ---
 
+## Turn on the Screener (HEY-style first-contact gate)
+
+The Screener (spec 28) hides mail from senders you haven't decided
+about. Off by default — flipping it on without doing a routing pass
+first will hide most of your Inbox until you start admitting senders.
+
+**Recommended sequence:**
+
+1. **Do a routing pass first.** Walk your Inbox, press `S i` /
+   `S f` / `S p` / `S k` to route the senders you recognise. The
+   `inkwell route list` CLI gives a quick summary of what you've
+   covered so far.
+2. **Pre-approve in bulk if you have a contacts dump.** `inkwell
+   screener pre-approve --from-file ~/contacts.txt` reads one
+   address per line (`#` comments and blank lines OK) and admits
+   each to Imbox. Use `--to feed` or `--to paper_trail` if those
+   contacts are noisier than Inbox-worthy.
+3. **Edit `~/Library/Application Support/inkwell/config.toml`** and
+   add:
+   ```toml
+   [screener]
+   enabled = true
+   ```
+4. **Relaunch inkwell.** On the next launch, if there are any
+   pending senders, a confirmation modal renders before the first
+   list-pane render: `Enable Screener? This will hide N messages
+   from M senders…` Press `Y` to proceed; `N` keeps the gate off
+   for this session and re-prompts next launch.
+5. **Decide from the queue.** Navigate to the Screener virtual
+   folder (sidebar — between Paper Trail and Screened Out), focus
+   a sender, press `Y` to admit them to Imbox or `N` to screen them
+   out. The row vanishes from the queue; the cursor falls to the
+   next address-different row. The chord shortcuts (`S i` / `S f` /
+   `S p`) still work for finer-grained admission.
+
+**Once admitted**, the sender's past and future mail flows where
+you said. **Once screened out**, their mail stays cached and
+searchable but disappears from default folder views. The
+`__screened_out__` sentinel folder is the recovery surface — see
+the next recipe.
+
+---
+
+## Pre-approve senders from a contacts dump
+
+Easiest way to bootstrap the Screener if you have a CSV / TXT
+file of email addresses (e.g. exported from your address book).
+
+```sh
+# One address per line. # comments and blank lines are skipped.
+# Display-name forms ("Bob" <bob@x.com>) are rejected per-line.
+inkwell screener pre-approve --from-file ~/contacts.txt
+
+# Alternatively, pipe stdin:
+cat contacts.txt | inkwell screener pre-approve --from-stdin
+
+# Default destination is imbox. Override per batch:
+inkwell screener pre-approve --from-file ~/newsletters.txt --to feed
+```
+
+Partial-success is exit 0; all-fail is exit 2. The stderr summary
+prints `pre-approved N admitted, M skipped (errors above)` so you
+can pipe stderr to a log and inspect it for malformed lines.
+
+---
+
+## Recover from a wrong Screener decision
+
+The Screener's `Y` / `N` decisions are not in the `u` (undo) stack
+— routing assignments are synchronous direct writes that bypass
+the action queue (spec 23 §6). The recovery path mirrors HEY's
+Screener History affordance:
+
+1. Navigate to the **Screened Out** virtual folder in the sidebar
+   (visible only when `[screener].enabled = true`). All mail from
+   senders you screened out lives here.
+2. Focus the offending sender's mail.
+3. Press `S c` to clear their routing decision (or `S i` / `S f` /
+   `S p` to re-route somewhere else).
+4. The sender returns to whichever state matches the new decision
+   — Pending (no row), Imbox/Feed/Paper Trail (admitted), or
+   Screened Out (different from before).
+
+If you can't remember which sender you screened out, run `inkwell
+screener history` from the shell — it lists every screener-routed
+sender with the date of the decision.
+
+---
+
 ## Set up split inbox tabs
 
 Tabs divide the list pane into named focus areas, each backed by a
@@ -840,4 +929,4 @@ inkwell action run cleanup_newsletters --filter '~f *@newsletter.* & ~d <30d'
 
 ---
 
-_Last reviewed against v0.56.1._
+_Last reviewed against v0.57.0._

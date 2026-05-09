@@ -1059,7 +1059,7 @@ Budget ≤20ms p95 over the 100k+500 fixture.
   (spec 19 §10 threat-model row) and is not new threat surface. The
   privacy doc gains a row noting the table.
 
-### 10.1 Known v1 UX limit — Screener
+### 10.1 Known v1 UX limit — Screener — closed by spec 28 (v0.57.0)
 
 Routing a sender to `screener` in v1 leaves their mail visible in
 the user's actual Inbox folder; only the dedicated Screener virtual
@@ -1068,10 +1068,17 @@ sender's mail in **two** sidebar entries (Inbox + `__screener__`)
 with no automatic hiding. The user-facing value of the v1 Screener
 bucket is a **manually-curated parking lot** — "senders I've
 flagged as 'review later, do not engage'" — not the new-sender
-admission gate of HEY's original design. The Roadmap §1.16 follow-
-up adds (a) the new-sender first-contact gate and (b) hiding
-screened-out mail from the regular Inbox view; both build on the
-`destination = 'screener'` rows shipped here.
+admission gate of HEY's original design.
+
+**Spec 28 (shipped v0.57.0)** closes this gap. When
+`[screener].enabled = true`, the gate fires: pending senders'
+mail is hidden from default folder views and surfaces in a
+re-bound `__screener__` virtual folder; existing screener-routed
+senders' mail moves to a new `__screened_out__` sentinel; pane-
+scoped `Y` / `N` shortcuts admit / screen-out from the queue. All
+existing `destination = 'screener'` rows shipped under spec 23
+gain the gating behaviour without re-routing — the
+forward-compatibility promised below was honoured.
 
 The decision to ship the Screener bucket in v1 (rather than defer
 the entire bucket to spec 1.16) is so that early adopters can
@@ -1442,13 +1449,19 @@ preferences. A future spec for the Screener (§1.16) will own
 
 ## 14. Notes for follow-up specs
 
-- **Screener (roadmap §1.16):** depends on the
-  `sender_routing.destination = 'screener'` rows shipped here.
-  Implements: (a) the new-sender admission gate ("first-contact
-  senders sit in Screener until accepted"), (b) hiding screened-out
-  mail from the user's actual Inbox view (currently visible in v1 of
-  routing), (c) optional native-OS notification suppression for
-  screened-out senders.
+- **Screener (roadmap §1.16) — Shipped as spec 28 (v0.57.0).**
+  Built on the `sender_routing.destination = 'screener'` rows
+  shipped here. Delivered: (a) the new-sender admission gate
+  ("first-contact senders sit in Screener until accepted"), (b)
+  hiding screened-out mail from the user's actual Inbox view via
+  the new `MessageQuery.ApplyScreenerFilter` clause and the
+  `__screened_out__` sidebar sentinel, (c) `Y` / `N` pane-scoped
+  shortcuts plus `:screener accept|reject|list|history|status`
+  cmd-bar verbs and `inkwell screener …` CLI parity. Item (c) of
+  the original list — native-OS notification suppression — was
+  out-of-scope by construction (inkwell owns no notification
+  surface; users keep native Outlook running for that, per
+  PRD §3.2). See `docs/specs/28-screener.md`.
 - **Custom actions (roadmap §2):** `set_sender_routing` is the
   obvious operation primitive. Argument: destination string. The
   template variables `{sender}` etc. (§2.4) interact naturally —

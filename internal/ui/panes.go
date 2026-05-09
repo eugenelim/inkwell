@@ -68,6 +68,13 @@ type displayedFolder struct {
 	streamDisplayName string
 	streamCount       int
 	streamIsHeader    bool // synthetic "Streams" section divider
+	// streamSentinel optionally pins the sentinel ID to use for this
+	// item. Empty means "derive from streamDestination via
+	// streamSentinelIDForDestination" (the spec 23 v1 path). Spec 28
+	// uses this to disambiguate the screened-out entry from the
+	// screener entry — both carry destination "screener" but their
+	// sentinel IDs differ.
+	streamSentinel string
 }
 
 // mutedSentinelID is the virtual folder ID used for the "Muted Threads"
@@ -79,20 +86,28 @@ const mutedSentinelID = "__muted__"
 // double-underscore convention as mutedSentinelID. The destination
 // strings (imbox / feed / paper_trail / screener) are the API
 // contract; the sentinel IDs are the sidebar handle.
+//
+// Spec 28 adds screenedOutSentinelID — a sibling to screenerSentinelID
+// that surfaces ONLY when [screener].enabled is true. When the gate
+// is on, the __screener__ entry rebinds to "pending senders" and
+// __screened_out__ takes over the spec 23 v1 "screener-routed
+// senders" content.
 const (
-	imboxSentinelID      = "__imbox__"
-	feedSentinelID       = "__feed__"
-	paperTrailSentinelID = "__paper_trail__"
-	screenerSentinelID   = "__screener__"
+	imboxSentinelID       = "__imbox__"
+	feedSentinelID        = "__feed__"
+	paperTrailSentinelID  = "__paper_trail__"
+	screenerSentinelID    = "__screener__"
+	screenedOutSentinelID = "__screened_out__"
 )
 
-// IsStreamSentinelID reports whether id is one of the four routing
-// virtual-folder sentinels. Used by the sentinel→destination
-// translator and by the list-pane indicator's "always-on inside
-// routing virtual folders" rule (spec 23 §5.5).
+// IsStreamSentinelID reports whether id is one of the routing
+// virtual-folder sentinels (spec 23) or the spec 28 screened-out
+// sentinel. Used by the sentinel→destination translator and by the
+// list-pane indicator's "always-on inside routing virtual folders"
+// rule (spec 23 §5.5).
 func IsStreamSentinelID(id string) bool {
 	switch id {
-	case imboxSentinelID, feedSentinelID, paperTrailSentinelID, screenerSentinelID:
+	case imboxSentinelID, feedSentinelID, paperTrailSentinelID, screenerSentinelID, screenedOutSentinelID:
 		return true
 	}
 	return false
@@ -100,6 +115,9 @@ func IsStreamSentinelID(id string) bool {
 
 // streamDestinationFromID returns the routing destination string
 // for a sentinel folder ID, or "" when id is not a stream sentinel.
+// screenedOutSentinelID maps to "screener" (the destination value is
+// unchanged from spec 23; only the sidebar surface is renamed when
+// the gate is on).
 func streamDestinationFromID(id string) string {
 	switch id {
 	case imboxSentinelID:
@@ -108,7 +126,7 @@ func streamDestinationFromID(id string) string {
 		return "feed"
 	case paperTrailSentinelID:
 		return "paper_trail"
-	case screenerSentinelID:
+	case screenerSentinelID, screenedOutSentinelID:
 		return "screener"
 	}
 	return ""
@@ -199,6 +217,18 @@ type FoldersModel struct {
 	// entry only when > 0 (matches spec 19 hide-at-zero pattern).
 	replyLaterCount int
 	setAsideCount   int
+	// screenerGateOn (spec 28 §5.1 / §5.2) gates the rebind of the
+	// __screener__ entry's content meaning AND whether the
+	// __screened_out__ sentinel renders at all. When false, sidebar
+	// matches spec 23 v1; when true, __screener__ shows pending and
+	// __screened_out__ shows screener-routed senders.
+	screenerGateOn bool
+	// screenedOutCount is the count surfaced under __screened_out__
+	// when the gate is on. Sourced from CountScreenedOutMessages.
+	screenedOutCount int
+	// pendingSenderCount is the count surfaced under __screener__
+	// when the gate is on. Sourced from CountPendingSenders.
+	pendingSenderCount int
 }
 
 // NewFolders returns an empty folders pane. The default expansion
@@ -261,6 +291,19 @@ func (m *FoldersModel) SetSetAsideCount(count int) {
 	m.rebuild()
 }
 
+// SetScreenerSidebarState updates the spec 28 gate flag plus the
+// pending-sender and screened-out counts in one call so the sidebar
+// rebuilds atomically. When gateOn is true, the __screener__ entry's
+// count switches to pendingSenders and a new __screened_out__ entry
+// renders with screenedOut. When false, only the four spec 23
+// streams render and the pending/screened counts are zeroed.
+func (m *FoldersModel) SetScreenerSidebarState(gateOn bool, pendingSenders, screenedOut int) {
+	m.screenerGateOn = gateOn
+	m.pendingSenderCount = pendingSenders
+	m.screenedOutCount = screenedOut
+	m.rebuild()
+}
+
 // SetStreamCounts replaces the per-destination routing counts and
 // rebuilds the sidebar. Spec 23 §5.4. Map keys are the destination
 // strings ("imbox" / "feed" / "paper_trail" / "screener"); missing
@@ -306,14 +349,33 @@ func (m *FoldersModel) rebuild() {
 	// Streams section — spec 23 §5.4. Always rendered with all four
 	// buckets, even at zero count (divergence from spec 19's
 	// hide-at-zero rule). The header is non-selectable.
+	//
+	// Spec 28 §5.1 / §5.2: when the screener gate is on, the
+	// __screener__ entry's count source flips from
+	// CountMessagesByRouting('screener') to CountPendingSenders, and
+	// a fifth __screened_out__ entry is appended carrying the
+	// previous "routed-to-screener" count.
 	if len(m.raw) > 0 || m.streamCounts != nil {
 		items = append(items, displayedFolder{isStream: true, streamIsHeader: true})
 		for _, dest := range []string{"imbox", "feed", "paper_trail", "screener"} {
+			count := m.streamCounts[dest]
+			if dest == "screener" && m.screenerGateOn {
+				count = m.pendingSenderCount
+			}
 			items = append(items, displayedFolder{
 				isStream:          true,
 				streamDestination: dest,
 				streamDisplayName: streamDisplayLabelForDestination(dest),
-				streamCount:       m.streamCounts[dest],
+				streamCount:       count,
+			})
+		}
+		if m.screenerGateOn {
+			items = append(items, displayedFolder{
+				isStream:          true,
+				streamDestination: "screener",
+				streamSentinel:    screenedOutSentinelID,
+				streamDisplayName: "Screened Out",
+				streamCount:       m.screenedOutCount,
 			})
 		}
 	}
@@ -631,6 +693,25 @@ func (m FoldersModel) SelectedStream() string {
 		return ""
 	}
 	return it.streamDestination
+}
+
+// SelectedStreamSentinelID returns the sentinel folder ID of the
+// highlighted stream entry. For spec 28 §5.2, this disambiguates
+// between __screener__ and __screened_out__ — both of which carry
+// the destination "screener" but render different content.
+// Returns "" when the cursor is not on a stream item.
+func (m FoldersModel) SelectedStreamSentinelID() string {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return ""
+	}
+	it := m.items[m.cursor]
+	if !it.isStream || it.streamIsHeader {
+		return ""
+	}
+	if it.streamSentinel != "" {
+		return it.streamSentinel
+	}
+	return streamSentinelIDForDestination(it.streamDestination)
 }
 
 // SelectedMuted returns true when the cursor is on the virtual
