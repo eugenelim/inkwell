@@ -403,24 +403,25 @@ func (m Model) dispatchScreener(args []string) (tea.Model, tea.Cmd) {
 func parseScreenerAcceptArgs(args []string) (addr, dest string, err error) {
 	dest = "imbox"
 	pos := []string{}
-	i := 0
-	for i < len(args) {
-		a := args[i]
+	pending := ""
+	for _, a := range args {
+		if pending != "" {
+			dest = a
+			pending = ""
+			continue
+		}
 		if a == "--to" || a == "-t" {
-			if i+1 >= len(args) {
-				return "", "", fmt.Errorf("screener accept: --to requires a destination")
-			}
-			dest = args[i+1]
-			i += 2
+			pending = a
 			continue
 		}
 		if strings.HasPrefix(a, "--to=") {
 			dest = strings.TrimPrefix(a, "--to=")
-			i++
 			continue
 		}
 		pos = append(pos, a)
-		i++
+	}
+	if pending != "" {
+		return "", "", fmt.Errorf("screener accept: --to requires a destination")
 	}
 	if len(pos) != 1 {
 		return "", "", fmt.Errorf("screener accept: expected one address, got %d", len(pos))
