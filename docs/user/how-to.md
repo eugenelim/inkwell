@@ -831,6 +831,13 @@ sequence = [
 
 **Undo:** `u` reverses queue-routed steps one at a time, in dispatch order. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT reversible by `u`; the result toast flags them with `[non-undoable]` so you know what stays applied. To "undo" routing, re-route via `S` or `:route clear`.
 
+**Run against many messages from the shell.** `inkwell action run <name> --filter '<pattern>'` runs the named action against every message that matches the pattern, capped by `[bulk].size_hard_max` (default 5000) so an over-broad pattern does not enqueue tens of thousands of operations. Actions whose templates reference per-message variables (`{{.From}}`, `{{.Subject}}`, etc.) are rejected — `--filter` mode has no single focused message to pull values from. Use `--filter` for actions whose first step is `filter` or whose only steps are `*_filtered` ops. Example:
+
+```sh
+# Archive every newsletter older than 30 days via the named recipe.
+inkwell action run cleanup_newsletters --filter '~f *@newsletter.* & ~d <30d'
+```
+
 ---
 
-_Last reviewed against v0.56.0._
+_Last reviewed against v0.56.1._

@@ -136,6 +136,61 @@ Mirrors `docs/specs/27-custom-actions.md` §9. Tick as work lands.
 
 ## Iteration log
 
+### Iter 3 — 2026-05-09 — `inkwell action run --filter` wired (v0.56.1)
+
+- Slice: complete the deferred `--filter` resolution in
+  `cmd/inkwell/cmd_action.go::resolveFilterIDs` (previously
+  stubbed with "not yet wired in v1.1" error per Iter 2's
+  carve-out). Closes the spec §4.11 contract that `inkwell
+  action run <name> --filter <pat>` executes the action against
+  the matched message set.
+- Implementation: `resolveFilterIDs` now reuses
+  `runFilterListing` (the same path `inkwell filter` uses) to
+  compile a spec-08 pattern, query the local store via
+  `SearchByPredicate`, and return matched IDs. Capped by
+  `[bulk].size_hard_max` (default 5000); fetches `cap+1` to
+  detect over-broad patterns without scanning the entire result
+  set. Empty match returns "no messages match"; cap exceeded
+  returns "filter matched more than N messages (bulk
+  size_hard_max); refine the pattern". Both surface as exit-1
+  resolve-time errors per spec §4.11 ("`1` — resolve-time
+  failure (zero side effects), or invocation error").
+- Tests added (4):
+  `TestResolveFilterIDsHappyPath` (compile + match against
+  in-memory store), `TestResolveFilterIDsZeroMatchIsAnError`
+  (empty match surfaced as exit-1), `TestResolveFilterIDsEnforcesSizeHardMax`
+  (cap fires at threshold), `TestResolveFilterIDsZeroSizeHardMaxFallsBackToDefault`
+  (defensive default).
+- Commands run: `gofmt -s -d`, `go vet ./...` (clean), `go
+  build ./...` (clean), `go test -race ./...` (clean except
+  for two pre-existing calendar-sync failures on origin/main
+  unrelated to this change), `go test -tags=integration` /
+  `-tags=e2e` for `cmd/inkwell` + `internal/customaction` +
+  `internal/ui` (all clean), `go test -bench=. -benchmem
+  -run=^$ ./internal/customaction/...` (all three benchmarks
+  remain under their gates: load 50 actions ≈600µs, load at
+  cap ≈15ms, resolve ≈1.2µs).
+- Doc sweep: spec §1133-flag bullet behaviour confirmed against
+  shipped impl; spec already cites `--filter` as a v1.1
+  feature with no "deferred" carve-out — no §4.11 edit
+  required. README status row remains `✅ v0.56+` (the
+  `--filter` wiring is a patch ship, not a new line item).
+  Plan Iter 2 line edited from "is recognised but not yet
+  wired" to confirm full wiring. PRD §10 inventory unchanged
+  (spec 27 already shipped).
+- Critique: the implementation is the minimum-viable wiring
+  documented in §4.11 — caps by size_hard_max, surfaces
+  "no matches" / "too many matches" as exit-1, reuses
+  `runFilterListing` so the desugaring rules (`~B` prefix
+  for plain text, etc.) match `inkwell filter` and `inkwell
+  messages --filter` exactly. No new schema, no new
+  config key, no new threat-model surface (spec 17 review:
+  the SQL clause is `pattern.CompileLocal` output bound via
+  positional args, identical to existing `runFilterListing`
+  call sites).
+- Next: spec 27 is now fully shipped per §9 DoD. Ship as
+  v0.56.1 (patch). No follow-up work expected.
+
 ### Iter 2 — 2026-05-08 (implementation shipped as v0.56.0)
 - Slice: full implementation per §9 DoD.
 - Package `internal/customaction/` with types.go (Action / Step /
@@ -180,10 +235,10 @@ Mirrors `docs/specs/27-custom-actions.md` §9. Tick as work lands.
   added to keys.go for spec 27 §4.6 collision detection.
 - CLI: `cmd/inkwell/cmd_action.go` registers `action list / show /
   run / validate`. List + show / validate run without a signed-in
-  app (read-only); run requires `--message <id>` and uses the live
-  store + executor adapters. `--filter` is recognised but not yet
-  wired; the load-time RequiresMessageContext bit catches per-message
-  templates if a future patch lands the filter wiring.
+  app (read-only); run requires `--message <id>` or `--filter
+  <pattern>` and uses the live store + executor adapters. The
+  load-time RequiresMessageContext bit catches per-message templates
+  with `--filter`.
 - cmd_run.go wires customaction.FolderResolver via the existing
   resolveFolderByNameCtx (cmd_folder.go). The TUI's interactive
   move-picker is unchanged. caUnsubAdapter wraps the existing

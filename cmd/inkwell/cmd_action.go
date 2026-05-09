@@ -183,8 +183,7 @@ func newActionRunCmd(rc *rootContext) *cobra.Command {
 			}
 			if filterPat != "" {
 				cctx.SelectionKind = "filtered"
-				// Resolve the filter via the same path inkwell filter uses.
-				ids, err := resolveFilterIDs(ctx, app, filterPat)
+				ids, err := resolveFilterIDs(ctx, app, filterPat, rc.cfg.Bulk.SizeHardMax)
 				if err != nil {
 					return fmt.Errorf("--filter %q: %w", filterPat, err)
 				}
@@ -327,18 +326,33 @@ func populateContextFromMessage(c *customaction.Context, m *store.Message) {
 
 // resolveFilterIDs runs a spec-08 pattern against the local store and
 // returns the matched message IDs. Used by `inkwell action run
-// --filter <pat>`.
-func resolveFilterIDs(ctx context.Context, app *headlessApp, pat string) ([]string, error) {
+// --filter <pat>`. Reuses the runFilterListing path that `inkwell
+// filter` uses, capped by [bulk].size_hard_max so an over-broad
+// pattern does not enqueue tens of thousands of operations.
+func resolveFilterIDs(ctx context.Context, app *headlessApp, pat string, sizeHardMax int) ([]string, error) {
 	if app == nil || app.store == nil {
 		return nil, fmt.Errorf("filter: store not wired")
 	}
-	// We reuse the same path as `inkwell filter` — but defensively
-	// just pull recent envelope IDs and let the caller validate. For
-	// v1.1, restrict to the simple case: filter via SearchByPredicate
-	// on the literal pattern, capped by `[bulk].size_hard_max`.
-	// Implementation deferred — return a friendly error so the caller
-	// knows --filter is recognised but not yet wired in this path.
-	return nil, fmt.Errorf("--filter for `inkwell action run` is not yet wired in v1.1 (use --message <id>); see docs/user/how-to.md")
+	if sizeHardMax <= 0 {
+		sizeHardMax = 5000
+	}
+	// Pull cap+1 so we can detect "too many matches" without scanning
+	// the entire result set on the cap boundary.
+	msgs, err := runFilterListing(ctx, app, pat, "", sizeHardMax+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("no messages match")
+	}
+	if len(msgs) > sizeHardMax {
+		return nil, fmt.Errorf("filter matched more than %d messages (bulk size_hard_max); refine the pattern", sizeHardMax)
+	}
+	ids := make([]string, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	return ids, nil
 }
 
 // stubPatternCompileForValidate is the loader-side pattern compiler

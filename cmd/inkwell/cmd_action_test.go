@@ -3,15 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/eugenelim/inkwell/internal/config"
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 func writeActionsFile(t *testing.T, body string) string {
@@ -141,6 +144,73 @@ sequence = [{ op = "add_category", category = "from-{{.SenderDomain}}" }]
 	a := cat.ByName["y"]
 	require.NotNil(t, a)
 	require.True(t, a.RequiresMessageContext, "per-message template must set RequiresMessageContext")
+}
+
+// TestResolveFilterIDsHappyPath compiles a pattern, runs it against
+// the in-memory store, and returns the matched message IDs. Confirms
+// `inkwell action run --filter <pat>` no longer returns the v1.1
+// "not yet wired" stub error.
+func TestResolveFilterIDsHappyPath(t *testing.T) {
+	app := newCLITestApp(t)
+	for i, sub := range []string{"alpha", "beta", "alpha-beta"} {
+		require.NoError(t, app.store.UpsertMessage(context.Background(), store.Message{
+			ID:          fmt.Sprintf("m-%d", i),
+			AccountID:   app.account.ID,
+			FolderID:    "f-inbox",
+			Subject:     sub,
+			FromAddress: "x@example.invalid",
+			ReceivedAt:  time.Now(),
+		}))
+	}
+	ids, err := resolveFilterIDs(context.Background(), app, "*alpha*", 5000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"m-0", "m-2"}, ids)
+}
+
+// TestResolveFilterIDsZeroMatchIsAnError confirms an empty result set
+// is reported as an error rather than silently dispatching against
+// zero messages — matches spec 27 §6 ("CLI exits 1 when … action's
+// first step needs a focused message").
+func TestResolveFilterIDsZeroMatchIsAnError(t *testing.T) {
+	app := newCLITestApp(t)
+	_, err := resolveFilterIDs(context.Background(), app, "~f noone@example.invalid", 5000)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no messages match")
+}
+
+// TestResolveFilterIDsEnforcesSizeHardMax confirms the bulk safety
+// cap fires when the matched set exceeds [bulk].size_hard_max.
+func TestResolveFilterIDsEnforcesSizeHardMax(t *testing.T) {
+	app := newCLITestApp(t)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, app.store.UpsertMessage(context.Background(), store.Message{
+			ID:          fmt.Sprintf("m-%d", i),
+			AccountID:   app.account.ID,
+			FolderID:    "f-inbox",
+			Subject:     "newsletter",
+			FromAddress: "news@example.invalid",
+			ReceivedAt:  time.Now(),
+		}))
+	}
+	_, err := resolveFilterIDs(context.Background(), app, "~f news@*", 3)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "size_hard_max")
+	require.Contains(t, err.Error(), "refine")
+}
+
+// TestResolveFilterIDsZeroSizeHardMaxFallsBackToDefault ensures a
+// caller that forgot to populate the cap (zero or negative) gets the
+// 5000 default rather than an immediate failure for any non-empty
+// match.
+func TestResolveFilterIDsZeroSizeHardMaxFallsBackToDefault(t *testing.T) {
+	app := newCLITestApp(t)
+	require.NoError(t, app.store.UpsertMessage(context.Background(), store.Message{
+		ID: "m-1", AccountID: app.account.ID, FolderID: "f-inbox",
+		Subject: "ok", FromAddress: "x@example.invalid", ReceivedAt: time.Now(),
+	}))
+	ids, err := resolveFilterIDs(context.Background(), app, "*ok*", 0)
+	require.NoError(t, err)
+	require.Equal(t, []string{"m-1"}, ids)
 }
 
 // TestActionRootCommandRegisters confirms the parent `action` cobra

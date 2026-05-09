@@ -1,6 +1,6 @@
 # Spec 27 — Custom actions framework
 
-**Shipped:** v0.56.0
+**Shipped:** v0.56.0 (initial); `--filter` CLI wiring landed in v0.56.1 (closes the §4.11 deferred bullet).
 **Status:** Shipped.
 **Depends on:** Spec 02 (store schema — read-only here; no migration),
 Spec 04 (TUI shell — `Mode` enum, command-bar, `KeyMap` plumbing,

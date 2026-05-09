@@ -653,6 +653,7 @@ JSON via `--output json`.
 | `inkwell action list`                                  | List custom actions configured in `actions.toml` (spec 27). |
 | `inkwell action show <name>`                           | Show a custom action's resolved sequence.           |
 | `inkwell action run <name> --message <id>`             | Execute a custom action against a specific message. |
+| `inkwell action run <name> --filter '<pattern>'`       | Execute a custom action against the matched message set (capped by `[bulk].size_hard_max`). Rejected when the action's templates reference per-message variables. |
 | `inkwell action validate`                              | Load + validate `actions.toml` without running anything. |
 
 `--output json` works on every command above. Pipe into `jq` for
@@ -720,4 +721,4 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.56.0._
+_Last reviewed against v0.56.1._
