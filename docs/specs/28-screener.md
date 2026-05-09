@@ -27,12 +27,13 @@ small.
 
 Screener is item 2 of Bucket 3 (Power-user automation) in
 `docs/ROADMAP.md` §0 and corresponds to backlog item 1.16. It
-takes spec slot **28**, deliberately leaving slot 27 free for the
-custom-actions framework (Bucket 3 item 1) which is independently
-specced. Spec 26 (bundle senders) and spec 27 (custom actions)
-are both still in flight; spec 28 does NOT depend on either —
-its only material dependency is spec 23 (already shipped v0.51.0).
-The PRD §10 spec inventory adds a single row for spec 28.
+takes spec slot **28**, leaving slot 27 for the custom-actions
+framework (Bucket 3 item 1) which is independently specced.
+Spec 26 (bundle senders) shipped at v0.55.0 (`a464f03` /
+`6c70573`); spec 27 (custom actions) shipped at `614011e`. Spec
+28 does NOT depend on either — its only material dependency is
+spec 23 (already shipped v0.51.0). The PRD §10 spec inventory
+adds a single row for spec 28.
 
 ### 0.2 What spec 23 promised this spec would deliver
 
@@ -86,12 +87,16 @@ not a default.
 ### 1.1 What does NOT change
 
 - **No schema migration.** All gating behaviour reads existing
-  `sender_routing` rows. Migrations 001–012 are on disk
-  (`012_tab_order.sql` is the latest); spec 26 (bundle senders,
-  in flight at design time) claims slot **013** per its §3.
-  Spec 28 claims no slot. The implementation PR should `ls
-  internal/store/migrations/` immediately before merge to
-  re-confirm the no-migration claim still holds.
+  `sender_routing` rows. Migrations 001–013 are on disk at
+  spec-28 design time (`013_bundled_senders.sql` is the latest,
+  shipped with spec 26 v0.55.0); spec 28 claims no slot. The
+  implementation PR should `ls internal/store/migrations/`
+  immediately before merge to re-confirm the no-migration
+  claim still holds (specs 27, 29, 30 are concurrent design
+  work and may have claimed slots in the interim — none of
+  them affect the no-migration claim here, but the slot
+  number used in error messages or follow-up audits should
+  be the live count, not 013).
 - **No new Graph scope.** Screener is local-only; no Graph
   endpoint is called by the gate. PRD §3.1 unchanged.
 - **No new sender_routing destination value.** The four shipped
@@ -110,11 +115,36 @@ not a default.
   stays so that user muscle memory ("Screener is over there in
   the sidebar") survives.
 - **Mute (spec 19), Reply Later / Set Aside (spec 25), bundles
-  (spec 26)** are orthogonal. A pending sender's message can also
-  be muted, reply-later'd, or bundled. The Screener queue
-  surfaces it regardless (§5.7 — the Screener is intentional
-  surface, mute exclusion does not apply, mirroring spec 19's
-  "search includes muted" rule).
+  (spec 26)** are orthogonal in their data models — none of them
+  share schema with `sender_routing`. Cross-feature interactions
+  worth surfacing in user docs (§5.10):
+  - A **bundled-but-pending sender** under spec 26 has its mail
+    rendered as a collapsed bundle row in the default Inbox view
+    pre-gate. Post-gate (with `[screener].enabled = true`), that
+    bundle row vanishes from the Inbox along with all other
+    pending mail. The user is warned at the next launch via the
+    §5.3.1 confirmation modal; the how-to recipe "Turn on the
+    Screener" recommends a routing pass over bundled senders
+    before editing the config flag.
+  - A **reply-later'd message** under spec 25 lives in the
+    Reply Later stack overlay (intentional surface) regardless
+    of gate state. If the sender becomes pending after the
+    reply-later was set, the *stacked message* remains visible
+    in the overlay (intentional query, not a default-folder
+    view); the sender's *other* mail is gate-suppressed. The
+    user can still act on the stacked message; the Screener
+    queue still surfaces the sender for a routing decision.
+    Documented edge in `docs/user/reference.md` Streams
+    section.
+  - A **muted thread**: spec 19 mute is per-thread, "no
+    decision" is per-sender — different granularities. By
+    default `[screener].exclude_muted = true` (§5.7) — muting
+    is a stronger signal and hides the thread from the Screener
+    queue. A pending sender whose only mail lives in muted
+    threads is therefore unreachable from the Screener queue;
+    they must use `:filter ~o pending` to surface those threads
+    explicitly. The how-to recipe documents this as the
+    "fully-muted pending sender" edge.
 - **Native OS notifications.** Out of scope by construction;
   inkwell has no notification subsystem (ARCH).
 - **Send-side feedback.** No mail is sent to a screened-out
@@ -150,6 +180,24 @@ The three labels (Approved / Pending / Screened) are the user-
 facing terms. Internally the code keeps using the existing
 destination strings; no `senderState` enum is introduced because
 the state is fully derived.
+
+**Word "Screener" overloaded — read carefully.** The string
+"Screener" carries three distinct meanings in this spec, each
+disambiguated by context:
+
+| Use site                      | Meaning                                      |
+|-------------------------------|----------------------------------------------|
+| `[screener].enabled`          | The master gate flag.                        |
+| `__screener__` sentinel       | The sidebar virtual folder (content shifts with the gate per §5.1). |
+| `destination = 'screener'`    | The `sender_routing` value for screened-out senders (spec 23 column value, unchanged). |
+
+`docs/user/reference.md` calls out this overload in the Streams
+section so readers don't conflate "I turned the screener on" (the
+flag), "I navigated to the Screener" (the sentinel), and "this
+sender is in the screener" (the destination). Renaming the
+column value to `screened_out` was considered and rejected:
+breaking spec 23's shipped data is not justified by a
+documentation-fixable confusion.
 
 ## 2. Prior art
 
@@ -239,10 +287,15 @@ deliberate divergences:
    `"message"`) lets the user flip to one-row-per-message if they
    want to triage individual messages from new senders before
    committing to a per-sender routing.
-3. **No first-contact modal.** HEY pops a card overlay on first
-   contact for some workflows. The TUI Screener queue is the
-   modal-substitute — it's a sidebar entry the user visits when
-   they choose to.
+3. **No moment-of-arrival surface.** HEY pops a card overlay on
+   first contact for some workflows; we deliberately do not
+   confront the user at message-open time. New mail from a
+   pending sender is silently routed to the Screener queue and
+   the user encounters it only when they navigate there. The
+   trade-off is that a long-deferred queue-visit means more mail
+   batched for one session; the Screener is the surface, not an
+   interruption. (The §5.3.1 confirmation modal is a one-time
+   gate-flip event, not a moment-of-arrival surface.)
 
 Beyond divergences, the data-model stack is unchanged from spec
 23: same `sender_routing` table, same destination values, same
@@ -290,7 +343,11 @@ type MessageQuery struct {
 }
 ```
 
-The SQL clause appended when `ApplyScreenerFilter = true`:
+The SQL clause appended when `ApplyScreenerFilter = true` (matches
+the existing `buildListSQL` shape: unaliased `FROM messages`, `?`
+positional binds appended to `args`, references to messages
+columns are unqualified — same convention as
+`emitRoutingPredicate` in `internal/pattern/eval_local.go`):
 
 ```sql
 -- Only Approved senders' mail. Messages with NULL or empty
@@ -298,16 +355,21 @@ The SQL clause appended when `ApplyScreenerFilter = true`:
 -- synthesised list-server messages can lack a From; they
 -- predate any routing decision and the user should see them).
 AND (
-    m.from_address IS NULL
-    OR m.from_address = ''
+    from_address IS NULL
+    OR from_address = ''
     OR EXISTS (
         SELECT 1 FROM sender_routing sr
-        WHERE sr.account_id    = :account_id
-          AND sr.email_address = lower(trim(m.from_address))
+        WHERE sr.account_id    = ?
+          AND sr.email_address = lower(trim(from_address))
           AND sr.destination IN ('imbox', 'feed', 'paper_trail')
     )
 )
 ```
+
+The `?` in the EXISTS sub-clause binds `q.AccountID` (appended to
+`args` once when the filter is enabled). The destination set is
+inlined as a literal three-value `IN (…)` — these are
+spec-23-fixed strings, not user input, so no bind is required.
 
 **Why `EXISTS … IN (…)` rather than two `NOT EXISTS` (one for
 unrouted, one for screener)?** The positive form (`is approved`)
@@ -367,6 +429,13 @@ ListPendingSenders(ctx context.Context, accountID int64,
 // the Screener virtual folder when [screener].grouping =
 // "message". Equivalent to calling ListMessages with a "~o none"
 // pattern, but specialised for performance (no pattern compile).
+//
+// Excludes rows where from_address IS NULL OR from_address = ''
+// (same NULL-safety carve-out as ListPendingSenders §4.4 — a
+// malformed-from row has no actionable sender and Y/N would
+// no-op forever, so the Screener queue must not surface them
+// in either grouping mode). The corresponding messages remain
+// reachable via :filter / search.
 ListPendingMessages(ctx context.Context, accountID int64,
     limit int, excludeMuted bool) ([]Message, error)
 
@@ -393,6 +462,16 @@ CountPendingSenders(ctx context.Context, accountID int64,
 // 23, kept as a named method for symmetry.
 CountScreenedOutMessages(ctx context.Context, accountID int64,
     excludeMuted bool) (int, error)
+
+// CountMessagesFromPendingSenders returns the count of messages
+// (not distinct senders) from pending senders. Used ONLY by the
+// gate-flip confirmation modal (§5.3.1) to render the warning
+// copy "N messages from M senders". Distinct from
+// CountPendingSenders (which counts senders); this counts the
+// messages those senders contributed. Single query at modal
+// render time; never on the hot path.
+CountMessagesFromPendingSenders(ctx context.Context,
+    accountID int64, excludeMuted bool) (int, error)
 ```
 
 `PendingSender`:
@@ -409,6 +488,14 @@ type PendingSender struct {
 ```
 
 ### 4.4 SQL for `ListPendingSenders`
+
+The SQL below uses named binds (`:account_id`, `:limit`,
+`:cap_plus_one`) for readability — the production implementation
+uses `?` positional binds with the same value passed up to four
+times via `args = append(args, q.AccountID, q.AccountID, ...)`,
+matching the rest of `internal/store/`. The illustrative form
+shows the logical placement; reviewers should not assume named
+binds work in modernc/sqlite call sites.
 
 ```sql
 -- One row per pending sender, with the latest message's envelope.
@@ -510,40 +597,69 @@ production form is the capped wrapper. Cover with
 ### 4.5 Pattern operator alias `~o pending`
 
 Spec 23 §4.3 ships `~o none` for "no sender_routing row." Spec 28
-adds **`~o pending`** as a parser-level alias that compiles to
-the same `NOT EXISTS` form and the same AST node value
-(`OpRouting{dest:"none"}` — the canonical internal spelling
-remains `none`). Rationale: `none` reads as "match nothing" to a
-casual reader; `pending` is the user-facing term in the Screener
-UX (status bar, palette rows, docs). Both spellings remain valid
-forever — never deprecate `none`, both compile to identical SQL.
+adds **`~o pending`** as a parser-level alias that **canonicalises
+to `none` at parse time** — the AST carries `RoutingValue{Destination:
+"none"}` regardless of which spelling the user typed. Rationale:
+`none` reads as "match nothing" to a casual reader; `pending` is
+the user-facing term in the Screener UX (status bar, palette
+rows, docs). Both spellings remain valid forever — never
+deprecate `none`, both compile to identical SQL.
 
-**Spelling preservation.** `internal/pattern/` has no AST
-printer — saved searches store the raw pattern *text* in
-`saved_searches.pattern` (user-typed source) and only the AST is
-re-derived on each compile. So both spellings round-trip
-verbatim through the saved-search table by accident of the
-existing design: `~o pending` stays `~o pending` when written to
-a saved-search row, and re-parsing it produces the same AST as
-`~o none`. No "canonical printer" is needed and none is added.
-The parser test asserts both spellings parse to the same AST
-node value (`OpRouting{dest:"none"}`). Document the alias in
-`docs/user/reference.md` under the `~o` operator row so users
-aren't surprised that the two spellings are equivalent.
+**Why canonicalise at the parser, not the evaluator.** The
+existing `emitRoutingPredicate` in
+`internal/pattern/eval_local.go:95` switches on
+`v.Destination == "none"`. If the parser left `pending` in the
+AST verbatim, `pending` would leak into the evaluator and the
+`== "none"` check would miss it (returning the wrong EXISTS
+form). Canonicalising at parse time keeps every downstream
+consumer — `eval_local.go`, `eval_filter.go`, `eval_search.go`,
+`eval_memory.go`, `routing_test.go` — unchanged.
 
-The `parseRoutingValue` helper (spec 23 §4.4) gains one entry to
-its valid-value set: `pending`. Update the error message to:
+**Concrete change to `parseRoutingValue`** (spec 23 §4.4 form
+in `internal/pattern/parser.go:169`):
 
+```go
+func parseRoutingValue(raw string) (RoutingValue, error) {
+    switch raw {
+    case "imbox", "feed", "paper_trail", "screener", "none":
+        return RoutingValue{Destination: raw}, nil
+    case "pending":
+        return RoutingValue{Destination: "none"}, nil
+    }
+    return RoutingValue{}, fmt.Errorf(
+        "unknown routing destination %q; expected one of imbox, "+
+        "feed, paper_trail, screener, none, pending", raw)
+}
 ```
-unknown routing destination "<x>"; expected one of imbox, feed,
-paper_trail, screener, none, pending
-```
+
+The valid-input set is six values (the four destination column
+values plus `none` and `pending`); the AST `RoutingValue.Destination`
+remains a five-value set (the same four plus `none`). Document
+this 6-input/5-AST asymmetry as one sentence in the function
+doc comment so a future reader doesn't mistake `pending` for a
+sixth destination.
+
+**Spelling preservation in saved searches.** `internal/pattern/`
+has no AST printer — saved searches store the raw pattern *text*
+in `saved_searches.pattern` (user-typed source, exposed as
+`store.SavedSearch.Pattern string` per `internal/store/types.go`)
+and only the AST is re-derived on each compile. So both spellings
+round-trip verbatim through the saved-search table by accident of
+the existing design: `~o pending` stays `~o pending` when written
+to a saved-search row, and re-parsing it produces the canonical
+`RoutingValue{Destination:"none"}` AST. No "canonical printer" is
+needed and none is added. The parser test asserts both spellings
+parse to the same AST node value (`RoutingValue{Destination:"none"}`).
+Document the alias in `docs/user/reference.md` under the `~o`
+operator row so users aren't surprised that the two spellings are
+equivalent.
 
 `paper-trail` (hyphen) remains a parse error.
 
 No change to `eval_filter.go` / `eval_search.go` — these already
-return `ErrUnsupportedFilter` for any `FieldRouting` predicate
-(spec 23 §4.4 step 6).
+return `ErrUnsupported` for any `FieldRouting` predicate (spec 23
+§4.4 step 6; sentinel name verified at
+`internal/pattern/compile.go:109`).
 
 ### 4.6 No changes to action queue / Graph endpoints
 
@@ -606,7 +722,7 @@ Streams remain in their original order. When the gate is enabled,
 Screener and above** the optional `__muted__` entry (which spec
 19 §5.4 places at the bottom of the sidebar). The order is:
 Imbox → Feed → Paper Trail → Screener → Screened Out → (Saved
-Searches block) → (Stacks block, spec 25) → Muted Threads (when
+Searches block) → (Stacks block, spec 25 — Reply Later, Set Aside) → Muted Threads (when
 non-empty).
 
 **Sidebar count source.** When `[screener].enabled = false`,
@@ -669,16 +785,106 @@ list-pane refresh:
 3. Default folder views (Inbox, Sent, Archive, user folders)
    start hiding Pending and Screened mail (§5.5).
 
-A **one-time hint** is shown on the next list-pane render after
-the flag flips, in the same shape as spec 11 §5.4 / spec 23 §5.9
-auto-suggest hints:
+#### 5.3.1 Gate-flip confirmation prompt
+
+Flipping `[screener].enabled false → true` while the local store
+holds messages from many unrouted senders is a *materially
+destructive view change* — a 50k-message archive with zero
+routing assignments will appear to lose its entire Inbox until
+the user starts admitting senders. Spec 28 therefore wraps the
+flip with a confirmation gate so the surprise can never happen
+silently.
+
+**Mechanism — first-launch detection** (CLAUDE.md §9: "No hot
+reload. Config changes require restart"). The TUI does not
+implement runtime config reload, so the modal fires at *launch
+time* immediately after `ui.New(deps)` materialises the model,
+**before the first list pane render**. Detection is by comparing
+`cfg.Screener.Enabled` against a last-seen marker stored in
+`[ui].screener_last_seen_enabled` (default `false`):
+
+| `cfg.Screener.Enabled` | `[ui].screener_last_seen_enabled` | Action at launch                |
+|------------------------|------------------------------------|---------------------------------|
+| `false`                | `false`                            | Gate off; no modal.             |
+| `false`                | `true`                             | Gate off; reset marker to `false`; no modal (disable path is non-destructive). |
+| `true`                 | `true`                             | Gate on; no modal (returning user). |
+| `true`                 | `false` AND `M == 0`               | Gate on; write marker `true`; no modal; §5.3.2 hint fires (per-`hint_dismissed`). |
+| `true`                 | `false` AND `M > 0`                | **Render modal** (Mode = Confirm); see below. |
+
+Modal copy:
 
 ```
-screener: gate on. Y / N on focused sender to admit / screen-out.
+Enable Screener?
+
+This will hide N messages from M senders from your default Inbox
+view. They remain accessible from the Screener virtual folder.
+
+Press Y to enable, N to leave the gate off this session.
+(Esc behaves as N.)
+```
+
+**`Y`** writes `[ui].screener_last_seen_enabled = true` to the
+on-disk config (so a returning user is not re-prompted), sets
+`m.screenerEnabled = true`, and triggers the §5.3.2 hint on the
+first list-pane render.
+
+**`N` / `Esc`** sets `m.screenerEnabled = false` for *this
+session only*. **The on-disk `[screener].enabled` value is NOT
+rewritten** (the user edited their config; we don't silently
+fight the edit). The `[ui].screener_last_seen_enabled` marker is
+also NOT updated, so the modal will re-fire on the *next* launch
+until the user either confirms or edits the on-disk flag back to
+`false`. Status-bar toast: `screener: gate kept off this session
+(re-launch to re-prompt)`.
+
+**Skip path.** When `M == 0` (no pending senders — the user has
+done a complete routing pass first, the recommended sequence in
+the how-to recipe), the modal is skipped entirely; the gate
+enables silently and the §5.3.2 hint fires per usual.
+
+**First-launch path.** A user setting `enabled = true` in their
+config *before first sign-in* (no messages in the local store)
+hits the `M == 0` branch and skips the modal. Same outcome as
+"did a routing pass first."
+
+**Disable path.** Editing on-disk `[screener].enabled` from
+`true → false` and re-launching is non-destructive: mail
+re-appears in default views. The marker is reset to `false` so
+a future re-enable correctly re-evaluates. No modal.
+
+**Why a marker key, not a transition log.** A single boolean
+keyed by previous-launch state is the minimum viable surface to
+distinguish "first time enabling" from "returning user." The
+existing `[ui].screener_hint_dismissed` is similar — a one-shot
+boolean. We deliberately do not track decision history; users
+who want a richer trail use `inkwell screener history`.
+
+Cover with `TestScreenerGateFlipNoPromptWhenNoPending`,
+`TestScreenerGateFlipPromptWhenPendingExists`,
+`TestScreenerGateFlipDisablePathNoPrompt`, and
+`TestScreenerGateFlipMarkerPersistsAcrossLaunches`.
+
+#### 5.3.2 Post-enable hint
+
+A **one-time hint** is shown on the next list-pane render after
+the flag flips (post-confirmation), in the same shape as spec 11
+§5.4 / spec 23 §5.9 auto-suggest hints. The copy explicitly names
+the sidebar swap so the user is not surprised that "Screener"
+just changed contents:
+
+```
+screener: gate on. 'Screener' now shows pending senders;
+previously-routed senders moved to 'Screened Out'. Y / N on a
+focused sender admits / screens-out.
 ```
 
 Dismissed via `Esc`. Persisted as `[ui].screener_hint_dismissed =
 true` so it never re-fires.
+
+No ASCII-fallback variant: typographic single-quotes already
+render as straight ASCII (`'`) in the TUI's default font path.
+Emoji-free rendering is not gated — matches every other status
+toast in spec 23 §5.6.
 
 ### 5.4 Pane-scoped Yes / No shortcuts
 
@@ -704,14 +910,14 @@ is unbound).
   (verified — scan `Keys()` for `"Y"`; nothing). Safe to add to
   the duplicate-scan list.
 - `N` (capital): **already used** by spec 18 (`NewFolder`,
-  default `key.NewBinding(key.WithKeys("N"))`, `keys.go` around
-  line 222). Folder-pane vs. list-pane scoping disambiguates at
-  dispatch time. `NewFolder` is **not** in the existing
-  `findDuplicateBinding` `checks` slice (`keys.go:355–378`) —
-  the duplicate-scan policy already excludes pane-scoped-only
-  bindings (precedent: `MarkRead` / `ToggleFlag` exclusions at
-  `keys.go:366`). `ScreenerReject` follows the same precedent
-  and is **excluded** from the duplicate-scan list.
+  default `key.NewBinding(key.WithKeys("N"))` in
+  `internal/ui/keys.go::DefaultKeyMap`). Folder-pane vs. list-
+  pane scoping disambiguates at dispatch time. `NewFolder` is
+  **not** in the existing `findDuplicateBinding` `checks` slice
+  — the duplicate-scan policy already excludes pane-scoped-only
+  bindings (precedent: `MarkRead`, `ToggleFlag`, `BundleExpand`
+  exclusions). `ScreenerReject` follows the same precedent and
+  is **excluded** from the duplicate-scan list.
 - The Screener pane is part of the list pane (it's a virtual
   folder selection); no new pane is introduced. The dispatch
   hook is at the list pane handler, gated on
@@ -767,6 +973,41 @@ no prior destination.
 After admit/reject, the row vanishes from the Screener queue
 (it is no longer Pending). The cursor falls to the next row.
 
+**Concurrent-decision semantics.** `Y` and `N` are local-write
+optimistic — `routeCmd` applies a `sender_routing` row to the
+store synchronously and emits a `tea.Cmd` for the list-pane
+refresh. Two `Y` keypresses in quick succession on rows 1 and 2
+must not race the visible cursor against the in-flight refresh.
+The implementation pins the *focused address* (the sender's
+`from_address`) at keypress time and routes that address; the
+list-pane refresh that lands later may reorder rows but cannot
+mis-target a decision. Concretely:
+
+1. `Y` keypress — read `m.focusedRow().from_address` synchronously.
+2. Dispatch `routeCmd(addr, "imbox")` with the captured address.
+3. The cursor moves to the next address-different row (i.e., it
+   skips any row whose address matches the just-decided one,
+   defensive against duplicate-pending-message edge cases in
+   per-message mode). If no further row exists, the cursor
+   parks on the last remaining row (per spec 04 list-pane
+   conventions).
+4. The store-write resolves; the next refresh removes the
+   decided sender from the queue.
+
+`Y` / `N` are NOT debounced — a fast user can decide ten senders
+in ten keystrokes and each decision is dispatched on its own
+goroutine via `routeCmd`. Routing does **not** flow through the
+spec 07 action queue (per spec 23 §6 — `routeCmd` writes
+`sender_routing` directly via `store.SetSenderRouting`). Ten
+near-simultaneous upserts settle deterministically because the
+SQLite write lock serialises them and the table's
+`(account_id, email_address)` PK is the conflict target on the
+`UPSERT … ON CONFLICT DO UPDATE`. Cover with
+`TestScreenerPaneRapidYDispatchesAllAddresses`
+(spawns ten address-distinct rows, fires ten `Y` keys in a tight
+loop via teatest, asserts ten `routeCmd` calls each with the
+correct address).
+
 ### 5.5 Default folder view filter
 
 When `[screener].enabled = true`, the TUI's normal folder views
@@ -774,22 +1015,20 @@ When `[screener].enabled = true`, the TUI's normal folder views
 with `ApplyScreenerFilter: true`. This hides Pending and
 Screened mail from the default Inbox view — the gate fires.
 
-**Materialisation in `Model`** (cycle-safety). The TUI never
-reads the config flag inside Update — that would race
-`:reload-config`. Instead, the Model carries a `screenerEnabled
-bool` field (parallel to existing `[ui]` mirrors), set on app
-boot in `ui.New(deps)` from `cfg.Screener.Enabled` and
-re-set on every `:reload-config` cycle (the
-`configReloadedMsg` handler must include the line
-`m.screenerEnabled = cfg.Screener.Enabled`). The same handler
-also re-materialises `screenerGrouping` (string),
-`screenerExcludeMuted` (bool), and `screenerMaxCountPerSender`
-(int). Each call site in the table below passes an explicit
+**Materialisation in `Model`** (load-time only — CLAUDE.md §9
+mandates no hot reload; config changes require restart). The
+Model carries `screenerEnabled bool`, `screenerGrouping string`,
+`screenerExcludeMuted bool`, and `screenerMaxCountPerSender int`
+(parallel to existing `[ui]` mirrors), set once on app boot in
+`ui.New(deps)` from `cfg.Screener`. The §5.3.1 confirmation modal
+runs at boot before the first list-pane render and may override
+`m.screenerEnabled` to `false` for the session if the user
+chooses `N`. Each call site in the table below passes an explicit
 boolean to `ListMessages` — the **two filter-applying sites**
 read `m.screenerEnabled`; the **other five sites** hard-code
 `false` (search / filter / CLI are intentional queries, §4.2).
-The TUI never reads `cfg.Screener.Enabled` outside the
-materialisation handler.
+The TUI never reads `cfg.Screener.Enabled` outside the boot
+materialisation site.
 
 **Affected call sites** (default folder views only — search,
 filter, and CLI paths are NOT affected, per §4.2):
@@ -804,10 +1043,10 @@ filter, and CLI paths are NOT affected, per §4.2):
 | `inkwell messages` CLI                         | `ApplyScreenerFilter = false` (always) |
 | `inkwell filter` CLI                           | `ApplyScreenerFilter = false` (always) |
 
-The TUI never reads the config flag at dispatch time (cycle
-hazard). The filter value is materialised into the `Model` at
-boot and on `:reload-config` — same pattern as `[ui].show_routing_indicator`
-and other UI flags.
+The TUI never reads the config flag at dispatch time. The filter
+value is materialised into the `Model` once at boot — same
+pattern as `[ui].show_routing_indicator` and other UI flags
+(CLAUDE.md §9: config changes require restart).
 
 **Counts on Inbox / Sent / Archive entries** in the sidebar
 remain Graph's authoritative counts (spec 19 §5.6 precedent).
@@ -831,12 +1070,12 @@ adds the `Y` / `N` toast variants (which are aliases for `S i` /
 | Empty queue | List pane shows `(no pending senders — all caught up)` |
 
 The empty-queue helper text uses HEY's "all caught up" phrasing
-to reinforce inbox-zero affordance. ASCII fallback (rendered
-when `[ui].ascii_fallback = true`, the existing config key
-that gates emoji and unicode-punctuation substitutions in the
-TUI per spec 04 / spec 23 §5.4): `(no pending senders -- all
-caught up)`. Same gate as spec 23's `stream_ascii_fallback`
-behaviour for indicator glyphs.
+to reinforce inbox-zero affordance. The em-dash and toast emoji
+(`📥`, `🚪`) render unconditionally — matches every other status
+toast and helper text in specs 19, 22, 23. The narrow-purpose
+`[ui].stream_ascii_fallback` key (spec 23) gates the four
+stream-indicator letter glyphs only and does not apply here; a
+broader unicode-fallback config is out of scope for spec 28.
 
 ### 5.7 Screener queue ordering and mute interaction
 
@@ -893,7 +1132,54 @@ always available.
 `screener_history` is available only when
 `[screener].enabled = true` (the `__screened_out__` sentinel
 is not rendered when the gate is off, so navigating to it is a
-no-op).
+no-op). `screener_open` is always available even with the gate
+off — the `__screener__` sentinel is rendered in both modes
+(spec 23 v1 behaviour preserved per §5.1), so navigation is
+meaningful regardless. The asymmetry between
+`screener_open` (always) and `screener_history` (gate-on only)
+is intentional: it mirrors the sentinel-render visibility rule
+in §5.2.
+
+When the gate is off, `screener_accept` and `screener_reject`
+remain available but their titles read oddly (no Screener queue
+to act in). The implementation rewrites the palette title when
+`m.screenerEnabled = false` to:
+
+| ID                | Gate-off title                       | Gate-on title (default)         |
+|-------------------|--------------------------------------|---------------------------------|
+| `screener_accept` | `Route focused sender → Imbox (Y)`   | `Admit focused sender to Imbox` |
+| `screener_reject` | `Screen out focused sender (N)`      | `Screen out focused sender`     |
+
+The runtime title swap is a one-liner in `buildScreenerPaletteRows`
+that branches on `m.screenerEnabled`; the `RunFn` is the same
+in both modes.
+
+### 5.10 Cross-feature interactions surfaced in user docs
+
+The `docs/user/reference.md` Streams section gains a "Screener
+edge cases" subsection covering:
+
+1. **Bundled-but-pending senders** (spec 26): the bundle row is
+   gate-suppressed in the default Inbox view when
+   `[screener].enabled = true`. The user must admit the bundled
+   sender (via `S i` or `Y` in the Screener queue) before the
+   bundle re-appears. The "Turn on the Screener" how-to recipe
+   recommends a routing pass over bundled senders first.
+2. **Reply-Later'd messages from pending senders** (spec 25):
+   the stacked message remains visible in the Reply Later
+   overlay regardless of gate state (intentional surface). The
+   sender's *other* mail is still gate-suppressed; the Screener
+   queue still surfaces the sender for a routing decision.
+3. **Fully-muted pending senders** (spec 19): a sender whose
+   only mail lives in muted threads is invisible to both the
+   default Inbox and the Screener queue (the latter because
+   `[screener].exclude_muted = true` by default). Recovery is
+   `:filter ~o pending` to surface them explicitly.
+4. **Threads spanning multiple senders**: the gate operates
+   per-sender. A thread with one Approved and one Pending
+   sender renders the Approved message in the default Inbox and
+   the Pending message in the Screener queue; the user makes
+   the Pending sender's decision independently.
 
 ## 6. Configuration
 
@@ -946,9 +1232,10 @@ max_count_per_sender = 999
 
 `[ui]` gains:
 
-| Key                           | Default | Used in § |
-|-------------------------------|---------|-----------|
-| `ui.screener_hint_dismissed`  | `false` | §5.3      |
+| Key                                  | Default | Used in § |
+|--------------------------------------|---------|-----------|
+| `ui.screener_hint_dismissed`         | `false` | §5.3.2    |
+| `ui.screener_last_seen_enabled`      | `false` | §5.3.1    |
 
 The hint-dismissed flag is updated by the TUI on `Esc`-dismissal
 and persists in the user's config file across runs (same
@@ -978,6 +1265,7 @@ inkwell screener history --output json
 
 # Pre-approve senders in bulk (e.g., from a contacts dump).
 inkwell screener pre-approve --from-stdin
+inkwell screener pre-approve --from-file ~/contacts.txt
 # reads one address per line; equivalent to `route assign … imbox` for each.
 
 # Show the screener configuration state.
@@ -1018,7 +1306,9 @@ to spec 23 §7.
   (defensive — common in Windows-exported CSV / TXT).
 - **Display-name forms** (`"Bob" <bob@example.com>`) are
   rejected per the spec 23 §7 rule, with the per-line error
-  `pre-approve: line N: address must be bare; got "<input>"`.
+  `pre-approve: line N: address must be bare; got "<input>"
+  (strip the display name and angle brackets, keep just the
+  address)`.
   These do NOT abort the whole command (per the partial-success
   contract below) but they DO appear in the JSON-output `errors`
   array, so a user pasting a contacts dump that contains
@@ -1040,16 +1330,29 @@ to spec 23 §7.
   screening-out`. Mixing destinations in one stdin batch is
   not supported.
 
+- **`--from-file` flag.** Mutually exclusive with `--from-stdin`.
+  Opens the named file with `os.Open` (mode `0644` constraint
+  irrelevant — read-only); applies the same per-line parse
+  rules as the stdin path (CRLF / BOM / `#` comments / blank
+  lines / display-name rejection). Errors (missing file,
+  permission denied, not a regular file) exit 2 before any
+  upsert. The file is closed deterministically via `defer`.
+  Convenience wrapper for users who keep a contacts allow-list
+  in version control. Specifying both flags exits 2 with
+  `pre-approve: --from-stdin and --from-file are mutually
+  exclusive`.
+
 - **TTY-stdin guard.** `inkwell screener pre-approve` requires
-  `--from-stdin` (the only invocation form in v1) **and** the
-  stdin file descriptor must NOT be a terminal. If stdin is a
-  TTY (no redirect / pipe present), the command exits 2 with
-  `pre-approve: --from-stdin requires a non-tty stdin (use a
-  pipe or file redirect)` *before* reading any input. Detected
-  via `term.IsTerminal(int(os.Stdin.Fd()))` from the existing
-  `golang.org/x/term` dependency. Without `--from-stdin`, the
-  command exits 2 with `pre-approve: --from-stdin is required`.
-  No interactive prompt mode in v1.
+  one of `--from-stdin` or `--from-file`. When `--from-stdin`
+  is given the stdin file descriptor must NOT be a terminal —
+  if stdin is a TTY (no redirect / pipe present), the command
+  exits 2 with `pre-approve: --from-stdin requires a non-tty
+  stdin (use a pipe or file redirect)` *before* reading any
+  input. Detected via `term.IsTerminal(int(os.Stdin.Fd()))`
+  from the existing `golang.org/x/term` dependency. Without
+  any input flag, the command exits 2 with `pre-approve:
+  one of --from-stdin or --from-file is required`. No
+  interactive prompt mode in v1.
 
 Commands live in `cmd/inkwell/cmd_screener.go`, registered in
 `cmd_root.go`.
@@ -1181,13 +1484,15 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       config-to-`BindingOverrides` wiring layer assigns both.
       `TestBindingsScreenerKeysFlowFromConfig` covers the path.
 - [ ] `Model` gains four screener materialisation fields,
-      populated at boot from `cfg.Screener` and re-populated on
-      `:reload-config` (`configReloadedMsg` handler):
-      `screenerEnabled bool`, `screenerGrouping string`,
-      `screenerExcludeMuted bool`, `screenerMaxCountPerSender
-      int`. The TUI never reads `cfg.Screener` outside these
-      sites. `TestScreenerConfigReloadFlipsModelFields` covers
-      it.
+      populated **once at boot** from `cfg.Screener` in
+      `ui.New(deps)`: `screenerEnabled bool`,
+      `screenerGrouping string`, `screenerExcludeMuted bool`,
+      `screenerMaxCountPerSender int`. The TUI never reads
+      `cfg.Screener` outside this site (CLAUDE.md §9: no hot
+      reload). The §5.3.1 confirmation modal may override
+      `m.screenerEnabled` to `false` for the session before the
+      first list-pane render. `TestScreenerConfigBootMaterialisesModelFields`
+      covers the load path.
 - [ ] **Sidebar count source flips with the gate.** The
       `__screener__` badge count source is gated on
       `m.screenerEnabled`: false → `CountMessagesByRouting('screener')`
@@ -1222,26 +1527,82 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       pass `ApplyScreenerFilter = [screener].enabled` to
       `ListMessages`. Search, filter, and CLI paths always pass
       false (§4.2).
+- [ ] **Gate-flip confirmation modal (§5.3.1).** At launch,
+      when `cfg.Screener.Enabled = true` AND
+      `[ui].screener_last_seen_enabled = false` AND
+      `CountMessagesFromPendingSenders > 0`, render the
+      Confirm-mode modal *before* the first list-pane render.
+      `Y` writes `[ui].screener_last_seen_enabled = true` and
+      proceeds; `N` / `Esc` sets `m.screenerEnabled = false`
+      for the session without rewriting `[screener].enabled`
+      and without updating the marker (modal re-fires next
+      launch). Skip path (`M == 0`): marker advances silently.
+      Disable path (`cfg.Screener.Enabled = false`): marker
+      reset to `false`; no modal.
+- [ ] **`[ui].screener_last_seen_enabled` config key**
+      (default `false`) added per §5.3.1.
+- [ ] **Config-write surface for `[ui]` one-shot flags
+      (load-bearing for §5.3.1 + §5.3.2).** Specs 11 §5.4 and
+      23 §5.9 both reference an "auto-write pattern" for one-
+      shot UI flags but neither shipped the infrastructure (no
+      `WriteUIFlag` / `SaveConfig` / equivalent exists in
+      `internal/config/`). Spec 28 is the first spec whose
+      correctness depends on the writer existing — without it,
+      the `[ui].screener_last_seen_enabled` marker resets every
+      launch and the §5.3.1 modal re-fires forever. Land a
+      minimal writer in `internal/config/`:
+      `WriteUIFlag(path string, key string, value bool) error`
+      that reads the existing TOML, sets `[ui].<key> = value`
+      (preserving comments and key order via the BurntSushi/toml
+      `MetaData` round-trip or, simpler, a `[ui]`-section
+      append-or-replace), and writes atomically (temp file +
+      rename, mode `0600` matching the rest of inkwell's
+      privacy posture per CLAUDE.md §7). Cover with
+      `TestWriteUIFlagAtomicReplaceExistingKey`,
+      `TestWriteUIFlagAtomicAppendNewKey`,
+      `TestWriteUIFlagPreservesOtherSections`, and
+      `TestWriteUIFlagMode0600`. The same writer back-fills
+      `[ui].screener_hint_dismissed` per §5.3.2 and unblocks
+      the spec 11 / spec 23 hint-dismissal claims that have
+      been latent since their respective ships.
+- [ ] `store.Store.CountMessagesFromPendingSenders(ctx,
+      accountID, excludeMuted)` added per §4.3 — used by the
+      gate-flip confirmation modal only.
 - [ ] One-time Screener-on hint shown after the gate is enabled
-      (§5.3); dismissed via `Esc`; persisted as
+      (§5.3.2 — copy explicitly names the sidebar swap);
+      dismissed via `Esc`; persisted as
       `[ui].screener_hint_dismissed = true`. Never re-fires once
       dismissed.
+- [ ] **Concurrent-decision semantics (§5.4).** `Y` / `N`
+      capture the focused address synchronously at keypress
+      time and dispatch `routeCmd` with the captured value.
+      Cursor moves to the next address-different row. No
+      debounce; serialisation is the SQLite write lock plus
+      the `(account_id, email_address)` PK conflict-target on
+      `sender_routing` (spec 23 §6 — routing bypasses the
+      action queue).
 - [ ] Empty-queue helper text `(no pending senders — all caught
       up)` rendered in the list pane when the Screener queue is
       empty (§5.6).
 - [ ] CLI: `cmd/inkwell/cmd_screener.go` implements `inkwell
       screener list|accept|reject|history|pre-approve|status`.
       Bare-address validation per spec 23 §7. Exit code 2 on
-      bad input. `pre-approve --from-stdin` reads stdin, one
-      address per line; partial-success exit 0, all-fail exit 2.
-      Registered in `cmd_root.go`.
+      bad input. `pre-approve` accepts `--from-stdin` OR
+      `--from-file <path>` (mutually exclusive). Stdin path:
+      one address per line; partial-success exit 0, all-fail
+      exit 2; TTY-stdin guard. File path: same parse rules,
+      file errors exit 2 before any upsert. Registered in
+      `cmd_root.go`.
 - [ ] Cmd-bar parity (§7.1): `:screener
       accept|reject|list|history|status` dispatches via the same
       `routeCmd` / navigation handlers as the chord.
 - [ ] Command palette: `internal/ui/palette_commands.go` gains
       `screener_accept`, `screener_reject`, `screener_open`,
       `screener_history` static rows per §5.9. `Available()`
-      gates per the rules in §5.9.
+      gates per the rules in §5.9. Title strings for
+      `screener_accept` / `screener_reject` swap based on
+      `m.screenerEnabled` (§5.9 table); `screener_history`
+      hidden when the gate is off.
 - [ ] User docs: `docs/user/reference.md` adds `Y` / `N`
       Screener-pane shortcut rows, `~o pending` operator alias
       row, `:screener …` cmd-bar verbs, `inkwell screener` CLI
@@ -1249,14 +1610,19 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       content shift and the new `Screened Out` entry. The
       `_Last reviewed against vX.Y.Z._` footer bumps with the
       ship version.
-- [ ] User docs: `docs/user/how-to.md` adds two recipes — "Turn
-      on the Screener" (the recommended sequence: do a routing
-      pass first, then flip `[screener].enabled = true`) and
-      "Pre-approve senders from a contacts dump" (the
-      `pre-approve --from-stdin` workflow).
+- [ ] User docs: `docs/user/how-to.md` adds three recipes —
+      "Turn on the Screener" (the recommended sequence: do a
+      routing pass first, then flip `[screener].enabled = true`;
+      mention the §5.3.1 confirmation modal copy so users know
+      what to expect), "Pre-approve senders from a contacts
+      dump" (the `pre-approve --from-stdin` and `--from-file`
+      workflows), and "Recover from a wrong screener decision"
+      (navigate to `__screened_out__`, focus the offending
+      sender's mail, press `S c` to clear, then re-decide; HEY
+      Screener History parity).
 - [ ] `docs/CONFIG.md` adds the four `[screener].*` keys, the
-      two `[bindings].screener_*` keys, and the
-      `[ui].screener_hint_dismissed` key.
+      two `[bindings].screener_*` keys, and the two `[ui]` keys
+      (`screener_hint_dismissed`, `screener_last_seen_enabled`).
 - [ ] `docs/ARCH.md` §"action queue" updated to mention spec 28
       reuses spec 23's `routeCmd` (no new local-only mutation
       surface; the gate is read-only filter logic).
@@ -1347,11 +1713,14 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       block → Streams (Imbox → Feed → Paper Trail → Screener →
       Screened Out) → Saved Searches → Stacks (spec 25) →
       Muted Threads (when non-empty per spec 19).
-    - `TestKeymapNoCollideScreenerRejectVsNewFolder` —
+    - `TestKeymapScreenerRejectExcludedFromDuplicateScan` —
       regression: `findDuplicateBinding(km)` returns `""` when
       both `ScreenerReject` and `NewFolder` default to `"N"`.
-      A future contributor adding `ScreenerReject` to the
-      duplicate scan will turn this test red.
+      The test pins the *exclusion* — a future contributor who
+      removes the pane-scoped exclusion comment in
+      `findDuplicateBinding` (causing the scan to flag the
+      legitimate `N`-overlap) will turn this test red and be
+      forced to revisit the spec 28 §5.4 collision audit.
     - `TestDefaultInboxHidesPendingWhenGateOn` — Inbox view
       excludes pending-sender mail.
     - `TestDefaultInboxHidesScreenedWhenGateOn` — Inbox view
@@ -1361,9 +1730,35 @@ it lands; for v1 of this spec, mention in the how-to recipe.
     - `TestFilterIncludesPendingAndScreenedRegardlessOfGate` —
       `:filter` is unaffected.
     - `TestScreenerHintShownOnGateEnable` — first list refresh
-      after flag flips renders the hint.
+      after flag flips renders the hint with the spec §5.3.2
+      copy ("'Screener' now shows pending senders; previously-
+      routed senders moved to 'Screened Out'").
     - `TestScreenerHintDismissedNeverReappears` — `Esc` dismisses
       and persists the flag.
+    - `TestScreenerGateFlipPromptWhenPendingExists` — boot with
+      `cfg.Screener.Enabled = true`, marker `false`, and
+      `M > 0` renders the §5.3.1 confirm modal *before* the
+      first list pane render. `N` reverts `m.screenerEnabled`
+      to false for the session, leaves marker `false` (re-prompt
+      next launch), and does NOT rewrite `[screener].enabled`;
+      `Y` writes marker `true` and proceeds.
+    - `TestScreenerGateFlipNoPromptWhenNoPending` — boot with
+      `M == 0` skips the modal entirely; marker advanced to
+      `true` silently.
+    - `TestScreenerGateFlipDisablePathNoPrompt` — boot with
+      `cfg.Screener.Enabled = false` and marker `true` resets
+      the marker to `false`; no modal.
+    - `TestScreenerGateFlipMarkerPersistsAcrossLaunches` —
+      after `Y`, a second launch with the same on-disk state
+      and `M > 0` does NOT re-prompt (marker already `true`).
+    - `TestScreenerPaneRapidYDispatchesAllAddresses` — ten
+      address-distinct pending senders, ten `Y` keypresses in a
+      tight loop via teatest, asserts ten `routeCmd` calls each
+      with the captured address (race coverage per §5.4
+      "concurrent-decision semantics").
+    - `TestScreenerPaletteTitleSwapsWhenGateOff` — palette rows
+      `screener_accept` / `screener_reject` carry the gate-off
+      titles when `m.screenerEnabled = false`.
     - `TestScreenerEmptyQueueHelperText`.
     - `TestScreenerSentinelFolderRefusesNRX` — `N` / `R` / `X` on
       `__screened_out__` in the folder pane are no-ops (spec 18
@@ -1386,6 +1781,9 @@ it lands; for v1 of this spec, mention in the how-to recipe.
     - `TestScreenerCLIPreApproveStdinPartialSuccess` — bad line
       collected as an error, good lines applied, exit 0.
     - `TestScreenerCLIPreApproveStdinAllFail` — exit 2.
+    - `TestScreenerCLIPreApproveFromFileHappyPath`.
+    - `TestScreenerCLIPreApproveFromFileMissingExits2`.
+    - `TestScreenerCLIPreApproveFromFileAndFromStdinMutuallyExclusive`.
     - `TestScreenerCLIStatusJSON`.
   - **bench** (per §8): `BenchmarkListMessagesScreenerFilter`,
     `BenchmarkListPendingSenders`, `BenchmarkListPendingMessages`,
@@ -1407,9 +1805,17 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       filter; sync does not interact with it.
 - [ ] **Undo:** `Y` / `N` are equivalent to `S i` / `S k` (spec
       23). Spec 23 §6 documented that the `u`-key undo stack is
-      not involved; same here. Press `S c` (or the new
-      `:screener accept --to imbox` to rewrite) to reverse a
-      decision.
+      not involved; same here. The recovery path for a wrong
+      decision is **navigate to `__screened_out__` (HEY's
+      "Screener History" affordance — same surface), focus the
+      offending sender's mail, press `S c` to clear, then
+      re-decide**. Document this sequence prominently in
+      `docs/user/how-to.md` "Recover from a wrong screener
+      decision" recipe so users aren't stuck. A future spec MAY
+      add a `:screener undo` ring buffer (last N decisions,
+      session-scoped, no on-disk persistence — the action queue
+      cannot be rewound for sender_routing ops without a new
+      reverse-op primitive); explicitly out of scope for v1.
 - [ ] **User errors:** focused message has no `from_address`
       (toast: "screener: focused sender has no from-address");
       empty queue helper; CLI bad-input exit 2.

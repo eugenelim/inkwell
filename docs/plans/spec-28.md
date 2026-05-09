@@ -65,17 +65,41 @@ Mirrors `docs/specs/28-screener.md` §10. Tick as work lands.
 - [ ] Default folder views pass `ApplyScreenerFilter =
       m.screenerEnabled` to `ListMessages`. Search, filter, and
       CLI paths always pass false.
-- [ ] One-time Screener-on hint after gate enable; dismissed
-      via `Esc`; persisted as `[ui].screener_hint_dismissed =
-      true`; never re-fires.
+- [ ] **Gate-flip confirmation modal (§5.3.1)**: at launch,
+      when `cfg.Screener.Enabled = true` AND
+      `[ui].screener_last_seen_enabled = false` AND
+      `M (CountMessagesFromPendingSenders) > 0`, render a
+      Confirm-mode modal *before* the first list-pane render.
+      `Y` writes marker `true` and proceeds; `N`/`Esc` keeps
+      gate off for the session, leaves marker `false`, modal
+      re-fires next launch. Skip path on `M == 0`. Disable
+      path resets marker.
+- [ ] `store.Store.CountMessagesFromPendingSenders` added
+      (only used by the §5.3.1 modal).
+- [ ] `[ui].screener_last_seen_enabled` config key (default
+      `false`).
+- [ ] **`config.WriteUIFlag(path, key, value)` writer** added
+      (load-bearing for §5.3.1 + §5.3.2; specs 11/23 latent).
+      Atomic temp-file + rename, mode `0600`, preserves other
+      sections.
+- [ ] **Concurrent-decision semantics (§5.4)**: `Y`/`N` capture
+      focused address synchronously; `routeCmd` writes
+      `sender_routing` directly (spec 23 §6 — bypasses action
+      queue); SQLite write lock + `(account_id, email_address)`
+      PK conflict-target serialise concurrent upserts.
+- [ ] One-time Screener-on hint after gate enable (§5.3.2 —
+      copy explicitly names the sidebar swap); dismissed via
+      `Esc`; persisted as `[ui].screener_hint_dismissed = true`;
+      never re-fires.
 - [ ] Empty-queue helper text `(no pending senders — all caught
       up)`; ASCII fallback gated on `[ui].ascii_fallback`.
 - [ ] CLI `cmd/inkwell/cmd_screener.go`: `list`, `accept`,
       `reject`, `history`, `pre-approve`, `status`. Bare-address
       validation; exit 2 on bad input; `--to` accepts `imbox` /
-      `feed` / `paper_trail` (rejects `screener`); TTY-stdin
-      guard; CRLF / BOM / `#` comment / blank-line handling per
-      §7. Registered in `cmd_root.go`.
+      `feed` / `paper_trail` (rejects `screener`); `pre-approve`
+      accepts `--from-stdin` OR `--from-file <path>` (mutually
+      exclusive); TTY-stdin guard; CRLF / BOM / `#` comment /
+      blank-line handling per §7. Registered in `cmd_root.go`.
 - [ ] Cmd-bar parity: `:screener accept|reject|list|history|status`
       via the same handlers.
 - [ ] Command palette: four static rows per §5.9 with
@@ -87,15 +111,18 @@ Mirrors `docs/specs/28-screener.md` §10. Tick as work lands.
       Streams section updated for the gated content shift +
       new Screened-Out entry. `_Last reviewed against vX.Y.Z._`
       footer bumped.
-- [ ] User docs: `docs/user/how-to.md` adds two recipes —
-      "Turn on the Screener" and "Pre-approve senders from a
-      contacts dump."
+- [ ] User docs: `docs/user/how-to.md` adds three recipes —
+      "Turn on the Screener," "Pre-approve senders from a
+      contacts dump," and "Recover from a wrong screener
+      decision" (HEY Screener History parity via the
+      `__screened_out__` virtual folder + `S c`).
 - [ ] User docs: `docs/user/explanation.md` adds the local-only
       filter / no-notifications-suppression invariant note
       (§9.1).
 - [ ] `docs/CONFIG.md` adds `[screener].*` (4 keys),
       `[bindings].screener_accept` / `screener_reject`,
-      `[ui].screener_hint_dismissed`.
+      `[ui].screener_hint_dismissed`,
+      `[ui].screener_last_seen_enabled`.
 - [ ] `docs/ARCH.md` §"action queue" mentions spec 28 reuses
       spec 23 `routeCmd`.
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 28.
@@ -148,3 +175,71 @@ Mirrors `docs/specs/28-screener.md` §8.
   their tests), then the pattern-parser alias, then the UI
   / palette wiring, then the CLI. Each landing in a separate
   commit per CLAUDE.md §10.
+
+### Iter 1 — 2026-05-08 — additional adversarial review
+
+- Slice: re-review the shipped spec with three parallel
+  adversarial agents (consistency, implementability, UX) plus
+  follow-up confirmation passes; apply every finding in place.
+- Commands run: none (design-only iteration; no code touched).
+- Result: spec edits applied across §0.1, §1.1, §1.2, §2.3,
+  §4.1, §4.4, §4.5, §5.1, §5.3 (split into §5.3.1 confirm
+  modal + §5.3.2 hint), §5.4 (concurrent-decision
+  semantics), §5.5 (load-time-only materialisation), §5.6,
+  §5.9 (palette title swap), §5.10 (cross-feature
+  interactions surfaced in user docs), §6 (added
+  `[ui].screener_last_seen_enabled` key), §7 (added
+  `--from-file`), §10 DoD (gate-flip modal, race semantics,
+  WriteUIFlag, palette title swap, --from-file, marker key,
+  recovery recipe), §11 cross-cutting (recovery path
+  documented).
+- Critique: ran an additional four adversarial-review passes:
+  - Pass A (consistency): found 2 MAJOR (migration drift —
+    spec 26 shipped, 013 on disk; spec 26/27 in-flight stale)
+    + 6 MINOR (AST type name, line numbers, sidebar Stacks
+    naming, palette `screener_open` asymmetry, test name
+    backwards). All applied.
+  - Pass B (implementability vs. live code): found 2 MAJOR
+    (§4.1 SQL `m.` alias + named binds wouldn't compile;
+    §4.5 needed explicit `pending`→`none` parser
+    canonicalisation) + 3 MINOR (ErrUnsupported sentinel
+    name, §4.4 named-binds note, line drift). All applied.
+  - Pass C (UX): found 2 CRITICAL (no gate-flip
+    confirmation; undefined Y/N race semantics) + 4 MAJOR
+    (per-message malformed-from no-op trap, bundle
+    interaction, reply-later interaction, sidebar swap
+    discoverability) + 5 MINOR (--from-file, undo recovery
+    path, taxonomy clarification, first-contact framing,
+    palette gate-off title). All applied.
+  - Pass D (post-fix verification): found 1 CRITICAL — §5.3.1
+    wired the modal to a fictional `:reload-config` /
+    `configReloadedMsg` that violates CLAUDE.md §9 ("no hot
+    reload"). Reframed as first-launch detection using a new
+    `[ui].screener_last_seen_enabled` marker; §5.5
+    materialisation reduced to load-time only; tests
+    renamed to assert boot-time semantics. Applied.
+  - Pass E (post-fix verification): found 1 CRITICAL — §5.4
+    incorrectly named the action queue as serialisation
+    point for concurrent Y/N decisions, but spec 23 §6 is
+    explicit that routing bypasses the action queue.
+    Reattributed serialisation to the SQLite write lock +
+    `(account_id, email_address)` PK conflict-target. Also
+    found that the "auto-write pattern" referenced for
+    `[ui]` flags has no infrastructure — added a DoD bullet
+    landing a minimal `config.WriteUIFlag` writer with four
+    test cases, unblocking spec 11 / spec 23 latent
+    hint-dismissal claims.
+  - Pass F (post-fix verification): found 1 MINOR —
+    nonexistent `[ui].ascii_fallback` config key referenced
+    in §5.3.2 + §5.6. Removed the parenthetical; emoji and
+    em-dash render unconditionally per shipped behaviour in
+    specs 19/22/23. The narrow `[ui].stream_ascii_fallback`
+    (which does exist) is named honestly and scoped out of
+    spec 28.
+  - Pass G (final confirmation): clean — zero findings
+    across all severities.
+- Next: same as Iter 0 — implementation begins with the
+  store-layer slice. The `WriteUIFlag` writer is now its own
+  early slice (it unblocks §5.3.1 and the spec 11 / 23 hint
+  flags); ordering: writer → store SQL → parser alias → UI →
+  palette → CLI.
