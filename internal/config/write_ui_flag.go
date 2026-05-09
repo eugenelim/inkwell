@@ -45,7 +45,10 @@ func WriteUIFlag(path, key string, value bool) error {
 	val := strconv.FormatBool(value)
 
 	// Read existing content. Missing file → write a fresh [ui] block.
-	data, err := os.ReadFile(path) //nolint:gosec // user-supplied config path; spec 28 §9
+	// #nosec G304 — path is the user's config.toml (rc.configPath).
+	// Same trust model as the config loader's os.Open: single-user
+	// desktop tool, the user owns the path.
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("config.WriteUIFlag: read %s: %w", path, err)

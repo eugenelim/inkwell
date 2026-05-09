@@ -269,6 +269,10 @@ func newScreenerPreApproveCmd(rc *rootContext) *cobra.Command {
 				}
 				src = os.Stdin
 			} else {
+				// #nosec G304 — fromFile is the user-supplied
+				// --from-file flag value (single-user desktop tool;
+				// user owns the path; same trust model as the
+				// config / actions.toml loaders).
 				f, err := os.Open(fromFile)
 				if err != nil {
 					return usageErr(fmt.Errorf("pre-approve: open %s: %w", fromFile, err))
