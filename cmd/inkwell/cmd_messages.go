@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -18,12 +19,19 @@ import (
 
 func newMessagesCmd(rc *rootContext) *cobra.Command {
 	var (
-		folder     string
-		limit      int
-		unread     bool
-		output     string
-		filter     string
-		allFolders bool
+		folder         string
+		limit          int
+		unread         bool
+		output         string
+		filter         string
+		rule           string
+		allFolders     bool
+		watch          bool
+		watchInterval  time.Duration
+		watchInitial   int
+		includeUpdated bool
+		watchCount     int
+		watchFor       time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "messages",
@@ -32,13 +40,35 @@ func newMessagesCmd(rc *rootContext) *cobra.Command {
 or a pattern. Pulls from the local SQLite cache; for a fresh server
 state, run ` + "`inkwell sync`" + ` first.
 
+Use --watch to continuously stream new matches as they arrive
+(spec 29 §1). Watch mode requires --filter or --rule.
+
 Examples:
   inkwell messages --folder Inbox --limit 50
   inkwell messages --folder Inbox --unread
   inkwell messages --filter '~f bob' --limit 20
-  inkwell messages --folder Inbox --output json | jq '.[].subject'`,
+  inkwell messages --folder Inbox --output json | jq '.[].subject'
+
+  # Watch mode (spec 29):
+  inkwell messages --filter '~U & ~f vip@*' --watch
+  inkwell messages --rule VIPs --watch --output json | jq '.Subject'
+  inkwell messages --filter '~U' --watch --initial=10 --count 5`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx := c.Context()
+			if watch {
+				return runWatchFromFlags(ctx, rc, watchOpts{
+					folder:         folder,
+					filter:         filter,
+					rule:           rule,
+					all:            allFolders,
+					output:         output,
+					interval:       watchInterval,
+					initial:        watchInitial,
+					includeUpdated: includeUpdated,
+					count:          watchCount,
+					forDuration:    watchFor,
+				})
+			}
 			app, err := buildHeadlessApp(ctx, rc)
 			if err != nil {
 				return err
@@ -83,9 +113,19 @@ Examples:
 	cmd.Flags().IntVar(&limit, "limit", 50, "max rows to return")
 	cmd.Flags().BoolVar(&unread, "unread", false, "only unread messages")
 	cmd.Flags().StringVar(&filter, "filter", "", "spec 08 pattern; overrides --folder/--unread when set")
+	cmd.Flags().StringVar(&rule, "rule", "", "saved search name (spec 11); mutually exclusive with --filter")
 	cmd.Flags().StringVar(&output, "output", "", "output format: text|json (overrides [cli].default_output)")
 	cmd.Flags().BoolVar(&allFolders, "all", false, "ignore --folder and search all folders (requires --filter)")
+	cmd.Flags().BoolVar(&watch, "watch", false, "stream new matches like tail -f (spec 29; requires --filter or --rule)")
+	cmd.Flags().DurationVar(&watchInterval, "interval", 0, "watch: re-eval cadence (default = engine foreground interval; min 5s)")
+	cmd.Flags().IntVar(&watchInitial, "initial", 0, "watch: print N most-recent matches at startup (default 0 = silent)")
+	cmd.Flags().BoolVar(&includeUpdated, "include-updated", false, "watch: re-emit on last_modified_at advance")
+	cmd.Flags().IntVar(&watchCount, "count", 0, "watch: exit 0 after N new matches (default unbounded)")
+	cmd.Flags().DurationVar(&watchFor, "for", 0, "watch: exit 0 after this wall-clock duration (default unbounded)")
 	cmd.MarkFlagsMutuallyExclusive("folder", "all")
+	cmd.MarkFlagsMutuallyExclusive("filter", "rule")
+	cmd.MarkFlagsMutuallyExclusive("watch", "limit")
+	cmd.MarkFlagsMutuallyExclusive("watch", "unread")
 
 	cmd.AddCommand(newMessageShowCmd(rc))
 	cmd.AddCommand(newMessageReadCmd(rc))

@@ -97,6 +97,12 @@ type CLIConfig struct {
 	// ExportDefaultDir is the destination directory for `inkwell export`.
 	// Tilde is expanded. Default ".".
 	ExportDefaultDir string `toml:"export_default_dir"`
+	// WatchMaxSeen (spec 29 §5.5) caps the in-memory dedup set the
+	// `inkwell messages --watch` loop uses to suppress re-emitting a
+	// previously-seen message. LRU eviction at this size — entries
+	// past the cap are dropped oldest-first; the per-process memory
+	// cost is approximately 230 bytes per entry. Default 5000 (≈1.1 MB).
+	WatchMaxSeen int `toml:"watch_max_seen"`
 }
 
 // MailboxSettingsConfig owns the [mailbox_settings] section (spec 13).

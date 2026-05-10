@@ -929,4 +929,88 @@ inkwell action run cleanup_newsletters --filter '~f *@newsletter.* & ~d <30d'
 
 ---
 
-_Last reviewed against v0.57.0._
+## Tail your inbox like `tail -f`
+
+`inkwell messages --filter X --watch` (spec 29) streams new matches
+to stdout as they arrive, then keeps running until you stop it.
+Composes with shell pipelines the same way every other inkwell CLI
+command does — `| jq`, `| head`, `| tee`, `| xargs`.
+
+**Tail VIP unread to the terminal:**
+
+```sh
+inkwell messages --filter '~U & ~f vip@example.com' --watch
+# (Ctrl-C exits 0 with a one-line summary on stderr.)
+```
+
+**Pipe IDs to a downstream consumer:**
+
+```sh
+inkwell messages --filter '~U & ~f vip@*' --watch --output json \
+  | jq -r '.ID' | while read id; do echo "ping for $id"; done
+```
+
+**Use a saved search:**
+
+```sh
+inkwell messages --rule VIPs --watch
+```
+
+**Print the last 10 matches then keep watching:**
+
+```sh
+inkwell messages --filter '~U' --watch --initial=10
+```
+
+**Wait for the next 3 messages from Bob, then exit:**
+
+```sh
+inkwell messages --filter '~f bob@*' --watch --count 3
+```
+
+**Cron-friendly: every cron run, watch for 60s, then exit:**
+
+```cron
+* * * * * /usr/local/bin/inkwell messages --filter '~U' --watch --for 55s --quiet >> ~/inkwell-vip.log 2>&1
+```
+
+If you redirect stdout to a file (as above), set `umask 077`
+**before launching** the watch — the redirected file inherits
+the user's umask (typically `022` → world-readable). Inkwell's
+own log file at `~/Library/Logs/inkwell/` is created with mode
+`0600` regardless; only the user-supplied stdout redirection is
+governed by the launching shell's umask.
+
+```sh
+( umask 077 && inkwell messages --filter '~U' --watch >> ~/inkwell-vip.log )
+```
+
+**Read-only watcher when a daemon (or the TUI) is running:**
+
+```sh
+inkwell daemon &
+inkwell messages --filter '~U' --watch --no-sync   # only the daemon syncs
+```
+
+**JSONL output format.** `--output json` emits *one JSON object
+per line* (no array wrapper) — well-suited for piping into `jq -r`
+or any line-oriented stream consumer. The one-shot
+`inkwell messages --output json` (without `--watch`) still emits
+a single JSON array; the divergence is intentional and pinned by
+tests.
+
+**Exit codes** (spec 14 `internal/cli/exitcodes.go`): `0` clean
+exit; `2` usage error (mutually-exclusive flags, no
+`--filter`/`--rule`); `3` auth error after 10 minutes of
+consecutive `AuthRequiredEvent`s with zero intervening sync
+success; `5` folder or rule not found.
+
+**Latency.** A new message lands in stdout after at most one
+foreground sync interval (default 30 s) plus the per-cycle delta
+fetch (~50–200 ms). For lower latency, run `inkwell sync` in a
+sibling shell or keep `inkwell daemon` running — the watch
+re-evaluates the local cache on every `SyncCompletedEvent`.
+
+---
+
+_Last reviewed against v0.58.0._

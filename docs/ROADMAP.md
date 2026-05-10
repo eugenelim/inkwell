@@ -68,7 +68,7 @@ Ties verbs together once enough verbs exist.
 | ----- | ----------------------------------- | ---- | ----------------------------------------------- |
 | 1     | Custom actions framework (§2)       | 27   | Shipped v0.56.0.                                 |
 | 2     | Screener (1.16)                     | 28   | Shipped v0.57.0.                                |
-| 3     | Watch mode (1.19)                   | 29   | Spec drafted (ready for implementation).        |
+| 3     | Watch mode (1.19)                   | 29   | Shipped v0.58.0.                                |
 | 4     | "Done" alias (1.23)                 | 30   | Spec drafted (ready for implementation).        |
 
 ### Bucket 4 — Mailbox parity
@@ -286,7 +286,10 @@ When a meeting invite arrives as mail, render the response options inline (`[A]c
 
 v1 drafts are plain text. The platform accepts HTML drafts. We could let users compose in Markdown and convert to HTML on save. Not critical; plain text covers 90% of use cases.
 
-### 1.19 Watch mode — Spec 29 (ready)
+### 1.19 Watch mode — Shipped v0.58.0 (spec 29)
+
+**Owner: spec 29.**
+
 
 `inkwell messages --filter X --watch` continuously updating. Useful for "show me unread from VIPs" as a sidebar tail. Trivial to implement.
 

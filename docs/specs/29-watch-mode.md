@@ -1,6 +1,7 @@
 # Spec 29 — Watch mode
 
-**Status:** Ready.
+**Shipped:** v0.58.0.
+**Status:** Shipped.
 **Depends on:** Spec 02 (local cache — read-only `ListMessages` /
 `SearchByPredicate`), Spec 03 (sync engine — `Notifications()` channel,
 `Wake()`, `SetActive(true)`, `Done()`), Spec 08 (pattern language —

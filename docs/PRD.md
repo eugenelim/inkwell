@@ -284,9 +284,9 @@ v0.50.0 through v0.55.0.
 Spec 27 (custom actions framework, ROADMAP §0 Bucket 3 row 1 / §2)
 is the first Bucket-3 entry, **shipped v0.56.0** with the
 `--filter` CLI wiring closing in v0.56.1. Spec 28 (screener,
-§1.16) is the second, **shipped v0.57.0**. Specs 29 (watch mode,
-§1.19) and 30 ("Done" alias, §1.23) are authored and ready; no
-dependencies on Bucket 2 work.
+§1.16) is the second, **shipped v0.57.0**. Spec 29 (watch mode,
+§1.19) is the third, **shipped v0.58.0**. Spec 30 ("Done" alias,
+§1.23) is authored and ready; no dependencies on Bucket 2 work.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

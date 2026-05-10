@@ -255,8 +255,9 @@ Controls non-interactive CLI mode.
 | `progress_bars` | string | `"auto"` | `auto`, `always`, `never` | Show progress bars during long operations. `auto` enables on TTY, disables on pipes. |
 | `json_compact` | bool | `false` | — | Emit compact (single-line) JSON instead of pretty-printed. |
 | `export_default_dir` | string | `"."` | path | Default output directory for `inkwell export`. |
+| `watch_max_seen` | int | `5000` | 100–100000 | Spec 29 §5.5. Caps the in-memory dedup LRU `inkwell messages --watch` uses to suppress re-emitting a previously-seen message. Per-process memory cost ≈230 bytes per entry; 5000 entries ≈1.1 MB. Raise for very-high-volume mailboxes — 100k entries ≈22 MB, still well under the §6 RSS budget. |
 
-**Owner spec:** 14.
+**Owner spec:** 14 (with spec 29 contributing the `watch_max_seen` row).
 
 ---
 

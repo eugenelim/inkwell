@@ -213,6 +213,7 @@ func Defaults() *Config {
 			ProgressBars:            "auto",
 			JSONCompact:             false,
 			ExportDefaultDir:        ".",
+			WatchMaxSeen:            5000,
 		},
 		Screener: ScreenerConfig{
 			Enabled:           false,

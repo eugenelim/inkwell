@@ -627,6 +627,14 @@ JSON via `--output json`.
 | `inkwell messages --folder Inbox --unread`       | Only unread.                                              |
 | `inkwell messages --filter '~f bob' --limit 20`  | List by spec-08 pattern.                                  |
 | `inkwell messages --filter '~f bob' --all`       | Same, but ignores any `--folder` scope and returns all-folder results. |
+| `inkwell messages --filter '~U' --watch`         | Spec 29. Stream new matches like `tail -f`; Ctrl-C exits 0. |
+| `inkwell messages --rule VIPs --watch`           | Same, with a saved-search name (spec 11) instead of a literal pattern. |
+| `inkwell messages --filter X --watch --initial=N` | Print the most-recent N matches at startup before entering the loop. |
+| `inkwell messages --filter X --watch --include-updated` | Re-emit a previously-seen message when its `last_modified_at` advances. |
+| `inkwell messages --filter X --watch --count N`  | Exit 0 after N new matches. |
+| `inkwell messages --filter X --watch --for D`    | Exit 0 after wall-clock duration D. |
+| `inkwell messages --filter X --watch --interval D` | Re-evaluation cadence (default = engine foreground interval; min 5s). |
+| `inkwell messages --filter X --watch --no-sync`  | Skip starting an embedded sync engine; tail the cache only (use when a TUI / `inkwell daemon` is already syncing). |
 | `inkwell message show <id>`                      | Print headers + body for one message.                     |
 | `inkwell message show <id> --headers`            | Include full To / Cc / Bcc.                               |
 | `inkwell search "q4 budget"`                     | Hybrid search (local FTS5 + Graph $search), all folders.  |
@@ -735,4 +743,4 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.57.0._
+_Last reviewed against v0.58.0._
