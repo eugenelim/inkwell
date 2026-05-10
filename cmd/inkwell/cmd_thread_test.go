@@ -12,6 +12,7 @@ import (
 
 	"log/slog"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/eugenelim/inkwell/internal/action"
@@ -87,6 +88,36 @@ func TestThreadCLIArchive(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2, ok)
+}
+
+// TestThreadDoneAliasInvokesArchive — Cobra alias `done` shares
+// the archive RunE (spec 30 §5.6).
+func TestThreadDoneAliasInvokesArchive(t *testing.T) {
+	parent := newThreadCmd(&rootContext{cfg: nil})
+	var archiveSub *cobra.Command
+	for _, c := range parent.Commands() {
+		if c.Name() == "archive" {
+			archiveSub = c
+			break
+		}
+	}
+	require.NotNil(t, archiveSub, "thread archive subcommand must exist")
+	require.Contains(t, archiveSub.Aliases, "done", "spec 30 §5.6 — archive must alias `done`")
+}
+
+// TestThreadHelpListsDoneAlias — `inkwell thread --help` mentions
+// the alias.
+func TestThreadHelpListsDoneAlias(t *testing.T) {
+	parent := newThreadCmd(&rootContext{cfg: nil})
+	var archiveSub *cobra.Command
+	for _, c := range parent.Commands() {
+		if c.Name() == "archive" {
+			archiveSub = c
+			break
+		}
+	}
+	require.NotNil(t, archiveSub)
+	require.Contains(t, archiveSub.Short, "done", "Short text must mention the done alias")
 }
 
 // TestThreadCLIDeleteWithoutYesIsNoop verifies that cliThreadExecute is

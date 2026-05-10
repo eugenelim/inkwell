@@ -286,7 +286,8 @@ is the first Bucket-3 entry, **shipped v0.56.0** with the
 `--filter` CLI wiring closing in v0.56.1. Spec 28 (screener,
 §1.16) is the second, **shipped v0.57.0**. Spec 29 (watch mode,
 §1.19) is the third, **shipped v0.58.0**. Spec 30 ("Done" alias,
-§1.23) is authored and ready; no dependencies on Bucket 2 work.
+§1.23) is the fourth, **shipped v0.59.0** — the bucket is now
+closed.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 

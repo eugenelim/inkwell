@@ -298,6 +298,12 @@ type Deps struct {
 	// ui.New can detect the gate-flip first-launch transition
 	// (§5.3.1) and render the §5.3.2 hint exactly once. ConfigPath
 	// is the on-disk TOML path used for config.WriteUIFlag.
+	// Spec 30 — Archive verb label. Empty string defaults to
+	// "archive" inside ui.New so a zero-value Deps is sane in
+	// tests; production wiring at cmd_run.go passes
+	// cfg.UI.ArchiveLabel.
+	ArchiveLabel string
+
 	ScreenerEnabled           bool
 	ScreenerGrouping          string
 	ScreenerExcludeMuted      bool
@@ -844,6 +850,12 @@ type Model struct {
 	customActionPromptHeader string
 	customActionRunning      string // action name; non-empty while a sequence is in flight
 
+	// Spec 30 — archive verb label. Set once at ui.New from
+	// cfg.UI.ArchiveLabel; never mutates over a session
+	// (CLAUDE.md §9: no hot reload). All format-time helpers in
+	// internal/ui/labels.go consume this field.
+	archiveLabel ArchiveLabel
+
 	// Spec 28 — Screener mirror fields, materialised at boot from
 	// cfg.Screener (CLAUDE.md §9: no hot reload — config changes
 	// require restart). The TUI never reads cfg.Screener outside
@@ -1002,6 +1014,16 @@ func New(deps Deps) (Model, error) {
 	m.screenerLastSeenEnabled = deps.ScreenerLastSeenEnabled
 	m.screenerConfigPath = deps.ConfigPath
 	m.folders.SetScreenerSidebarState(m.screenerEnabled, 0, 0)
+
+	// Spec 30 — archive verb label. Validation at config-load
+	// rejects everything but "archive" / "done"; a zero-value Deps
+	// (test path) defaults to "archive".
+	switch ArchiveLabel(deps.ArchiveLabel) {
+	case ArchiveLabelDone:
+		m.archiveLabel = ArchiveLabelDone
+	default:
+		m.archiveLabel = ArchiveLabelArchive
+	}
 	return m, nil
 }
 
@@ -1738,17 +1760,19 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case bulkDoneMsg:
+		// Spec 30 §5.2 — branch the verb on m.archiveLabel for archive.
+		bulkVerb := archiveVerbForName(msg.name, m.archiveLabel)
 		if msg.firstErr != nil && msg.succeeded == 0 {
-			m.lastError = fmt.Errorf("%s: %w", msg.name, msg.firstErr)
+			m.lastError = fmt.Errorf("%s: %w", bulkVerb, msg.firstErr)
 			return m, nil
 		}
 		// Partial successes log the error but don't surface as red.
 		m.lastError = nil
 		// Status bar carries the result via engineActivity for a tick.
 		if msg.failed == 0 {
-			m.engineActivity = fmt.Sprintf("✓ %s %d", msg.name, msg.succeeded)
+			m.engineActivity = fmt.Sprintf("✓ %s %d", bulkVerb, msg.succeeded)
 		} else {
-			m.engineActivity = fmt.Sprintf("⚠ %s %d/%d", msg.name, msg.succeeded, msg.succeeded+msg.failed)
+			m.engineActivity = fmt.Sprintf("⚠ %s %d/%d", bulkVerb, msg.succeeded, msg.succeeded+msg.failed)
 		}
 		// Filter set is now stale; clear it and reload the prior folder.
 		m = m.clearFilter()
@@ -2247,23 +2271,27 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case threadOpDoneMsg:
 		m.lastError = nil
+		// Spec 30 §5.2 — branch the verb on m.archiveLabel for archive.
+		threadVerb := archiveVerbForName(msg.verb, m.archiveLabel)
 		if msg.total == 0 {
 			m.engineActivity = "thread: 0 messages to act on"
 			return m, m.clearTransientCmd()
 		}
 		if msg.failed == 0 {
-			m.engineActivity = fmt.Sprintf("✓ %s thread (%d messages)", msg.verb, msg.total)
+			m.engineActivity = fmt.Sprintf("✓ %s thread (%d messages)", threadVerb, msg.total)
 		} else {
-			m.engineActivity = fmt.Sprintf("⚠ %s thread: %d/%d succeeded — %d failed", msg.verb, msg.succeeded, msg.total, msg.failed)
+			m.engineActivity = fmt.Sprintf("⚠ %s thread: %d/%d succeeded — %d failed", threadVerb, msg.succeeded, msg.total, msg.failed)
 		}
 		if msg.firstErr != nil {
-			m.lastError = fmt.Errorf("%s thread: %w", msg.verb, msg.firstErr)
+			m.lastError = fmt.Errorf("%s thread: %w", threadVerb, msg.firstErr)
 		}
 		return m, tea.Batch(m.loadMessagesCmd(m.list.FolderID), m.clearTransientCmd())
 
 	case triageDoneMsg:
 		if msg.err != nil {
-			m.lastError = fmt.Errorf("%s: %w", msg.name, msg.err)
+			// Spec 30 §5.2 — branch the verb on m.archiveLabel for the
+			// archive action; other action names pass through unchanged.
+			m.lastError = fmt.Errorf("%s: %w", archiveVerbForName(msg.name, m.archiveLabel), msg.err)
 			return m, nil
 		}
 		m.lastError = nil
@@ -2278,6 +2306,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.postFocus != 0 {
 			m.focused = msg.postFocus
 		}
+		verbToast := archiveVerbForName(msg.name, m.archiveLabel)
 		// Reload the list so the optimistic mutation (or rollback) is
 		// reflected in the current pane. When a filter is active the
 		// list pane's FolderID is the sentinel "filter:<pattern>"
@@ -2287,7 +2316,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// reported v0.13.x). Re-run the filter instead so the new
 		// state is reflected against the same pattern.
 		if m.filterActive {
-			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", msg.name)
+			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", verbToast)
 			return m, m.runFilterCmd(m.filterPattern)
 		}
 		// Same shape for search: m.list.FolderID is the sentinel
@@ -2299,7 +2328,7 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// trash. This bug had two halves; the FTS exclusion in
 		// store.Search is the other.
 		if m.searchActive {
-			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", msg.name)
+			m.engineActivity = fmt.Sprintf("✓ %s · u to undo", verbToast)
 			return m, m.runSearchCmd(m.searchQuery)
 		}
 		if msg.folderID != "" && msg.folderID == m.list.FolderID {
@@ -3341,6 +3370,12 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRoute(args[1:])
 	case "screener":
 		return m.dispatchScreener(args[1:])
+	case "archive", "done":
+		// Spec 30 §5.3 — cmd-bar verbs for the archive action.
+		// Both call shared runArchiveOnFocused; the typed verb is
+		// what the empty-list error reports (matches the user's
+		// command).
+		return m.runArchiveOnFocused(args[0])
 	case "actions":
 		return m.dispatchActions(args[1:])
 	case "tab":
@@ -4082,6 +4117,28 @@ func (m Model) fetchCalendarForWeekCmd() tea.Cmd {
 // the action name in pendingBulk so the ConfirmResult handler knows
 // what to dispatch on `y`. Shows the filter pattern and a 5-message
 // sample so the user can sanity-check before committing.
+// runArchiveOnFocused is the shared dispatch for the spec 30 §5.3
+// `:archive` and `:done` cmd-bar verbs. typedVerb is the literal
+// the user typed ("archive" or "done") — used in the empty-list
+// error so the message reads back as the command they typed.
+func (m Model) runArchiveOnFocused(typedVerb string) (tea.Model, tea.Cmd) {
+	// Prefer the viewer's current message when the viewer is focused;
+	// otherwise the list selection (matches the existing `a` keybinding's
+	// `case key.Matches(keyMsg, m.keymap.Archive)` precedence).
+	if cur := m.viewer.current; cur != nil && m.focused == ViewerPane {
+		return m.runTriage("archive", *cur, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.Archive(ctx, accID, src.ID)
+		})
+	}
+	if sel, ok := m.list.SelectedMessage(); ok {
+		return m.runTriage("archive", sel, ListPane, func(ctx context.Context, accID int64, src store.Message) error {
+			return m.deps.Triage.Archive(ctx, accID, src.ID)
+		})
+	}
+	m.lastError = fmt.Errorf("%s: no message focused", typedVerb)
+	return m, nil
+}
+
 func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 	if m.deps.Bulk == nil {
 		m.lastError = fmt.Errorf("bulk: not wired")
@@ -4089,6 +4146,11 @@ func (m Model) confirmBulk(action string, count int) (tea.Model, tea.Cmd) {
 	}
 	verb := action
 	switch action {
+	case "archive":
+		// Spec 30 §5 — branding helper for the archive verb only.
+		// Kept here so the confirm modal renders "Mark done" /
+		// "Done N messages?" when archive_label = "done".
+		verb = archiveVerbLower(m.archiveLabel)
 	case "soft_delete":
 		verb = "delete"
 	case "permanent_delete":
@@ -4426,7 +4488,9 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.confirmBulk("soft_delete", len(m.filterIDs))
 		case "D":
 			return m.confirmBulk("permanent_delete", len(m.filterIDs))
-		case "a":
+		case "a", "e":
+			// Spec 30 §9.6 — `;e` is the second default key for the
+			// bulk archive verb.
 			return m.confirmBulk("archive", len(m.filterIDs))
 		case "r":
 			return m.confirmBulk("mark_read", len(m.filterIDs))
@@ -4520,7 +4584,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.threadChordToken++
 		m.threadChordPending = true
-		m.engineActivity = "thread: r/R/f/F/d/D/a/m/l/L/s/S  esc cancel"
+		m.engineActivity = "thread: r/R/f/F/d/D/a/e/m/l/L/s/S  esc cancel"
 		return m, threadChordTimeout(m.threadChordToken)
 	}
 	if m.threadChordPending {
@@ -4543,7 +4607,9 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, sel.ID, nil)
 		case "F":
 			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, sel.ID, nil)
-		case "a":
+		case "a", "e":
+			// Spec 30 §9.5 — `T e` is the second default key for the
+			// thread archive verb.
 			return m, m.runThreadMoveCmd("archive", sel.ID, "", "archive")
 		case "d":
 			return m, m.threadPreFetchCmd("soft_delete", sel.ID)
@@ -6120,10 +6186,9 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runUndo()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "Q":
 		// Q toggles quote expansion (show/hide collapsed quoted blocks).
-		m.viewer.ToggleQuotes()
-		return m, nil
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
-		// e also toggles quote expansion (alternative binding).
+		// Spec 30 §3.1 removed the `e` alternative — `e` is now an
+		// alternate archive key in the viewer pane (matches the
+		// Gmail / Inbox convention).
 		m.viewer.ToggleQuotes()
 		return m, nil
 	}
@@ -6154,7 +6219,7 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.threadChordToken++
 		m.threadChordPending = true
-		m.engineActivity = "thread: r/R/f/F/d/D/a/m/l/L/s/S  esc cancel"
+		m.engineActivity = "thread: r/R/f/F/d/D/a/e/m/l/L/s/S  esc cancel"
 		return m, threadChordTimeout(m.threadChordToken)
 	}
 	if m.threadChordPending {
@@ -6177,7 +6242,8 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runThreadExecuteCmd("flag", store.ActionFlag, cur.ID, nil)
 		case "F":
 			return m, m.runThreadExecuteCmd("unflag", store.ActionUnflag, cur.ID, nil)
-		case "a":
+		case "a", "e":
+			// Spec 30 §9.5 — viewer-pane `T e` matches `T a`.
 			return m, m.runThreadMoveCmd("archive", cur.ID, "", "archive")
 		case "d":
 			return m, m.threadPreFetchCmd("soft_delete", cur.ID)
@@ -6661,7 +6727,7 @@ func (m Model) View() string {
 		return base + "\n" + lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, prompt)
 	}
 	if m.mode == HelpMode {
-		return m.help.View(m.theme, m.keymap, m.width, m.height)
+		return m.help.View(m.theme, m.keymap, m.archiveLabel, m.width, m.height)
 	}
 	if m.mode == URLPickerMode {
 		return m.urlPicker.View(m.theme, m.viewer.Links(), m.width, m.height)
@@ -6677,7 +6743,7 @@ func (m Model) View() string {
 		// surrounding pane chrome so terminal selection drag works
 		// end-to-end. Reserves the bottom row for a hint line.
 		body := m.viewer.View(m.theme, m.width, m.height-1, true)
-		hint := m.theme.Dim.Render("z/Esc/q  exit  ·  r  reply  ·  R  reply-all  ·  f  forward  ·  d  delete  ·  a  archive  ·  y  yank URL")
+		hint := m.theme.Dim.Render("z/Esc/q  exit  ·  r  reply  ·  R  reply-all  ·  f  forward  ·  d  delete  ·  a  " + archiveVerbLower(m.archiveLabel) + "  ·  y  yank URL")
 		return body + "\n" + hint
 	}
 	if m.mode == FolderNameInputMode {
@@ -6794,13 +6860,14 @@ func (m Model) View() string {
 				folderHint = " (" + m.filterFolderName + ")"
 			}
 		}
-		hint := fmt.Sprintf("filter: %s · matched %d%s · ;d delete · ;a archive · :unfilter", m.filterPattern, len(m.filterIDs), folderHint)
+		archVerb := archiveVerbLower(m.archiveLabel)
+		hint := fmt.Sprintf("filter: %s · matched %d%s · ;d delete · ;a %s · :unfilter", m.filterPattern, len(m.filterIDs), folderHint, archVerb)
 		if m.bulkPending {
-			hint = "bulk: press d (delete) or a (archive) — esc to cancel"
+			hint = fmt.Sprintf("bulk: press d (delete) or a (%s) — esc to cancel", archVerb)
 		}
 		cmdBar = m.theme.CommandBar.Render(hint)
 	}
-	helpBar := renderHelpBar(m.theme, m.width, m.focused)
+	helpBar := renderHelpBar(m.theme, m.width, m.focused, m.archiveLabel)
 
 	// 3 chrome lines: status (top) + command (just above help) + help (bottom).
 	bodyHeight := m.height - 3
@@ -6847,7 +6914,7 @@ func (m Model) View() string {
 // relevant keys for what's focused. Each hint is "key description";
 // the key glyph is bold-coloured (HelpKey), the description is
 // regular (Help), separated by a dim middot (HelpSep).
-func renderHelpBar(t Theme, width int, focused Pane) string {
+func renderHelpBar(t Theme, width int, focused Pane, archiveLabel ArchiveLabel) string {
 	var hints [][2]string
 	// Pane-switch hints come first so the user always knows how to
 	// reach the OTHER panes from wherever they are. Then pane-local
@@ -6856,9 +6923,9 @@ func renderHelpBar(t Theme, width int, focused Pane) string {
 	case FoldersPane:
 		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"o", "expand"}, {"⏎", "open"}, {"/", "search"}, {"q", "quit"}}
 	case ListPane:
-		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", "archive"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"j/k", "nav"}, {"⏎", "open"}, {"/", "search"}, {":filter", "narrow"}, {"f", "flag"}, {"d", "delete"}, {"a", archiveVerbLower(archiveLabel)}, {"q", "quit"}}
 	case ViewerPane:
-		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"r", "reply"}, {"f", "fwd"}, {"a", "archive"}, {"d", "delete"}, {"z", "fullscreen"}, {"q", "quit"}}
+		hints = [][2]string{{"1/2/3", "panes"}, {"h", "back"}, {"j/k", "scroll"}, {"H", "headers"}, {"r", "reply"}, {"f", "fwd"}, {"a", archiveVerbLower(archiveLabel)}, {"d", "delete"}, {"z", "fullscreen"}, {"q", "quit"}}
 	default:
 		hints = [][2]string{{"1/2/3", "panes"}, {":", "command"}, {"q", "quit"}}
 	}

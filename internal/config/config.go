@@ -415,6 +415,15 @@ type UIConfig struct {
 	// ScreenerHintDismissed (spec 28 §5.3.2) is set to true the
 	// first time the user dismisses the post-enable hint with Esc.
 	// Auto-written via config.WriteUIFlag.
+	// ArchiveLabel (spec 30 §4) configures the verb used for the
+	// archive action in user-visible strings (status-bar toast,
+	// palette title, hint strings, help label, fullscreen body
+	// hint, filter status bar, bulk pending hint). Underlying
+	// action and destination folder are unchanged. Two values
+	// allowed: "archive" (default) or "done". Validation rejects
+	// any other value at load.
+	ArchiveLabel string `toml:"archive_label"`
+
 	ScreenerHintDismissed bool `toml:"screener_hint_dismissed"`
 	// ScreenerLastSeenEnabled (spec 28 §5.3.1) is the marker the
 	// gate-flip confirmation modal compares against `[screener].enabled`

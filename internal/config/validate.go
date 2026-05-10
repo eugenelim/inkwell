@@ -54,6 +54,12 @@ func (c *Config) Validate() error {
 	if w := runewidth.StringWidth(c.UI.BundleIndicatorExpanded); w > 2 {
 		errs = append(errs, fmt.Sprintf("ui.bundle_indicator_expanded %q is %d display cells; must be ≤ 2", c.UI.BundleIndicatorExpanded, w))
 	}
+	switch c.UI.ArchiveLabel {
+	case "archive", "done":
+	default:
+		// Reject empty + everything else. Spec 30 §4.1 strict literals.
+		errs = append(errs, fmt.Sprintf("ui.archive_label %q must be one of \"archive\" or \"done\"", c.UI.ArchiveLabel))
+	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":
 	default:

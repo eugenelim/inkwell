@@ -288,6 +288,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		BundleIndicatorExpanded:   cfg.UI.BundleIndicatorExpanded,
 		CustomActions:             caCat,
 		CustomActionDeps:          caDeps,
+		ArchiveLabel:              cfg.UI.ArchiveLabel,
 		ScreenerEnabled:           cfg.Screener.Enabled,
 		ScreenerGrouping:          cfg.Screener.Grouping,
 		ScreenerExcludeMuted:      cfg.Screener.ExcludeMuted,

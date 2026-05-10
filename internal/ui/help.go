@@ -36,8 +36,8 @@ type helpRow struct {
 // View renders the overlay. The model is stateless — it pulls the
 // current bindings off the supplied KeyMap so user overrides
 // surface immediately.
-func (m HelpModel) View(t Theme, km KeyMap, width, height int) string {
-	sections := buildHelpSections(km)
+func (m HelpModel) View(t Theme, km KeyMap, archiveLabel ArchiveLabel, width, height int) string {
+	sections := buildHelpSections(km, archiveLabel)
 	var b strings.Builder
 	for i, s := range sections {
 		if i > 0 {
@@ -59,8 +59,10 @@ func (m HelpModel) View(t Theme, km KeyMap, width, height int) string {
 
 // buildHelpSections assembles the canonical help layout from a
 // KeyMap. The order matches the user-facing reference doc so what
-// the user sees in `?` matches docs/user/reference.md.
-func buildHelpSections(km KeyMap) []helpSection {
+// the user sees in `?` matches docs/user/reference.md. The
+// archiveLabel parameter brands the Archive row's description per
+// spec 30 §5.7.
+func buildHelpSections(km KeyMap, archiveLabel ArchiveLabel) []helpSection {
 	return []helpSection{
 		{
 			title: "Pane focus & movement",
@@ -81,7 +83,7 @@ func buildHelpSections(km KeyMap) []helpSection {
 				{keysOf(km.ToggleFlag), "toggle flag"},
 				{keysOf(km.Delete), "soft-delete"},
 				{keysOf(km.PermanentDelete), "permanent delete (with confirm)"},
-				{keysOf(km.Archive), "archive"},
+				{keysOf(km.Archive), archiveVerbLower(archiveLabel)},
 				{keysOf(km.Move), "move to folder"},
 				{keysOf(km.AddCategory, km.RemoveCategory), "add / remove category"},
 				{keysOf(km.Undo), "undo last triage"},

@@ -32,9 +32,10 @@ func newThreadCmd(rc *rootContext) *cobra.Command {
 func newThreadArchiveCmd(rc *rootContext) *cobra.Command {
 	var outputFmt string
 	cmd := &cobra.Command{
-		Use:   "archive <conversation-id>",
-		Short: "Archive an entire thread",
-		Args:  cobra.ExactArgs(1),
+		Use:     "archive <conversation-id>",
+		Aliases: []string{"done"}, // spec 30 §5.6 — Cobra alias.
+		Short:   "Archive an entire thread (alias: done)",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := buildHeadlessApp(cmd.Context(), rc)
 			if err != nil {

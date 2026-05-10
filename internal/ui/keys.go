@@ -230,7 +230,7 @@ func DefaultKeyMap() KeyMap {
 		ToggleFlag:      key.NewBinding(key.WithKeys("f")),
 		Delete:          key.NewBinding(key.WithKeys("d")),
 		PermanentDelete: key.NewBinding(key.WithKeys("D")),
-		Archive:         key.NewBinding(key.WithKeys("a")),
+		Archive:         key.NewBinding(key.WithKeys("a", "e")),
 		Move:            key.NewBinding(key.WithKeys("m")),
 		AddCategory:     key.NewBinding(key.WithKeys("c")),
 		RemoveCategory:  key.NewBinding(key.WithKeys("C")),

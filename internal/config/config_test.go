@@ -180,6 +180,36 @@ func TestValidateBundleIndicatorWidthClamp(t *testing.T) {
 	require.Contains(t, err.Error(), "bundle_indicator_collapsed")
 }
 
+func TestArchiveLabelDefaultIsArchive(t *testing.T) {
+	c := Defaults()
+	require.Equal(t, "archive", c.UI.ArchiveLabel)
+	require.NoError(t, c.Validate())
+}
+
+func TestArchiveLabelAcceptsDone(t *testing.T) {
+	c := Defaults()
+	c.UI.ArchiveLabel = "done"
+	require.NoError(t, c.Validate())
+}
+
+func TestArchiveLabelRejectsUnknownValue(t *testing.T) {
+	for _, bad := range []string{"DONE", "Archive", "complete", "file"} {
+		c := Defaults()
+		c.UI.ArchiveLabel = bad
+		err := c.Validate()
+		require.Error(t, err, "label %q must be rejected", bad)
+		require.Contains(t, err.Error(), "ui.archive_label")
+	}
+}
+
+func TestArchiveLabelEmptyStringRejected(t *testing.T) {
+	c := Defaults()
+	c.UI.ArchiveLabel = ""
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ui.archive_label")
+}
+
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }

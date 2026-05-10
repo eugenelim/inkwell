@@ -5017,25 +5017,6 @@ func TestQKeyTogglesQuoteExpansion(t *testing.T) {
 	require.Equal(t, collapsed, m.viewer.body, "body must be collapsed form after second Q")
 }
 
-// TestEKeyTogglesQuoteExpansion confirms that e (alternative binding) also
-// toggles quote expansion in the viewer pane.
-func TestEKeyTogglesQuoteExpansion(t *testing.T) {
-	m := newDispatchTestModel(t)
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = m2.(Model)
-	require.Equal(t, ViewerPane, m.focused)
-
-	collapsed := "intro\n[… 2 quoted lines]\noutro\n"
-	expanded := "intro\n> q1\n> q2\noutro\n"
-	m.viewer.SetBody(collapsed, expanded, 1)
-	require.False(t, m.viewer.QuotesExpanded())
-
-	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
-	m = m2.(Model)
-	require.True(t, m.viewer.QuotesExpanded(), "e must expand quotes in viewer pane")
-	require.Equal(t, expanded, m.viewer.body)
-}
-
 // TestViewerWidthPassedToBodyOpts confirms openMessageCmd uses the computed
 // viewer width rather than the old hardcoded 80, and that WrapColumns
 // overrides the computed pane width when set.

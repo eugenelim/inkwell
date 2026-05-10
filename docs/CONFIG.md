@@ -116,6 +116,7 @@ Controls the terminal UI.
 | `bundle_min_count` | int | `2` | 0–9999 | Spec 26 §5.3. Minimum size of a consecutive same-sender run before it collapses into a bundle row. `0` disables bundling entirely while preserving designations. |
 | `bundle_indicator_collapsed` | string | `"▸"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on a collapsed bundle row. Use `">"` for ASCII-only terminals. |
 | `bundle_indicator_expanded` | string | `"▾"` | any string ≤ 2 cells | Spec 26 §5.2. Disclosure glyph on an expanded bundle row. Use `"v"` for ASCII-only terminals. |
+| `archive_label` | string | `"archive"` | `"archive"` / `"done"` | Spec 30 §4. Verb used for the archive action in user-visible strings (status-bar toast, palette title, hint strings, help label, fullscreen body hint, filter status bar, bulk pending hint). Underlying action and destination folder are unchanged. Validation is strict-literal: any other value (including `"DONE"` / `"complete"` / empty) is rejected at config load. |
 | `screener_hint_dismissed` | bool | `false` | `true` / `false` | Spec 28 §5.3.2. One-shot flag set the first time the user dismisses the post-enable Screener hint with `Esc`. Auto-written by `config.WriteUIFlag`; manual edits are honoured. |
 | `screener_last_seen_enabled` | bool | `false` | `true` / `false` | Spec 28 §5.3.1. Marker the first-launch detection compares against `[screener].enabled` to decide whether to render the gate-flip confirmation modal. Auto-written when the user confirms the gate. |
 | `transient_status_ttl` | duration | `"5s"` | 1s–60s | How long transient status messages remain visible. |
@@ -403,7 +404,7 @@ Keys are drawn from the `key.Binding` description in `internal/ui/keys.go`. Anyt
 | `toggle_flag` | `"f"` | List pane: toggle flag. Viewer pane: forward. Pane-scoped. |
 | `delete` | `"d"` | Soft delete. |
 | `permanent_delete` | `"D"` | Hard delete. Always confirms. |
-| `archive` | `"a"` | |
+| `archive` | `"a,e"` | Spec 30 §3. Both `a` and `e` archive by default. Override with `"a"` to drop `e`, `"e"` to drop `a`, or `"x"` to bind a different key entirely. The verb's user-visible label is configured separately via `[ui].archive_label`. |
 | `move` | `"m"` | |
 | `add_category` | `"c"` | |
 | `remove_category` | `"C"` | |

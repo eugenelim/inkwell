@@ -106,10 +106,10 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 
 	rows := []PaletteRow{
 		{
-			ID: "archive", Title: "Archive message",
+			ID: "archive", Title: archivePaletteRowTitle(m.archiveLabel),
 			Binding: keysOf(km.Archive), Section: sectionCommands,
-			Synonyms:  []string{"done", "file"},
-			Available: hasMsg,
+			Synonyms:  []string{"done", "file", "archive"},
+			Available: archiveAvailability(hasMsg, m.archiveLabel),
 			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
 				if msg == nil {
 					return mm, nil
@@ -266,9 +266,10 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 			},
 		},
 		{
-			ID: "thread_archive", Title: "Archive thread",
+			ID: "thread_archive", Title: archivePaletteThreadRowTitle(m.archiveLabel),
 			Binding: "T " + keysOf(km.Archive), Section: sectionCommands,
-			Available: threadAvail,
+			Synonyms:  []string{"done", "file", "archive"},
+			Available: archiveAvailability(threadAvail, m.archiveLabel),
 			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
 				if msg == nil {
 					return mm, nil
@@ -433,12 +434,12 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 			NeedsArg: true, Available: filteredApplyAvail,
 			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
 				mm.bulkPending = true
-				mm.engineActivity = "bulk: press d (delete) or a (archive) — esc to cancel"
+				mm.engineActivity = "bulk: press d (delete) or a (" + archiveVerbLower(mm.archiveLabel) + ") — esc to cancel"
 				return mm, nil
 			},
 			ArgFn: func(mm Model) (tea.Model, tea.Cmd) {
 				mm.bulkPending = true
-				mm.engineActivity = "bulk: press d (delete) or a (archive) — esc to cancel"
+				mm.engineActivity = "bulk: press d (delete) or a (" + archiveVerbLower(mm.archiveLabel) + ") — esc to cancel"
 				return mm, nil
 			},
 		},

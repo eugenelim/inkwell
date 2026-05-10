@@ -1013,4 +1013,56 @@ re-evaluates the local cache on every `SyncCompletedEvent`.
 
 ---
 
-_Last reviewed against v0.58.0._
+## Archive vs "done" — pick your vocabulary
+
+`inkwell` ships with two default keys for the archive verb: `a`
+(continuity with prior versions and Outlook conventions) and `e`
+(matches Gmail / Inbox keyboard muscle memory). Both keys do the
+same thing — move the focused message to your well-known
+**Archive** folder and dispatch the optimistic local apply through
+the action queue. Press `u` to undo (regardless of which key you
+used).
+
+If you prefer the HEY / Inbox **"done"** framing, flip a single
+config switch and every user-visible Archive label in the app
+rebrands:
+
+```toml
+[ui]
+archive_label = "done"
+```
+
+After restart:
+
+- The status-bar toast reads `✓ done · u to undo` (was
+  `✓ archive · u to undo`).
+- The palette title reads **Mark done** / **Mark thread done**
+  (was **Archive message** / **Archive thread**); the binding
+  column still shows `a, e`.
+- The fullscreen body hint, filter status bar, bulk pending hint,
+  list/viewer key hints, and help overlay all rebrand uniformly.
+- Cmd-bar verbs work both ways regardless of the label —
+  `:archive` and `:done` are aliases of the same dispatch.
+- The CLI alias `inkwell thread done <conv-id>` works regardless
+  of the label.
+
+The underlying action, destination folder, undo path, and Graph
+round-trip are **unchanged**. The choice is vocabulary, not
+behaviour. CLI flag values (`--action archive`) and config keys
+(`[triage].archive_folder`) keep the canonical `archive` spelling
+because those are stable interface contracts, not user-facing
+labels.
+
+If you want only one of the two default keys, override
+`[bindings].archive`:
+
+```toml
+[bindings]
+archive = "a"   # only a archives; e is freed
+# or:
+archive = "e"   # only e archives; a is freed
+```
+
+---
+
+_Last reviewed against v0.59.0._

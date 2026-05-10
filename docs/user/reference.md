@@ -87,13 +87,15 @@ Enter on a stream entry loads messages from that routing destination.
 | `f`       | Toggle flag                                                   |
 | `d`       | Soft-delete (move to Deleted Items)                           |
 | `D`       | Permanent delete (with confirm; bypasses Deleted Items; **NOT undoable**) |
-| `a`       | Archive (move to Archive folder)                              |
+| `a`       | Archive (move to Archive folder; also `e` — spec 30)          |
+| `e`       | Archive (alias of `a`; mirrors Gmail/Inbox convention)        |
 | `m`       | Move to a folder (opens picker; type to filter; Enter selects) |
 | `c`       | Add category (prompts for the name)                           |
 | `C`       | Remove category (prompts for the name)                        |
 | `;`       | Begin bulk chord (only when a filter is active)               |
 | `;d`      | Bulk delete the filtered set (with confirm)                   |
-| `;a`      | Bulk archive the filtered set (with confirm)                  |
+| `;a`      | Bulk archive the filtered set (with confirm; also `;e`)       |
+| `;e`      | Bulk archive the filtered set (alias of `;a`)                 |
 | `;m`      | Bulk move the filtered set to a folder (opens folder picker)  |
 | `U`       | Unsubscribe (RFC 8058 / mailto / browser; with confirm)       |
 | `M`       | Toggle mute on the focused message's conversation thread      |
@@ -104,7 +106,8 @@ Enter on a stream entry loads messages from that routing destination.
 | `T F`     | Unflag every message in the thread                            |
 | `T d`     | Soft-delete the entire thread (confirm, default N)            |
 | `T D`     | Permanently delete the entire thread (confirm, irreversible)  |
-| `T a`     | Archive the entire thread                                     |
+| `T a`     | Archive the entire thread (also `T e`)                        |
+| `T e`     | Archive the entire thread (alias of `T a`)                    |
 | `T m`     | Move whole thread (opens folder picker)                       |
 | `S`       | Begin stream chord — route the focused message's sender (see below) |
 | `S i`     | Route sender to Imbox                                         |
@@ -353,6 +356,8 @@ sessions older than 24h get garbage-collected on launch.
 | `:filter --all <pattern>`     | Same query, but shows folder count in status bar, FOLDER column in list pane, and folder context in confirm modal |
 | `:filter -a <pattern>`        | Short form of `--all`                                           |
 | `:unfilter`                   | Clear active filter, restore prior folder                       |
+| `:archive`                    | Spec 30. Archive the focused message (same as pressing `a` / `e`). |
+| `:done`                       | Spec 30. Alias of `:archive`; same dispatch path.               |
 | `:refresh`                    | Force a sync cycle now (same as `Ctrl+R`)                       |
 | `:folder <name>`              | Jump the list pane to a folder (DisplayName or well-known like `inbox`) |
 | `:search <query>`             | Run an FTS search and show hits (same as `/<query>`)            |
@@ -646,6 +651,8 @@ JSON via `--output json`.
 | `inkwell filter '<pattern>' --action delete --apply`   | Bulk soft-delete via Graph $batch.                  |
 | `inkwell filter '<pattern>' --action archive --apply`  | Bulk archive.                                       |
 | `inkwell filter '<pattern>' --action mark-read --apply`| Bulk mark-read.                                     |
+| `inkwell thread archive <conv-id>`                     | Spec 30. Archive every message in a conversation. Cobra alias: `inkwell thread done <conv-id>`. |
+| `inkwell thread done <conv-id>`                        | Alias of `inkwell thread archive`. Same RunE.       |
 | `inkwell route assign <email> <dest>`                  | Set sender routing: `imbox`, `feed`, `paper_trail`, `screener`. |
 | `inkwell route clear <email>`                          | Remove routing for a sender.                        |
 | `inkwell route list`                                   | List all routing entries.                           |
@@ -743,4 +750,4 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.58.0._
+_Last reviewed against v0.59.0._

@@ -1,7 +1,7 @@
 # Spec 30 — "Done" alias for archive
 
 ## Status
-not-started
+done
 
 ## DoD checklist
 
@@ -175,6 +175,91 @@ batched dispatch ≤ 50ms p95 per 100-message batch) is unchanged.
 | (no new budgets) | — | — | — | — |
 
 ## Iteration log
+
+### Iter 1 — 2026-05-09 (implementation shipped as v0.59.0)
+
+- Slice: full implementation per §9 DoD across 13 files.
+- Files added: `internal/ui/labels.go` (ArchiveLabel typed string,
+  archiveVerbLower / archiveVerbTitle / archiveVerbForName /
+  archiveVerbTitleForName / archivePaletteRowTitle /
+  archivePaletteThreadRowTitle / archiveAvailability) +
+  `internal/ui/labels_test.go` + `internal/ui/done_alias_test.go`
+  (≈20 dispatch + branding tests).
+- Files modified: `internal/ui/keys.go` (Archive default
+  `["a","e"]`); `internal/config/config.go` +
+  `defaults.go` + `validate.go` (`UIConfig.ArchiveLabel` with
+  default `"archive"`, strict-literal validation);
+  `internal/ui/app.go` (Model.archiveLabel, triageDoneMsg /
+  bulkDoneMsg / threadOpDoneMsg toast branding, confirmBulk verb
+  branding, filter status-bar hint, bulk pending hint, fullscreen
+  body hint, list/viewer pane hints, runArchiveOnFocused helper
+  for `:archive` / `:done`, thread chord arms accept `e` as
+  alternate, chord-pending hint includes `/e/`, `;e` arm,
+  removal of viewer `e` quote-toggle); `internal/ui/help.go`
+  (buildHelpSections gains archiveLabel parameter);
+  `internal/ui/palette_commands.go` (single-message + thread row
+  titles dynamic, synonyms widened to `["done","file","archive"]`
+  on both rows, Available.Why branded);
+  `cmd/inkwell/cmd_run.go` (thread Deps.ArchiveLabel from
+  cfg.UI.ArchiveLabel); `cmd/inkwell/cmd_thread.go` (Cobra
+  `Aliases: []string{"done"}` on the archive subcommand);
+  `internal/ui/dispatch_test.go` (TestEKeyTogglesQuoteExpansion
+  deleted per spec §3.1).
+- Implementation notes:
+  - The deleted viewer `e` quote-toggle was an undocumented
+    alternative to `Q`; spec 30 reclaims `e` as the alternate
+    archive key. `Q` remains the canonical viewer quote-toggle.
+  - The folders-pane `e` rule-edit (spec 11) is preserved by the
+    pane-scoping precedent (`r` / `f` similarly mean different
+    things in different panes); folders pane consumes `e` before
+    keymap dispatch reaches the Archive binding.
+  - The branding helper is a typed-switch with no allocation;
+    every user-visible archive verb passes through one of the
+    five labels.go entry points so the label is honoured
+    uniformly. Logs and CLI flag values keep the canonical
+    `archive` string per spec §4.4.
+  - Cobra alias on `inkwell thread archive done` makes `inkwell
+    thread done <id>` invoke the same RunE.
+- Tests added: 4 config tests (`TestArchiveLabelDefaultIsArchive`,
+  `TestArchiveLabelAcceptsDone`,
+  `TestArchiveLabelRejectsUnknownValue`,
+  `TestArchiveLabelEmptyStringRejected`), 7 ui/labels tests,
+  5 keymap tests, 2 help-overlay tests, 14 dispatch + branding
+  tests covering `e` archive from list/viewer, `:archive` /
+  `:done` cmd-bar verbs (success + empty-list error variants),
+  toast branding under both labels, palette title swap, palette
+  synonyms, viewer `Q` regression test, viewer `e` no-toggle
+  regression test, `;e` arm, `T e` chord arm, chord-pending hint
+  glyphs. 2 CLI tests for the thread `done` alias. All races
+  clean.
+- Commands run: `gofmt -s -d` (clean), `go vet ./...` (clean),
+  `go build ./...` (clean), `go test -race ./...` (all green
+  including the new tests), `go test -tags=integration ./...`
+  (clean), `go test -tags=e2e ./...` (clean).
+- Self-review: spec §9 DoD walked end-to-end. Every site listed
+  in §4.3's exhaustive table is updated. The `archiveAvailability`
+  helper handles the spec §5.5 `Available.Why` branding for
+  palette rows. `archiveVerbForName(name, label)` is the central
+  branch — non-archive action names pass through unchanged so the
+  helper is a no-op for delete/move/mark-read/etc. paths.
+- Doc sweep: spec Shipped line `v0.59.0`; plan flips to `done`;
+  PRD §10 inventory; ROADMAP Bucket 3 row 4 + §1.23 backlog
+  heading; CONFIG.md `[ui].archive_label` row + `[bindings].archive`
+  row updated with the `"a,e"` default; user/reference.md adds
+  `e` archive key + `:archive` / `:done` cmd-bar verbs +
+  `T e` / `;e` chord rows + `inkwell thread done` CLI alias +
+  footer bumped to v0.59.0; user/how-to.md gains a short
+  paragraph on the alias and the `[ui].archive_label` switch;
+  user/explanation.md gains "archive vs done" framing;
+  README.md status table row + download example.
+- Critique: spec 30 was the simplest of the four Bucket-3 specs
+  ("half a day of binding/branding work" per §0). Implementation
+  matched the estimate with adversarial review built in; the
+  deleted viewer `e` test was the only gotcha. Spec 30 ships
+  Bucket 3 in full — backlog §0 Bucket 3 is now closed.
+- Next: roadmap focus shifts to Bucket 4 (post-v1.0 hardening:
+  multi-account, attachments rewrite, send-mode if Mail.Send
+  ever gets granted, native installers).
 
 ### Iter 0 — 2026-05-08 — spec authoring
 - Slice: write spec 30 + plan from roadmap §1.23.

@@ -1,6 +1,7 @@
 # Spec 30 — "Done" alias for archive
 
-**Status:** Ready for implementation.
+**Shipped:** v0.59.0.
+**Status:** Shipped.
 **Depends on:** Spec 04 (KeyMap, `BindingOverrides`,
 `ApplyBindingOverrides`, `findDuplicateBinding`), Spec 07 (existing
 `Triage.Archive` / `BulkArchive` / `ThreadMove(...,"archive")` paths

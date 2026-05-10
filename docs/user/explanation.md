@@ -229,4 +229,34 @@ on your machine."
 
 ---
 
-_Last reviewed against v0.57.0._
+## Archive vs "done"
+
+`inkwell` exposes a single archive action with two surface
+aliases: a second default key (`e`, matching Gmail / Inbox
+keyboard muscle memory) and a configurable verb label
+(`[ui].archive_label = "archive" | "done"`) that flips every
+user-visible string between **Archive** and **Done** vocabulary.
+
+The choice is **vocabulary, not behaviour**. The action, the
+destination folder, the undo path, and the Graph round-trip are
+identical for both labels. A user who flipped the label to
+`"done"` is not running a different code path — they are reading
+the same toasts and palette titles with one token swapped.
+
+The framing inkwell follows is HEY's: archive is what custodial
+mail clients call it; **Done** is what users actually mean. Both
+words point at the same thing — "I'm finished thinking about
+this thread; get it out of my way." The two-vocabulary surface
+lets users pick the framing that matches their mental model
+without forcing the codebase to model two different actions.
+
+Logs and CLI flag values keep the canonical `archive` spelling
+because those are stable interface contracts. A future user who
+greps a log file for "archive" finds every event regardless of
+which label was active at the time; a script that runs
+`inkwell filter ... --action archive --apply` is unaffected by
+which keyboard / palette vocabulary the operator prefers.
+
+---
+
+_Last reviewed against v0.59.0._
