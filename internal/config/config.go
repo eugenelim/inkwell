@@ -44,6 +44,26 @@ type Config struct {
 	CLI             CLIConfig             `toml:"cli"`
 	CustomActions   CustomActionsConfig   `toml:"custom_actions"`
 	Screener        ScreenerConfig        `toml:"screener"`
+	Inbox           InboxConfig           `toml:"inbox"`
+}
+
+// InboxConfig owns the [inbox] section (spec 31). Inbox-scoped UI
+// configuration; the first key is `split`, gating the read-only
+// Focused / Other sub-strip over the Inbox folder.
+type InboxConfig struct {
+	// Split selects the inbox sub-strip mode. "off" (default) renders
+	// no sub-strip. "focused_other" renders a two-segment sub-strip
+	// driven by messages.inference_class (spec 31 §1, §5.2).
+	Split string `toml:"split"`
+	// SplitShowZeroCount, when true, renders `[Focused 0]` instead of
+	// `[Focused]` for a sub-tab with no unread. Mirrors
+	// tabs.show_zero_count (spec 24 §10).
+	SplitShowZeroCount bool `toml:"split_show_zero_count"`
+	// SplitDefaultSegment selects which sub-tab is selected on the
+	// first cycle from the -1 cold-start state. "focused" (default),
+	// "other", or "none" (no `]`/`[` activation; user must invoke
+	// :focused / :other). Spec 31 §5.4.
+	SplitDefaultSegment string `toml:"split_default_segment"`
 }
 
 // ScreenerConfig owns the [screener] section (spec 28).

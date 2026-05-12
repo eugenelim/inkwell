@@ -1063,6 +1063,76 @@ archive = "a"   # only a archives; e is freed
 archive = "e"   # only e archives; a is freed
 ```
 
+## Show Focused / Other in the Inbox
+
+Microsoft Graph classifies each Inbox message as **Focused** or
+**Other** via the `inferenceClassification` property; that signal is
+what Outlook desktop / web renders as the Focused tabs. inkwell
+mirrors the split as a read-only sub-strip above the Inbox list — no
+new schema, no new Graph scope, no per-message override.
+
+Off by default. Flip one key:
+
+```toml
+[inbox]
+split = "focused_other"
+# optional:
+# split_show_zero_count = true     # render `[Focused 0]` not `[Focused]`
+# split_default_segment = "focused" # which segment ] / [ activate from cold start
+```
+
+Restart inkwell. On the Inbox folder you'll see a one-row strip:
+
+```
+ [Focused 12] [Other 47]
+```
+
+Cycle with `]` / `[`, or invoke the cmd-bar verbs `:focused` /
+`:other` (always available — the verbs navigate to Inbox if needed).
+Cursor and scroll position are preserved per segment across cycles.
+
+The strip only paints when:
+
+- `[inbox].split = "focused_other"`.
+- The Inbox folder is selected (not Sent, Archive, a saved-search
+  row, or a routing virtual folder).
+- No spec-24 user-defined tab is active. If you also have
+  user-defined tabs configured, `]` / `[` cycle THOSE; use
+  `:focused` / `:other` to switch sub-tabs.
+- No `:search` query is active.
+- No `:filter --all` cross-folder filter is active. Plain
+  `:filter <pattern>` (folder-scoped) is compatible — your pattern
+  is AND'd with the sub-tab class predicate and the strip stays
+  visible.
+
+**Tenant with Focused Inbox disabled.** Some tenants turn Focused
+Inbox off; Graph then returns an empty `inferenceClassification`
+field and both segments show zero unread. inkwell renders a one-time
+hint the first time the strip appears with both badges at zero and
+the Inbox total unread non-zero:
+
+> focused/other looks empty — your tenant may have Focused Inbox off
+> (see [inbox].split docs)
+
+Press Esc to dismiss; the hint never repeats in the same session.
+
+**Screener interaction.** When `[screener].enabled = true`, the
+sub-strip's default view hides screener-routed senders (mirroring
+the unsplit Inbox folder). Running `:filter <pattern>` over an
+active sub-tab does NOT apply the screener filter (per spec 28's
+`:filter` contract) — the filter path can therefore "reveal" more
+rows than the bare sub-tab view. Intentional.
+
+**CLI sugar.** Outside the TUI:
+
+```sh
+inkwell messages --view focused                  # ~y focused over Inbox
+inkwell messages --view other --filter '~d <7d'  # AND'd
+```
+
+`--view <unknown>` exits 2. `--view focused --folder Sent` also
+exits 2 — the flag enforces the Inbox folder scope.
+
 ---
 
-_Last reviewed against v0.59.0._
+_Last reviewed against v0.60.0._

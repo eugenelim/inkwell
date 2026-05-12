@@ -467,6 +467,25 @@ The recipe schema (op catalogue, template variables, confirm policies) lives in 
 
 ---
 
+## `[inbox]`
+
+Spec 31. Inbox-scoped UI configuration. The first key, `split`, gates a
+read-only **Focused / Other** sub-strip rendered above the message list
+when the user is on the Inbox folder. Off by default; existing users
+see no change on upgrade. The signal comes from Microsoft Graph's
+`inferenceClassification` field that sync already populates — no new
+schema, no new Graph scope.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `split` | string | `"off"` | `"off"` / `"focused_other"` | Whether the Inbox folder renders a Focused / Other sub-strip above the message list. `"focused_other"` activates the two-segment strip; `]` / `[` cycle when no spec-24 tabs are configured (precedence rule in §5.5). Empty string rejected. |
+| `split_show_zero_count` | bool | `false` | `true` / `false` | When `true`, render `[Focused 0]` instead of `[Focused]` for a sub-tab with no unread. Mirrors `tabs.show_zero_count`. |
+| `split_default_segment` | string | `"focused"` | `"focused"` / `"other"` / `"none"` | Which sub-tab is selected on the first cycle from the `-1` cold-start state. `"focused"` (default) makes `]` and `[` both land on Focused first; `"other"` makes them both land on Other; `"none"` keeps `activeInboxSubTab` at `-1` until the user explicitly invokes `:focused` / `:other` (no `]`/`[` activation). |
+
+**Owner spec:** 31.
+
+---
+
 ## `[screener]`
 
 Spec 28. The first-contact gate: when enabled, mail from senders not in `sender_routing` OR routed to `'screener'` is hidden from default folder views and surfaces in the Screener / Screened-Out virtual folders. Off by default — flipping the flag without a routing pass first is the most common surprise; the gate-flip confirmation modal (§5.3.1) renders at the next launch when there are pending messages to hide.

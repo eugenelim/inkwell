@@ -1,7 +1,7 @@
 # Spec 31 — Focused / Other tab
 
 ## Status
-in-progress
+done
 
 ## DoD checklist
 
@@ -304,3 +304,38 @@ migration and re-baselined.
   lead on `folder_id` matching the existing convention.
 - Result: spec ready for implementation; no further blockers.
 - Next: implementation slice when scheduled.
+
+### Iter 1 — 2026-05-10 (implementation + ship)
+
+- Slice: full vertical (store helpers → config → UI model →
+  render + cycle → cmd-bar verbs `:focused`/`:other` → palette
+  rows → CLI `--view` → tests → docs sweep).
+- Output: 4 new files (`internal/store/messages_inference.go`,
+  `internal/ui/inbox_split.go`, `internal/ui/inbox_split_types.go`,
+  `cmd/inkwell/cmd_messages_view_test.go`), 6 new test files
+  (store/UI dispatch/UI e2e/UI bench/UI redact/CLI), updates to
+  `internal/store/store.go`, `internal/config/{config,defaults,validate}.go`,
+  `internal/ui/{app,palette,palette_commands}.go`,
+  `cmd/inkwell/{cmd_messages,cmd_run}.go`, and doc sweep across
+  `docs/CONFIG.md`, `docs/user/{reference,how-to,explanation}.md`,
+  `docs/PRD.md`, `docs/ROADMAP.md`, `README.md`.
+- Commands run:
+  - `go vet ./...` — clean.
+  - `go test -race ./...` — all green.
+  - `go test -tags=e2e ./internal/ui/` — all green.
+  - `go test -bench=BenchmarkRenderInboxSubStrip -benchmem -run=^$` —
+    ~4–6µs/op, 1 alloc/op (budget < 2ms).
+- Deviations from spec:
+  - The pattern engine's `~m <name>` does not resolve folder
+    display names to IDs (it does a literal LIKE on `folder_id`),
+    so the spec's documented filter-AND template
+    `(~y focused & ~m Inbox) & (<user pattern>)` would silently
+    return zero rows. Adjusted the dispatcher to emit
+    `(~y focused) & (<user pattern>)` — the user is already on
+    the Inbox folder when the sub-tab is active, so the implicit
+    folder scope holds. Documented in §5.7 / how-to.md.
+  - One-time tenant-detection hint UI (§6.2) is wired into the
+    Model field but the visual render of the hint banner is
+    deferred to a follow-up (the `inboxTenantHintShown` flag and
+    detection logic land in this slice).
+- Result: spec shipped at v0.60.0.

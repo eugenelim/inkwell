@@ -210,6 +210,52 @@ func TestArchiveLabelEmptyStringRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "ui.archive_label")
 }
 
+func TestInboxSplitDefaultIsOff(t *testing.T) {
+	c := Defaults()
+	require.Equal(t, "off", c.Inbox.Split)
+	require.NoError(t, c.Validate())
+}
+
+func TestInboxSplitAcceptsFocusedOther(t *testing.T) {
+	c := Defaults()
+	c.Inbox.Split = "focused_other"
+	require.NoError(t, c.Validate())
+}
+
+func TestInboxSplitRejectsUnknownValue(t *testing.T) {
+	for _, bad := range []string{"FOCUSED_OTHER", "complete", "split", "all"} {
+		c := Defaults()
+		c.Inbox.Split = bad
+		err := c.Validate()
+		require.Error(t, err, "value %q must be rejected", bad)
+		require.Contains(t, err.Error(), "inbox.split")
+	}
+}
+
+func TestInboxSplitRejectsEmptyString(t *testing.T) {
+	c := Defaults()
+	c.Inbox.Split = ""
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "inbox.split")
+}
+
+func TestInboxSplitDefaultSegmentDefault(t *testing.T) {
+	c := Defaults()
+	require.Equal(t, "focused", c.Inbox.SplitDefaultSegment)
+	require.NoError(t, c.Validate())
+}
+
+func TestInboxSplitDefaultSegmentRejectsUnknown(t *testing.T) {
+	for _, bad := range []string{"", "Focused", "auto", "either"} {
+		c := Defaults()
+		c.Inbox.SplitDefaultSegment = bad
+		err := c.Validate()
+		require.Error(t, err, "value %q must be rejected", bad)
+		require.Contains(t, err.Error(), "inbox.split_default_segment")
+	}
+}
+
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }

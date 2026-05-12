@@ -1,6 +1,7 @@
 # Spec 31 — Focused / Other tab
 
-**Status:** Draft.
+**Status:** Shipped.
+**Shipped:** v0.60.0.
 **Depends on:** Spec 02 (`messages.inference_class` column from
 migration `001_initial.sql`; existing sync write-path), Spec 03
 (`InferenceClassification` field already populated by

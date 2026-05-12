@@ -25,6 +25,7 @@ func newMessagesCmd(rc *rootContext) *cobra.Command {
 		output         string
 		filter         string
 		rule           string
+		view           string
 		allFolders     bool
 		watch          bool
 		watchInterval  time.Duration
@@ -55,6 +56,18 @@ Examples:
   inkwell messages --filter '~U' --watch --initial=10 --count 5`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx := c.Context()
+			// Spec 31 §8.1 — --view is sugar for `--filter '~y <view>'
+			// --folder Inbox`. Validate via a pure helper so tests can
+			// exercise the error paths without os.Exit.
+			if view != "" {
+				newFolder, newFilter, vErr := applyMessagesViewFlag(view, folder, filter)
+				if vErr != nil {
+					fmt.Fprintln(c.ErrOrStderr(), vErr.Error())
+					os.Exit(2)
+				}
+				folder = newFolder
+				filter = newFilter
+			}
 			if watch {
 				return runWatchFromFlags(ctx, rc, watchOpts{
 					folder:         folder,
@@ -115,6 +128,7 @@ Examples:
 	cmd.Flags().StringVar(&filter, "filter", "", "spec 08 pattern; overrides --folder/--unread when set")
 	cmd.Flags().StringVar(&rule, "rule", "", "saved search name (spec 11); mutually exclusive with --filter")
 	cmd.Flags().StringVar(&output, "output", "", "output format: text|json (overrides [cli].default_output)")
+	cmd.Flags().StringVar(&view, "view", "", "spec 31: \"focused\" or \"other\" — Inbox sub-strip view (sugar for --filter '~y <view>' --folder Inbox)")
 	cmd.Flags().BoolVar(&allFolders, "all", false, "ignore --folder and search all folders (requires --filter)")
 	cmd.Flags().BoolVar(&watch, "watch", false, "stream new matches like tail -f (spec 29; requires --filter or --rule)")
 	cmd.Flags().DurationVar(&watchInterval, "interval", 0, "watch: re-eval cadence (default = engine foreground interval; min 5s)")
@@ -759,4 +773,26 @@ func openEditor() (string, error) {
 	}
 	_ = os.Remove(name)
 	return string(data), nil
+}
+
+// applyMessagesViewFlag implements the spec 31 §8.1 `--view` flag
+// translation. Returns the resolved (folder, filter) pair, or an error
+// describing exactly the user-visible message to print on stderr
+// before exiting with code 2. Helper is pure so unit tests can exercise
+// both error paths.
+func applyMessagesViewFlag(view, folder, filter string) (string, string, error) {
+	switch view {
+	case "focused", "other":
+	default:
+		return "", "", fmt.Errorf("messages: --view must be one of \"focused\", \"other\"")
+	}
+	if folder != "" && strings.ToLower(folder) != "inbox" {
+		return "", "", fmt.Errorf("messages: --view requires --folder Inbox (or no --folder); got %q", folder)
+	}
+	if filter == "" {
+		filter = "~y " + view
+	} else {
+		filter = "(~y " + view + ") & (" + filter + ")"
+	}
+	return "Inbox", filter, nil
 }

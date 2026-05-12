@@ -259,4 +259,39 @@ which keyboard / palette vocabulary the operator prefers.
 
 ---
 
+## Focused / Other — read-only by design
+
+Microsoft Graph already classifies each Inbox message as
+`focused` or `other` via the `inferenceClassification` property.
+inkwell's spec-31 sub-strip **surfaces that signal but never
+overrides it.** v1 issues neither
+`PATCH /me/messages/{id}` with `inferenceClassification` nor
+`POST /me/inferenceClassificationOverrides`. The choice is
+deliberate, and the reasoning is the same as the broader inkwell
+philosophy: prefer the existing primitive over a parallel one.
+
+The per-sender intent the override endpoint expresses — "always
+treat mail from this sender as Focused / Other" — already has a
+first-class home in inkwell via **spec 23 routing** (Imbox / Feed
+/ Paper Trail / Screener). A user systematically routing
+"newsletters to Feed" is doing the same logical work as pinning
+those senders to Other, but through a primitive that's
+retroactive, scriptable, and visible in the sidebar. Duplicating
+that intent into a second mechanism would split user attention
+across two surfaces that disagree on edge cases.
+
+The per-message override — "this one message is actually
+Focused" — is rarer and less load-bearing; a future spec may add
+a write surface for it (PATCH-style), but the bar is the same:
+does it earn its keep against the existing `[Focused] [Other]`
+display and the spec 23 routing primitive? In v1, the answer is
+no, so we surface and don't override.
+
+The split is also strictly **Inbox-folder-scoped.** Outside the
+Inbox the `inferenceClassification` signal is undefined per
+Microsoft's docs — so we render the unsplit list rather than a
+half-populated split that would only confuse the user.
+
+---
+
 _Last reviewed against v0.59.0._

@@ -310,7 +310,16 @@ type Deps struct {
 	ScreenerMaxCountPerSender int
 	ScreenerHintDismissed     bool
 	ScreenerLastSeenEnabled   bool
-	ConfigPath                string
+
+	// Spec 31 — inbox sub-strip (Focused / Other). InboxSplit threads
+	// [inbox].split as a typed enum; InboxSplitDefaultSegment threads
+	// [inbox].split_default_segment ("focused" / "other" / "none");
+	// InboxSplitShowZeroCount mirrors [inbox].split_show_zero_count.
+	InboxSplit               string
+	InboxSplitDefaultSegment string
+	InboxSplitShowZeroCount  bool
+
+	ConfigPath string
 	// TransientStatusTTL controls how long engineActivity messages
 	// persist before auto-clearing. 0 disables auto-clear.
 	TransientStatusTTL time.Duration
@@ -815,6 +824,24 @@ type Model struct {
 	tabLastFocused   map[int64]time.Time
 	tabsCfg          TabsConfig
 	lastTabRefreshAt time.Time
+
+	// Spec 31 — inbox sub-strip (Focused / Other). inboxSplit is threaded
+	// once at ui.New from cfg.Inbox.Split (no hot reload). activeInboxSubTab
+	// is -1 when neither segment is focused (cold start); 0 = focused,
+	// 1 = other. The [2]listSnapshot / [2]int arrays are fixed-length
+	// because the sub-tab count is fixed at two.
+	// inboxSplitDefaultSegment encodes [inbox].split_default_segment for
+	// the -1 cold-start cycle behaviour (§5.4).
+	// inboxTenantHintShown is the one-time tenant-detection flag (§6.2).
+	inboxSplit               InboxSplit
+	inboxSplitDefaultSegment string
+	activeInboxSubTab        int
+	inboxSubTabState         [2]listSnapshot
+	inboxSubTabUnread        [2]int
+	inboxSubTabLastFocused   [2]time.Time
+	inboxSubTabUnreadOK      [2]bool
+	inboxSubTabRefreshAt     time.Time
+	inboxTenantHintShown     bool
 	// pendingThreadMove is true while FolderPickerMode is active for T m.
 	pendingThreadMove bool
 	// pendingThreadIDs stores pre-fetched message IDs for T d / T D
@@ -982,6 +1009,7 @@ func New(deps Deps) (Model, error) {
 		tabsCfg:             tabsConfigOrDefault(deps.Tabs),
 		tabUnread:           make(map[int64]int),
 		tabLastFocused:      make(map[int64]time.Time),
+		activeInboxSubTab:   -1,
 		bundledSenders:      make(map[string]struct{}),
 		bundleExpanded:      make(map[string]map[string]bool),
 		bundleInflight:      make(map[string]uint64),
@@ -1023,6 +1051,19 @@ func New(deps Deps) (Model, error) {
 		m.archiveLabel = ArchiveLabelDone
 	default:
 		m.archiveLabel = ArchiveLabelArchive
+	}
+	// Spec 31 — inbox sub-strip. Validation at config-load rejects
+	// anything but {"off","focused_other"} / {"focused","other","none"};
+	// a zero-value Deps defaults to off / focused.
+	switch InboxSplit(deps.InboxSplit) {
+	case InboxSplitFocusedOther:
+		m.inboxSplit = InboxSplitFocusedOther
+	default:
+		m.inboxSplit = InboxSplitOff
+	}
+	m.inboxSplitDefaultSegment = deps.InboxSplitDefaultSegment
+	if m.inboxSplitDefaultSegment == "" {
+		m.inboxSplitDefaultSegment = "focused"
 	}
 	return m, nil
 }
@@ -1229,7 +1270,13 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.FolderID = pick.ID
 			m.folders.SelectByID(pick.ID)
-			return m, tea.Batch(m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd())
+			cmds := []tea.Cmd{m.loadMessagesCmd(pick.ID), m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd()}
+			if m.inboxSplit == InboxSplitFocusedOther {
+				if refreshCmd := m.refreshInboxSubTabUnreadCmd(); refreshCmd != nil {
+					cmds = append(cmds, refreshCmd)
+				}
+			}
+			return m, tea.Batch(cmds...)
 		}
 		return m, tea.Batch(m.refreshMutedCountCmd(), m.refreshStreamCountsCmd(), m.refreshScreenerSidebarCmd(), m.refreshStackCountsCmd())
 
@@ -2218,6 +2265,37 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tabCountsUpdatedMsg:
 		m.tabUnread = msg.counts
 		m.lastTabRefreshAt = time.Now()
+		return m, nil
+
+	case inboxSubTabLoadedMsg:
+		// Discard stale loads (folder changed during fetch).
+		if msg.folderID != m.inboxFolderID() {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.lastError = fmt.Errorf("inbox %s: %w", inboxSubTabName(msg.segment), msg.err)
+			return m, nil
+		}
+		// Stamp the slice into the segment's snapshot and into the
+		// list pane when this segment is the active one.
+		m.inboxSubTabState[msg.segment] = listSnapshot{
+			messages:   msg.messages,
+			capturedAt: time.Now(),
+		}
+		if msg.segment == m.activeInboxSubTab {
+			m.list.SetMessages(msg.messages)
+		}
+		return m, nil
+
+	case inboxSubTabUnreadMsg:
+		if msg.folderID != m.inboxFolderID() {
+			return m, nil
+		}
+		m.inboxSubTabUnread[inboxSubTabFocused] = msg.focused
+		m.inboxSubTabUnread[inboxSubTabOther] = msg.other
+		m.inboxSubTabUnreadOK[inboxSubTabFocused] = msg.focusedOK
+		m.inboxSubTabUnreadOK[inboxSubTabOther] = msg.otherOK
+		m.inboxSubTabRefreshAt = time.Now()
 		return m, nil
 
 	case tabMutationDoneMsg:
@@ -3335,6 +3413,20 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.filterAllFolders = allFolders
+		// Spec 31 §5.7 — when a sub-tab is active AND the filter is
+		// folder-scoped (not --all), AND the user pattern with the
+		// sub-tab's class predicate so the result stays inside the
+		// segment view. `~m Inbox` is omitted because the pattern
+		// engine's `~m` matches against the raw folder_id, not a
+		// user-typed name; the filter already runs against the user's
+		// active folder by virtue of the list-pane re-render.
+		if !allFolders && m.activeInboxSubTab >= 0 && m.inboxSplit == InboxSplitFocusedOther {
+			cls := "focused"
+			if m.activeInboxSubTab == inboxSubTabOther {
+				cls = "other"
+			}
+			patternSrc = "(~y " + cls + ") & (" + patternSrc + ")"
+		}
 		return m, m.runFilterCmd(patternSrc)
 	case "save":
 		if len(args) < 2 {
@@ -3380,6 +3472,12 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchActions(args[1:])
 	case "tab":
 		return m.dispatchTabCmd(args[1:])
+	case "focused":
+		mm, cmd := m.activateInboxSubTabFromCmdBar(inboxSubTabFocused)
+		return mm, cmd
+	case "other":
+		mm, cmd := m.activateInboxSubTabFromCmdBar(inboxSubTabOther)
+		return mm, cmd
 	case "later":
 		// Spec 25 §5.10 — switch to the Reply Later virtual folder.
 		m.list.FolderID = replyLaterSentinelID
@@ -4659,10 +4757,20 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keymap.NextTab):
-		mm, cmd := m.cycleTab(+1)
+		// Spec 31 §5.5 cycle precedence: spec-24 tabs first; else
+		// inbox sub-strip; else no-op.
+		if len(m.tabs) > 0 {
+			mm, cmd := m.cycleTab(+1)
+			return mm, cmd
+		}
+		mm, cmd := m.cycleInboxSubTab(+1)
 		return mm, cmd
 	case key.Matches(msg, m.keymap.PrevTab):
-		mm, cmd := m.cycleTab(-1)
+		if len(m.tabs) > 0 {
+			mm, cmd := m.cycleTab(-1)
+			return mm, cmd
+		}
+		mm, cmd := m.cycleInboxSubTab(-1)
 		return mm, cmd
 	case key.Matches(msg, m.keymap.Up):
 		m.list.Up()
@@ -6638,6 +6746,14 @@ func (m Model) handleSyncEvent(ev isync.Event) (Model, tea.Cmd) {
 		if refreshCmd := m.refreshTabCountsCmd(); refreshCmd != nil {
 			cmds = append(cmds, refreshCmd)
 		}
+		// Refresh inbox sub-strip badges — spec 31 §6.1. Only when
+		// the Inbox folder is the synced folder (other folders don't
+		// affect the inbox split).
+		if m.inboxSplit == InboxSplitFocusedOther && e.FolderID == m.inboxFolderID() {
+			if refreshCmd := m.refreshInboxSubTabUnreadCmd(); refreshCmd != nil {
+				cmds = append(cmds, refreshCmd)
+			}
+		}
 		// Refresh stack counts — sync delta may have brought
 		// category changes from Outlook web (spec 25 §10.4).
 		if refreshCmd := m.refreshStackCountsCmd(); refreshCmd != nil {
@@ -6882,13 +6998,20 @@ func (m Model) View() string {
 	folders := m.folders.View(m.theme, m.paneWidths.Folders, bodyHeight, m.focused == FoldersPane)
 	listHeight := bodyHeight
 	tabStrip := m.renderTabStrip(m.theme, m.paneWidths.List)
+	inboxStrip := m.renderInboxSubStrip(m.theme, m.paneWidths.List)
 	if tabStrip != "" {
-		listHeight = bodyHeight - 1
-		if listHeight < 1 {
-			listHeight = 1
-		}
+		listHeight--
+	}
+	if inboxStrip != "" {
+		listHeight--
+	}
+	if listHeight < 1 {
+		listHeight = 1
 	}
 	list := m.list.View(m.theme, m.paneWidths.List, listHeight, m.focused == ListPane)
+	if inboxStrip != "" {
+		list = inboxStrip + "\n" + list
+	}
 	if tabStrip != "" {
 		list = tabStrip + "\n" + list
 	}

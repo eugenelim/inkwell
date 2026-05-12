@@ -15,6 +15,7 @@ const (
 	sectionCommands      = "Commands"
 	sectionFolders       = "Folders"
 	sectionSavedSearches = "Saved searches"
+	sectionInbox         = "Inbox"
 )
 
 // paletteScope identifies the active sigil scope. Mixed = no sigil

@@ -75,13 +75,13 @@ Ties verbs together once enough verbs exist.
 
 Capability completeness with native clients.
 
-| Order | Item                                  | Notes                                        |
-| ----- | ------------------------------------- | -------------------------------------------- |
-| 1     | Focused / Other tab (1.15)            | Cheap, exposes existing Graph signal.         |
-| 2     | Server-side rules (1.14)              | New CRUD; independent.                        |
-| 3     | Rich-text / Markdown drafts (1.18)    | Editor-side; minor.                           |
-| 4     | Calendar invite actions in mail (1.17)| Scope-gated on `Calendars.ReadWrite`.         |
-| 5     | Multi-account (1.2)                   | Significant refactor; do when stable.         |
+| Order | Item                                  | Spec | Notes                                            |
+| ----- | ------------------------------------- | ---- | ------------------------------------------------ |
+| 1     | Focused / Other tab (1.15)            | 31   | Shipped v0.60.0.                                  |
+| 2     | Server-side rules (1.14)              | —    | New CRUD; independent.                            |
+| 3     | Rich-text / Markdown drafts (1.18)    | —    | Editor-side; minor.                               |
+| 4     | Calendar invite actions in mail (1.17)| —    | Scope-gated on `Calendars.ReadWrite`.             |
+| 5     | Multi-account (1.2)                   | —    | Significant refactor; do when stable.             |
 
 ### Bucket 5 — Search & knowledge
 
@@ -266,7 +266,7 @@ Today, body content isn't locally indexed (FTS5 covers subject + bodyPreview onl
 
 Server-side rules run on every incoming message; persist server-side; visible across all clients. Different from saved searches, which are client-side and on-demand. Microsoft Graph supports them via `/me/mailFolders/inbox/messageRules`. A v1 user can manage rules from the web client; we just don't expose them in the TUI. Estimated 2 days.
 
-### 1.15 Focused / Other tab — P2
+### 1.15 Focused / Other tab — Shipped v0.60.0 (spec 31)
 
 Microsoft Graph already provides `inferenceClassification` (Focused / Other). Surface it as a tab in the list pane and filter accordingly. Cheap, immediate value. Richer auto-categorisation (Promotions, Updates, Forums) is research-grade — see §3 and §1.21.
 

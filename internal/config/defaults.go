@@ -222,5 +222,10 @@ func Defaults() *Config {
 			ExcludeMuted:      true,
 			MaxCountPerSender: 999,
 		},
+		Inbox: InboxConfig{
+			Split:               "off",
+			SplitShowZeroCount:  false,
+			SplitDefaultSegment: "focused",
+		},
 	}
 }

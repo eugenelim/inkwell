@@ -121,8 +121,8 @@ Enter on a stream entry loads messages from that routing destination.
 | `P`       | Toggle Set Aside — add/remove focused message from the Set Aside stack |
 | `B`       | Toggle bundle designation on the focused sender (spec 26). On a bundle header, `B` un-designates the sender and dissolves the bundle in place. |
 | `Space`   | Expand/collapse the focused bundle header. On a bundle member, collapses the parent and lands the cursor on the header. No-op on flat rows. |
-| `[`       | Previous tab (when tabs are configured)                       |
-| `]`       | Next tab (when tabs are configured)                           |
+| `[`       | Previous tab (when tabs are configured). Also cycles the Inbox sub-strip when no spec-24 tabs are configured AND `[inbox].split = "focused_other"` AND the Inbox folder is selected (spec 31 §5.5). |
+| `]`       | Next tab (when tabs are configured). Same fallback to the Inbox sub-strip as `[`.                                                                                                          |
 | `;l`      | Bulk add filtered set to Reply Later                          |
 | `;L`      | Bulk remove filtered set from Reply Later                     |
 | `;s`      | Bulk add filtered set to Set Aside                            |
@@ -389,6 +389,8 @@ sessions older than 24h get garbage-collected on launch.
 | `:tab add <name> <pattern>`   | Add a saved search as a list-pane tab                           |
 | `:tab remove <name>`          | Remove a tab (does not delete the saved search)                 |
 | `:tab move <name> <position>` | Reorder a tab (1-based)                                         |
+| `:focused`                    | Spec 31. Switch to the Focused sub-tab over the Inbox folder. Navigates to Inbox first if needed. Requires `[inbox].split = "focused_other"`. |
+| `:other`                      | Spec 31. Switch to the Other sub-tab over the Inbox folder. Same preconditions as `:focused`.                          |
 | `:later`                      | Toggle Reply Later for the focused message                      |
 | `:aside`                      | Toggle Set Aside for the focused message                        |
 | `:focus`                      | Enter focus mode — fan through Reply Later stack one by one     |
@@ -632,6 +634,8 @@ JSON via `--output json`.
 | `inkwell messages --folder Inbox --unread`       | Only unread.                                              |
 | `inkwell messages --filter '~f bob' --limit 20`  | List by spec-08 pattern.                                  |
 | `inkwell messages --filter '~f bob' --all`       | Same, but ignores any `--folder` scope and returns all-folder results. |
+| `inkwell messages --view focused`                | Spec 31. Sugar for `--filter '~y focused' --folder Inbox`. Exits 2 on an unknown value or when combined with a non-Inbox `--folder`. Composes with `--filter` (AND'd). |
+| `inkwell messages --view other`                  | Spec 31. Same as `--view focused` for the Other segment.                |
 | `inkwell messages --filter '~U' --watch`         | Spec 29. Stream new matches like `tail -f`; Ctrl-C exits 0. |
 | `inkwell messages --rule VIPs --watch`           | Same, with a saved-search name (spec 11) instead of a literal pattern. |
 | `inkwell messages --filter X --watch --initial=N` | Print the most-recent N matches at startup before entering the loop. |
@@ -750,4 +754,4 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.59.0._
+_Last reviewed against v0.60.0._

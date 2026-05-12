@@ -60,6 +60,16 @@ func (c *Config) Validate() error {
 		// Reject empty + everything else. Spec 30 §4.1 strict literals.
 		errs = append(errs, fmt.Sprintf("ui.archive_label %q must be one of \"archive\" or \"done\"", c.UI.ArchiveLabel))
 	}
+	switch c.Inbox.Split {
+	case "off", "focused_other":
+	default:
+		errs = append(errs, fmt.Sprintf("inbox.split %q must be one of \"off\" or \"focused_other\"", c.Inbox.Split))
+	}
+	switch c.Inbox.SplitDefaultSegment {
+	case "focused", "other", "none":
+	default:
+		errs = append(errs, fmt.Sprintf("inbox.split_default_segment %q must be one of \"focused\", \"other\", \"none\"", c.Inbox.SplitDefaultSegment))
+	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":
 	default:

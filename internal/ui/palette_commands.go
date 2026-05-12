@@ -666,7 +666,39 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 			},
 		},
 	}...)
+	rows = append(rows, buildInboxPaletteRows(m)...)
 	return rows
+}
+
+// buildInboxPaletteRows returns the spec 31 §5.9 palette rows for the
+// inbox sub-strip — `:focused` and `:other`. Both rows are always
+// rendered (greyed when [inbox].split = "off") so the user discovers
+// the feature through the palette.
+func buildInboxPaletteRows(m *Model) []PaletteRow {
+	avail := availTrue
+	if m.inboxSplit == InboxSplitOff {
+		avail = Availability{OK: false, Why: "inbox split is off"}
+	}
+	return []PaletteRow{
+		{
+			ID: "focused_view", Title: "Show Focused",
+			Synonyms: []string{"focused", "focus", "important"},
+			Binding:  ":focused", Section: sectionInbox,
+			Available: avail,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return mm.dispatchCommand("focused")
+			},
+		},
+		{
+			ID: "other_view", Title: "Show Other",
+			Synonyms: []string{"other", "unimportant", "unfocused"},
+			Binding:  ":other", Section: sectionInbox,
+			Available: avail,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return mm.dispatchCommand("other")
+			},
+		},
+	}
 }
 
 // buildRoutingPaletteRows returns the spec 23 §13 routing rows

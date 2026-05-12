@@ -154,6 +154,14 @@ type Store interface {
 	CountMessagesByRouting(ctx context.Context, accountID int64, destination string, excludeMuted bool) (int, error)
 	CountMessagesByRoutingAll(ctx context.Context, accountID int64, excludeMuted bool) (map[string]int, error)
 
+	// Inference-classification queries (spec 31 — Focused / Other sub-strip).
+	// Read-only over the existing messages.inference_class column. cls must
+	// be "focused" or "other"; any other value returns
+	// [ErrInvalidInferenceClass]. excludeMuted and excludeScreenedOut honour
+	// the same anti-join shapes as the routing / screener helpers.
+	ListMessagesByInferenceClass(ctx context.Context, accountID int64, folderID, cls string, limit int, excludeMuted, excludeScreenedOut bool) ([]Message, error)
+	CountUnreadByInferenceClass(ctx context.Context, accountID int64, folderID, cls string, excludeMuted, excludeScreenedOut bool) (int, error)
+
 	// Spec 28 Screener queries (read-only). All honour excludeMuted
 	// matching spec 19 §5.3 default-folder behaviour.
 	ListPendingSenders(ctx context.Context, accountID int64, limit, capPerSender int, excludeMuted bool) ([]PendingSender, error)

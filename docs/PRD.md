@@ -263,9 +263,10 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 25  | `25-reply-later-set-aside.md`                      | post-v1, ROADMAP §0 bucket 2 — **shipped v0.53.0** |
 | 26  | `26-bundle-senders.md`                             | post-v1, ROADMAP §0 bucket 2 — **shipped v0.55.0** |
 | 27  | `27-custom-actions.md`                             | post-v1, ROADMAP §0 bucket 3 — **shipped v0.56.0** |
-| 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — ready               |
-| 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready               |
-| 30  | `30-done-alias.md`                                 | post-v1, ROADMAP §0 bucket 3 — ready (binding/branding only) |
+| 28  | `28-screener.md`                                   | post-v1, ROADMAP §0 bucket 3 — **shipped v0.57.0** |
+| 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — **shipped v0.58.0** |
+| 30  | `30-done-alias.md`                                 | post-v1, ROADMAP §0 bucket 3 — **shipped v0.59.0** (binding/branding only) |
+| 31  | `31-focused-other-tab.md`                          | post-v1, ROADMAP §0 bucket 4 — **shipped v0.60.0** |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across
@@ -286,8 +287,13 @@ is the first Bucket-3 entry, **shipped v0.56.0** with the
 `--filter` CLI wiring closing in v0.56.1. Spec 28 (screener,
 §1.16) is the second, **shipped v0.57.0**. Spec 29 (watch mode,
 §1.19) is the third, **shipped v0.58.0**. Spec 30 ("Done" alias,
-§1.23) is the fourth, **shipped v0.59.0** — the bucket is now
+§1.23) is the fourth, **shipped v0.59.0** — Bucket 3 is now
 closed.
+
+Spec 31 (Focused / Other tab, §1.15) is the first Bucket-4 entry,
+**shipped v0.60.0** — a read-only sub-strip over the Inbox folder
+driven by Microsoft Graph's `inferenceClassification`. No new
+schema, no new Graph scope, opt-in behind `[inbox].split`.
 
 **Recommended landing order** (CI scope, foundational → leaves):
 
