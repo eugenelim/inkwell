@@ -267,6 +267,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 29  | `29-watch-mode.md`                                 | post-v1, ROADMAP §0 bucket 3 — **shipped v0.58.0** |
 | 30  | `30-done-alias.md`                                 | post-v1, ROADMAP §0 bucket 3 — **shipped v0.59.0** (binding/branding only) |
 | 31  | `31-focused-other-tab.md`                          | post-v1, ROADMAP §0 bucket 4 — **shipped v0.60.0** |
+| 32  | `32-server-side-rules.md`                          | post-v1, ROADMAP §0 bucket 4 — drafted; not yet shipped |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across
