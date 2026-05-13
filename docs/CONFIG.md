@@ -501,6 +501,22 @@ Spec 28. The first-contact gate: when enabled, mail from senders not in `sender_
 
 ---
 
+## `[rules]`
+
+Spec 32. Server-side Inbox message rules management via Microsoft Graph's `/me/mailFolders/inbox/messageRules` endpoint. The user-editable authoring file is `~/.config/inkwell/rules.toml` (Terraform-style declarative format); `inkwell rules pull` writes the canonical server state into the file, `inkwell rules apply` pushes hand-edits back. The TUI surface is `:rules <subverb>` in the cmd-bar plus five palette rows; the in-TUI manager modal is a follow-up iteration. Required Graph scope `MailboxSettings.ReadWrite` is already in PRD §3.1.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `file` | string | `""` (→ `~/.config/inkwell/rules.toml`) | absolute or `~/...` path | Overrides the rules.toml authoring path. Path-cleaned at load; rejects `..` traversal per spec 17 path-traversal guard. |
+| `pull_stale_threshold` | duration | `"1h"` | non-negative duration | When the last pull is older than this, the (future) manager status hint switches to the warning style. |
+| `ascii_fallback` | bool | `false` | `true` / `false` | Substitutes 🔒→`RO` and ⚠→`ERR` for terminals without UTF-8. `[ext]` is already ASCII and unchanged. |
+| `confirm_destructive` | bool | `true` | `true` / `false` | Global belt-and-suspenders gate: `apply` prompts for every rule with `delete = true` regardless of the rule's per-rule `confirm` value. `--yes` overrides per-invocation. |
+| `editor_open_at_rule` | bool | `true` | `true` / `false` | When true, `$EDITOR` is invoked so the cursor lands at the focused rule's TOML block. Disable for editors that do not understand `+<line>` (rare in 2026). |
+
+**Owner spec:** 32.
+
+---
+
 ## Example complete config
 
 A user's `~/.config/inkwell/config.toml` overriding defaults:

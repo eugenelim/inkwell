@@ -227,5 +227,12 @@ func Defaults() *Config {
 			SplitShowZeroCount:  false,
 			SplitDefaultSegment: "focused",
 		},
+		Rules: RulesConfig{
+			File:               "", // empty → ~/.config/inkwell/rules.toml at load time
+			PullStaleThreshold: 1 * time.Hour,
+			ASCIIFallback:      false,
+			ConfirmDestructive: true,
+			EditorOpenAtRule:   true,
+		},
 	}
 }

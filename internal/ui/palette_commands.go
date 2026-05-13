@@ -667,7 +667,36 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 		},
 	}...)
 	rows = append(rows, buildInboxPaletteRows(m)...)
+	rows = append(rows, buildMessageRulesPaletteRows(m)...)
 	return rows
+}
+
+// buildMessageRulesPaletteRows returns the spec 32 §7.6 rule-
+// management rows. Each row's RunFn prefills the cmd-bar with
+// `:rules <subverb>`; the v1 cmd-bar dispatcher (rules.go) surfaces
+// a hint pointing the user at the CLI equivalent. The full in-TUI
+// manager modal is a follow-up iteration.
+func buildMessageRulesPaletteRows(m *Model) []PaletteRow {
+	avail := availTrue
+	mkRow := func(id, title, subverb string) PaletteRow {
+		return PaletteRow{
+			ID:        id,
+			Title:     title,
+			Binding:   ":rules " + subverb,
+			Section:   sectionCommands,
+			Available: avail,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return prefillCmdBar(mm, "rules "+subverb)
+			},
+		}
+	}
+	return []PaletteRow{
+		mkRow("rules_open", "Manage server rules…", "list"),
+		mkRow("rules_pull", "Rules: pull from server", "pull"),
+		mkRow("rules_apply", "Rules: apply changes (push to server)", "apply"),
+		mkRow("rules_dry_run", "Rules: preview changes (dry-run)", "apply --dry-run"),
+		mkRow("rules_new", "Rules: new rule from template…", "new"),
+	}
 }
 
 // buildInboxPaletteRows returns the spec 31 §5.9 palette rows for the

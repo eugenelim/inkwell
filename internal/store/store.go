@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 13
+const SchemaVersion = 14
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -33,6 +33,12 @@ type Store interface {
 	// Folders
 	ListFolders(ctx context.Context, accountID int64) ([]Folder, error)
 	GetFolderByWellKnown(ctx context.Context, accountID int64, name string) (*Folder, error)
+	// GetFolderByPath walks the cached folder tree by `display_name`
+	// at each level using a `/`-separated path (spec 32 §6.5 step 3).
+	// Names are NFC-normalised before comparison (macOS HFS+/APFS
+	// can return NFD; Graph returns NFC). Returns [ErrFolderNotFound]
+	// when any path segment fails to resolve.
+	GetFolderByPath(ctx context.Context, accountID int64, slashPath string) (*Folder, error)
 	UpsertFolder(ctx context.Context, f Folder) error
 	DeleteFolder(ctx context.Context, id string) error
 	UpdateFolderDisplayName(ctx context.Context, id, displayName string) error
@@ -205,6 +211,24 @@ type Store interface {
 	// are intentional, like search (spec 19 §4.3 precedent).
 	CountMessagesInCategory(ctx context.Context, accountID int64, category string) (int, error)
 	ListMessagesInCategory(ctx context.Context, accountID int64, category string, limit int) ([]Message, error)
+
+	// Message rules (spec 32 — local mirror of Graph
+	// /me/mailFolders/inbox/messageRules; server is source of truth).
+	// All writes go to Graph synchronously; the mirror is rebuilt on
+	// pull. ListMessageRules returns an empty slice (not nil) when no
+	// rules are cached. The caller distinguishes "never pulled" from
+	// "pulled and confirmed empty" via
+	// LastMessageRulesPull(ctx, accountID).IsZero().
+	ListMessageRules(ctx context.Context, accountID int64) ([]MessageRule, error)
+	GetMessageRule(ctx context.Context, accountID int64, ruleID string) (*MessageRule, error)
+	UpsertMessageRule(ctx context.Context, r MessageRule) error
+	// UpsertMessageRulesBatch replaces the entire mirror for the
+	// account in one transaction (DELETE-all + multi-row INSERT).
+	// Empty rules means "server has zero rules; clear the cache".
+	// Returns the count of rows written.
+	UpsertMessageRulesBatch(ctx context.Context, accountID int64, rules []MessageRule) (int, error)
+	DeleteMessageRule(ctx context.Context, accountID int64, ruleID string) error
+	LastMessageRulesPull(ctx context.Context, accountID int64) (time.Time, error)
 
 	// Compose sessions (spec 15 §7 / PR 7-ii crash recovery).
 	// PutComposeSession upserts a session row keyed by SessionID;

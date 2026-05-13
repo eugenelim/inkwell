@@ -70,6 +70,13 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Sprintf("inbox.split_default_segment %q must be one of \"focused\", \"other\", \"none\"", c.Inbox.SplitDefaultSegment))
 	}
+	if c.Rules.PullStaleThreshold < 0 {
+		errs = append(errs, fmt.Sprintf("rules.pull_stale_threshold %s must be non-negative", c.Rules.PullStaleThreshold))
+	}
+	if strings.Contains(c.Rules.File, "..") {
+		// Spec 17 path-traversal guard (mirrors attachment_save_dir).
+		errs = append(errs, fmt.Sprintf("rules.file %q must not contain '..'", c.Rules.File))
+	}
 	switch strings.ToLower(c.Logging.Level) {
 	case "", "debug", "info", "warn", "error":
 	default:

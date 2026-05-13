@@ -4,7 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
+
+// ErrFolderNotFound is returned by [GetFolderByPath] when a path
+// segment fails to resolve. Distinct from [ErrNotFound] so callers
+// (notably the rules apply pipeline) can surface a folder-specific
+// toast (spec 32 §6.5 step 3).
+var ErrFolderNotFound = errors.New("store: folder not found")
 
 // ListFolders returns folders for accountID ordered by display_name.
 func (s *store) ListFolders(ctx context.Context, accountID int64) ([]Folder, error) {
@@ -30,6 +39,66 @@ func (s *store) ListFolders(ctx context.Context, accountID int64) ([]Folder, err
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+// GetFolderByPath walks the cached folder tree by display_name, one
+// segment at a time, separated by `/`. Names are NFC-normalised
+// before comparison (macOS HFS+/APFS can return NFD; Graph returns
+// NFC). The match on each level is case-sensitive. Returns
+// [ErrFolderNotFound] when any segment fails to resolve, or the
+// supplied path is empty. Comparison uses the cached `folders` rows
+// only; this helper does not call Graph (spec 32 §6.5 step 3).
+func (s *store) GetFolderByPath(ctx context.Context, accountID int64, slashPath string) (*Folder, error) {
+	slashPath = strings.TrimSpace(slashPath)
+	if slashPath == "" {
+		return nil, ErrFolderNotFound
+	}
+	segments := splitFolderPath(slashPath)
+	if len(segments) == 0 {
+		return nil, ErrFolderNotFound
+	}
+	folders, err := s.ListFolders(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	parent := ""
+	var match *Folder
+	for _, seg := range segments {
+		want := norm.NFC.String(seg)
+		match = nil
+		for i := range folders {
+			f := &folders[i]
+			if f.ParentFolderID != parent {
+				continue
+			}
+			if norm.NFC.String(f.DisplayName) == want {
+				match = f
+				break
+			}
+		}
+		if match == nil {
+			return nil, ErrFolderNotFound
+		}
+		parent = match.ID
+	}
+	// Return a copy so callers can't mutate our slice header.
+	out := *match
+	return &out, nil
+}
+
+// splitFolderPath splits a `/`-separated folder path, discarding
+// empty segments produced by leading / trailing / repeated slashes
+// (`/Folders/A/` → ["Folders", "A"]).
+func splitFolderPath(p string) []string {
+	parts := strings.Split(p, "/")
+	out := parts[:0]
+	for _, s := range parts {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // GetFolderByWellKnown returns the folder with the matching well-known

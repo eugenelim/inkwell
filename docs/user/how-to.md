@@ -1135,4 +1135,104 @@ exits 2 — the flag enforces the Inbox folder scope.
 
 ---
 
-_Last reviewed against v0.60.0._
+## Manage server-side rules (spec 32)
+
+Server-side rules run on every incoming Inbox message and persist
+on Microsoft's side — they keep firing even when inkwell isn't
+running, and apply identically across Outlook web / desktop /
+mobile / inkwell. Use them when you want **delivery-time
+automation** that survives client switches; use saved searches
+(spec 11) for on-demand client-side queries and custom actions
+(spec 27) for keyboard-triggered triage.
+
+The authoring file is `~/.config/inkwell/rules.toml`. The workflow
+mirrors Terraform: pull → edit → apply, with `--dry-run` showing
+the plan first.
+
+**One-time setup.**
+
+```sh
+inkwell rules pull        # fetch your existing rules into rules.toml
+inkwell rules edit        # open the file in $EDITOR
+```
+
+**Add a "Newsletters → Feed folder" rule.**
+
+```toml
+[[rule]]
+name      = "Newsletters → Feed folder"
+sequence  = 10
+enabled   = true
+
+  [rule.when]
+  sender_contains = ["newsletter@", "no-reply@"]
+  header_contains = ["List-Unsubscribe"]
+
+  [rule.then]
+  move      = "Folders/Newsletters"
+  mark_read = true
+  stop      = true
+```
+
+```sh
+inkwell rules apply --dry-run   # preview the diff
+inkwell rules apply              # push to the server
+```
+
+**Destructive rules require explicit acknowledgement.** Any rule
+with `delete = true` MUST set `confirm = "always"` at the
+`[[rule]]` level; the loader rejects the configuration otherwise.
+
+```toml
+[[rule]]
+name      = "Trash known spam"
+sequence  = 5
+confirm   = "always"
+
+  [rule.when]
+  sender_contains = ["spam@"]
+
+  [rule.then]
+  delete = true
+```
+
+`inkwell rules apply` prompts Y/N for every destructive rule
+unless `--yes` is passed; the global `[rules].confirm_destructive`
+toggle (default `true`) is an additional override at the config
+level.
+
+**Server rule vs. routing assignment (spec 23).**
+
+Server rules act at delivery on every client; routing assignments
+are local-only sender bucketing. A rule that moves vendor mail to
+`Folders/Receipts` moves it on Outlook web too; a routing
+assignment that bucketes the vendor to Paper Trail surfaces them
+in inkwell's `__paper_trail__` virtual folder but leaves the
+actual Inbox folder unchanged. Rules are for delivery-time
+behaviour you want everywhere; routing is for inkwell-local
+sender-curated views.
+
+**When rules and the screener disagree (spec 28).**
+
+A server rule fires first; if it moves a message out of Inbox, the
+message arrives in your target folder. The spec-28 default-view
+filter is folder-agnostic — a screened-out sender's mail is still
+hidden from `Folders/Newsletters` because the screener anti-join
+matches on sender, not folder. The message surfaces only in
+`__screened_out__` or via an explicit `:filter`.
+
+**Read-only rules.** Rules with `is_read_only = true` (admin-pushed
+via Exchange Transport Rule) appear in `inkwell rules list` with a
+`read_only` flag and are skipped by `apply`. Rules that include a
+non-v1 predicate or action (e.g. `forwardTo`) round-trip safely
+but are not editable from inkwell — edit them at outlook.office.com.
+
+**TUI status.** v1 ships cmd-bar `:rules <subverb>` parity (the
+dispatcher surfaces a hint pointing at the CLI equivalent) plus
+five command-palette rows for discoverability. The in-TUI manager
+modal is a follow-up iteration; the CLI is the complete authoring
+surface for v1.
+
+---
+
+_Last reviewed against v0.61.0._

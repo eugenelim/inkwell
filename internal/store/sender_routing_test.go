@@ -317,7 +317,7 @@ func TestMigration011AppliesCleanly(t *testing.T) {
 	// applies cleanly (its objects are present, see below); the
 	// version cap floats with the latest landed migration.
 	v := strings.TrimSpace(version)
-	require.True(t, v == "11" || v == "12" || v == "13",
+	require.True(t, v == "11" || v == "12" || v == "13" || v == "14",
 		"schema_meta.version should be at the spec 23 level or above; got %q", v)
 
 	// sender_routing table exists.

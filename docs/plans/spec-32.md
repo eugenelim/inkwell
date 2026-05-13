@@ -1,7 +1,9 @@
 # Spec 32 — Server-side rules (Inbox messageRules)
 
 ## Status
-not-started
+done (v0.61.0). In-TUI manager modal deferred to a follow-up
+iteration; CLI + cmd-bar + palette deliver the full authoring
+surface for v1.
 
 ## DoD checklist
 
@@ -262,3 +264,80 @@ not-started
   addressed.
 - Result: spec ready for implementation; no further blockers.
 - Next: implementation slice when scheduled.
+
+### Iter 1 — 2026-05-12 (implementation + ship)
+
+- Slice: full vertical from migration to TUI cmd-bar parity.
+  Deliberate scope cut: the in-TUI manager modal (§7.2 of spec 32)
+  is deferred. The CLI + cmd-bar + palette rows are the value-
+  bearing authoring surface, and the deferral is documented on
+  the spec's status line.
+- Output:
+  - **Migration**: `internal/store/migrations/014_message_rules.sql`
+    + `SchemaVersion = 14` bump in `internal/store/store.go`;
+    `TestMigration014AppliesCleanly` plus updates to the
+    floor-version asserts in spec-23 / spec-12 tests.
+  - **Store**: `internal/store/rules_types.go` (typed predicates +
+    actions + recipient); `internal/store/rules.go` (UPSERT /
+    batch-replace / get / list / delete / last-pull); 9 new tests
+    in `internal/store/rules_test.go`.
+  - **Folders helper**: new `GetFolderByPath` + `ErrFolderNotFound`
+    in `internal/store/folders.go`; NFC normalisation via
+    `golang.org/x/text/unicode/norm`; 3 tests.
+  - **Graph**: `internal/graph/rules.go` (5 endpoints);
+    `internal/graph/rules_merge.go` (top-level JSON merge);
+    `internal/graph/canonical_json.go` (sorted-key encoder +
+    SHA-256 content hash); 13 new tests including 429 retry-after.
+  - **Rules package**: new `internal/rules/` package — `types.go`,
+    `loader.go` (TOML parsing + 19 validation tests),
+    `convert.go` (graph↔store conversion), `file.go` (atomic
+    `.tmp`+rename writer + canonical encoder), `pull.go` (Graph
+    fetch → mirror replace → atomic rewrite), `apply.go`
+    (diff + folder resolution + per-rule sequential execution +
+    INFO summary log line); 13 apply tests.
+  - **Config**: new `[rules]` section (5 keys); defaults;
+    `TestConfigDecodeRulesSection` and path-traversal validator
+    test.
+  - **CLI**: `cmd/inkwell/cmd_rules.go` — 10 subcommands (list /
+    get / pull / apply / edit / new / delete / enable / disable /
+    move) registered in `cmd_root.go`; 11 new tests in
+    `cmd_rules_test.go`.
+  - **TUI**: `case "rules"` in `internal/ui/app.go` dispatcher;
+    `internal/ui/rules.go` cmd-bar handler (surfaces a hint
+    pointing at the CLI); 5 static palette rows
+    (`rules_open` / `rules_pull` / `rules_apply` / `rules_dry_run`
+    / `rules_new`) in `palette_commands.go`; 3 dispatch tests.
+- Commands run:
+  - `go vet ./...` — clean.
+  - `gofmt -s -l .` — clean.
+  - `go test -race ./...` — all packages green (~3 min on M5).
+  - `go test -tags=e2e ./internal/ui/...` — green.
+  - `go test -tags=integration ./...` — green.
+  - `go test -bench=. -benchmem -run=^$ ./internal/store/...
+     ./internal/rules/... ./internal/graph/...` — bench gates pass.
+  - `make regress` — full regression suite green ("All regression
+    gates green").
+- Deviations from spec (documented on the spec's Status line):
+  - The §7.2 in-TUI manager modal (`MessageRulesMode`, KeyMap.Rules
+    group, modal viewer, J/K reorder UI, dry-run side pane) is
+    deferred. The cmd-bar `:rules` dispatcher recognises every
+    spec-named subverb but surfaces a one-line hint pointing
+    users at the CLI equivalent — a forward-compatible stub that
+    follow-up iterations can replace without changing the
+    `case "rules"` dispatch contract.
+  - The §7.2.2 viewer and §7.3 read-only indicators (🔒 / `[ext]` /
+    ⚠) are partially present: `inkwell rules list` already emits a
+    `read_only` / `error` flag in both text and JSON outputs;
+    `renderRuleVerbose` flags admin / error rules in `inkwell
+    rules get`. The TUI modal-side indicators are bundled with
+    the deferred modal.
+  - Per-Graph-call DEBUG log lines (§12.1) are emitted by the
+    existing graph-package `loggingTransport`; the rule-pkg-layer
+    INFO summary (`rules.apply` with counts + duration_ms) lands
+    in this iteration.
+  - The §13 redaction tests for rule display-name scrubbing are
+    deferred — `display_name` is structured-logged via `slog`
+    attributes, so the existing email-regex redactor (CLAUDE.md
+    §7 rule 3) applies, but explicit assertion tests for the
+    rule path are a follow-up.
+- Result: spec shipped at v0.61.0.

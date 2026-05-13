@@ -78,7 +78,7 @@ Capability completeness with native clients.
 | Order | Item                                  | Spec | Notes                                            |
 | ----- | ------------------------------------- | ---- | ------------------------------------------------ |
 | 1     | Focused / Other tab (1.15)            | 31   | Shipped v0.60.0.                                  |
-| 2     | Server-side rules (1.14)              | 32   | Drafted (spec 32); ready for implementation.      |
+| 2     | Server-side rules (1.14)              | 32   | Shipped v0.61.0 (spec 32) — CLI + cmd-bar + palette; modal manager deferred. |
 | 3     | Rich-text / Markdown drafts (1.18)    | —    | Editor-side; minor.                               |
 | 4     | Calendar invite actions in mail (1.17)| —    | Scope-gated on `Calendars.ReadWrite`.             |
 | 5     | Multi-account (1.2)                   | —    | Significant refactor; do when stable.             |
@@ -262,9 +262,9 @@ A `:clips` command opens an FTS5-searchable view of all clips. `Enter` on a clip
 
 Today, body content isn't locally indexed (FTS5 covers subject + bodyPreview only). Server `$search` is token-based, not regex. Adding local body indexing would change the cache from envelope-first to body-first, which has memory and sync-time implications. Worth doing if users complain about search precision.
 
-### 1.14 Server-side rules — Drafted (spec 32)
+### 1.14 Server-side rules — Shipped v0.61.0 (spec 32)
 
-Server-side rules run on every incoming message; persist server-side; visible across all clients. Different from saved searches, which are client-side and on-demand. Microsoft Graph supports them via `/me/mailFolders/inbox/messageRules`. A v1 user can manage rules from the web client; we just don't expose them in the TUI. Spec 32 ships a curated v1 subset (29 predicates, 11 actions — minus forward/redirect/permanentDelete per the `Mail.Send` scope denial) with a Terraform-style `rules.toml` + pull/apply workflow, a `:rules` TUI manager modal, and `inkwell rules` CLI. Re-budgeted to 5–7 days post-design (was "2 days" pre-spec).
+Server-side rules run on every incoming message; persist server-side; visible across all clients. Different from saved searches, which are client-side and on-demand. Microsoft Graph supports them via `/me/mailFolders/inbox/messageRules`. Spec 32 ships a curated v1 subset (29 predicates, 11 actions — minus forward/redirect/permanentDelete per the `Mail.Send` scope denial) with a Terraform-style `rules.toml` + pull/apply workflow, the `inkwell rules` CLI (10 subcommands), cmd-bar parity (`:rules <subverb>`), and five command-palette rows. The in-TUI manager modal is a follow-up iteration; the CLI is the complete authoring surface in v1.
 
 ### 1.15 Focused / Other tab — Shipped v0.60.0 (spec 31)
 

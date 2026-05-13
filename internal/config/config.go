@@ -45,6 +45,7 @@ type Config struct {
 	CustomActions   CustomActionsConfig   `toml:"custom_actions"`
 	Screener        ScreenerConfig        `toml:"screener"`
 	Inbox           InboxConfig           `toml:"inbox"`
+	Rules           RulesConfig           `toml:"rules"`
 }
 
 // InboxConfig owns the [inbox] section (spec 31). Inbox-scoped UI
@@ -64,6 +65,33 @@ type InboxConfig struct {
 	// "other", or "none" (no `]`/`[` activation; user must invoke
 	// :focused / :other). Spec 31 §5.4.
 	SplitDefaultSegment string `toml:"split_default_segment"`
+}
+
+// RulesConfig owns the [rules] section (spec 32). Server-side rules
+// management via the Graph messageRules endpoint.
+type RulesConfig struct {
+	// File overrides the path of the rules.toml authoring file. Empty
+	// string means the default ~/.config/inkwell/rules.toml. The
+	// configured path is path-cleaned and rejects `..` traversal at
+	// load time (the spec 17 path-traversal guard).
+	File string `toml:"file"`
+	// PullStaleThreshold is how stale the last-pull timestamp can be
+	// before the manager status hint switches to the warning style.
+	// Spec 32 §7.5. Default "1h".
+	PullStaleThreshold time.Duration `toml:"pull_stale_threshold"`
+	// ASCIIFallback substitutes 🔒 → "RO" and ⚠ → "ERR" for terminals
+	// without UTF-8. `[ext]` is already ASCII and unchanged. Spec 32
+	// §7.3. Default false.
+	ASCIIFallback bool `toml:"ascii_fallback"`
+	// ConfirmDestructive is the global belt-and-suspenders gate: when
+	// true (default) apply prompts for any rule with `delete = true`
+	// regardless of the rule's own confirm field. `--yes` overrides
+	// per-invocation. Spec 32 §11.
+	ConfirmDestructive bool `toml:"confirm_destructive"`
+	// EditorOpenAtRule, when true, opens $EDITOR with the `+<line>`
+	// argument so the cursor lands at the focused rule's TOML block.
+	// Spec 32 §7.4. Default true.
+	EditorOpenAtRule bool `toml:"editor_open_at_rule"`
 }
 
 // ScreenerConfig owns the [screener] section (spec 28).

@@ -1,7 +1,7 @@
 # Spec 32 — Server-side rules (Inbox messageRules)
 
-**Status:** Draft.
-**Shipped:** (pending).
+**Status:** Shipped.
+**Shipped:** v0.61.0 (CLI + cmd-bar + palette + migration + apply/pull pipeline). The full in-TUI manager modal documented in §7.2 is **deferred** to a follow-up iteration; the CLI plus cmd-bar `:rules` parity is the complete authoring surface for v1, and the §7.6 palette rows provide TUI discoverability.
 **Depends on:** Spec 01 (auth — `MailboxSettings.ReadWrite` already
 in the requested scopes list, `internal/auth/scopes.go:34`), Spec 02
 (store — migration runner + `accounts` FK target), Spec 03 (graph —

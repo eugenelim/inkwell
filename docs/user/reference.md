@@ -754,4 +754,58 @@ Deferred to a future spec (rejected at load): `block_sender`, `shell`, `forward`
 
 **Reversibility.** Most ops route through the spec 07 action queue and reverse via `u` like any other triage. `set_sender_routing` and `set_thread_muted` are synchronous direct writes and are NOT undoable by `u`; the result toast flags non-undoable rows with `[non-undoable]`.
 
-_Last reviewed against v0.60.0._
+## Server-side rules (spec 32)
+
+Server-side Inbox rules are managed via the `inkwell rules` CLI; the authoring format is `~/.config/inkwell/rules.toml`. Rules run server-side on every incoming message — unlike saved searches (spec 11) which are client-side and on-demand. Required Graph scope `MailboxSettings.ReadWrite` is already in PRD §3.1.
+
+**Workflow.** Edit `rules.toml`, then `inkwell rules apply --dry-run` to preview, then `inkwell rules apply` to push. `inkwell rules pull` syncs from server (overwriting the local file).
+
+### CLI
+
+| Command                                  | Description                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `inkwell rules list [--refresh]`         | List cached rules (mirror). `--refresh` pulls first. `--output json` returns a flat array.    |
+| `inkwell rules get <id>`                 | Verbose dump of one rule from the local mirror. `--output json` returns the full payload.    |
+| `inkwell rules pull`                     | Fetch from Graph, rewrite `rules.toml` atomically.                                            |
+| `inkwell rules apply [--dry-run] [--yes]`| Diff TOML against mirror; execute. Dry-run prints the plan; `--yes` skips prompts.            |
+| `inkwell rules edit`                     | Open `rules.toml` in `$EDITOR`.                                                               |
+| `inkwell rules new [--name X]`           | Append a stub rule block and open `$EDITOR`.                                                  |
+| `inkwell rules delete <id> [--yes]`      | Synchronous PATCH; prompts unless `--yes`.                                                    |
+| `inkwell rules enable <id>`              | Synchronous toggle.                                                                           |
+| `inkwell rules disable <id>`             | Synchronous toggle.                                                                           |
+| `inkwell rules move <id> --sequence N`   | Set sequence; synchronous PATCH.                                                              |
+
+### TUI
+
+The cmd-bar accepts `:rules <subverb>` for parity; v1 surfaces a one-line hint pointing at the CLI (the in-TUI manager modal is a follow-up). Command palette (Ctrl+K) ships five static rows:
+
+| Palette row                            | Cmd-bar form               |
+| -------------------------------------- | -------------------------- |
+| Manage server rules…                   | `:rules list`              |
+| Rules: pull from server                | `:rules pull`              |
+| Rules: apply changes (push to server)  | `:rules apply`             |
+| Rules: preview changes (dry-run)       | `:rules apply --dry-run`   |
+| Rules: new rule from template…         | `:rules new`               |
+
+### `rules.toml` catalogue (v1 subset)
+
+Predicates (under `[rule.when]` or `[rule.except]`; items in a list are **OR'd**, separate predicates are **AND'd**):
+
+`body_contains`, `body_or_subject_contains`, `subject_contains`, `header_contains`, `from` (recipient list or shorthand strings), `sender_contains`, `sent_to`, `recipient_contains`, `sent_to_me`, `sent_cc_me`, `sent_only_to_me`, `sent_to_or_cc_me`, `not_sent_to_me`, `has_attachments`, `importance` (`"low"|"normal"|"high"`), `sensitivity` (`"normal"|"personal"|"private"|"confidential"`), `size_min_kb`, `size_max_kb`, `categories`, `is_automatic_reply`, `is_automatic_forward`, `flag` (one of `any`, `call`, `doNotForward`, `followUp`, `fyi`, `forward`, `noResponseNecessary`, `read`, `reply`, `replyToAll`, `review`).
+
+Actions (under `[rule.then]`):
+
+`mark_read`, `mark_importance` (`"low"|"normal"|"high"`), `move` (folder slash-path, resolved to ID at apply time), `copy` (same), `add_categories`, `delete` (soft → Deleted Items; requires `confirm = "always"` at the rule level), `stop` (= `stopProcessingRules`).
+
+Deferred in v1 (rejected by the loader; preserved on round-trip for read-only display):
+- Predicates: `is_voicemail`, `is_meeting_request`, `is_meeting_response`, `is_approval_request`, `is_non_delivery_report`, `is_permission_controlled`, `is_read_receipt`, `is_signed`, `is_encrypted`.
+- Actions: `forward_to`, `forward_as_attachment_to`, `redirect_to` (Mail.Send-adjacent; out of scope per PRD §3.2), `permanent_delete` (irreversible; requires per-message intent per CLAUDE.md §7 rule 9).
+
+### Safety gates
+
+- Any rule with `delete = true` MUST set `confirm = "always"` at the `[[rule]]` level. `confirm = "never"` is rejected for any destructive rule.
+- `inkwell rules apply` always pulls from Graph first to narrow the conflict window.
+- `inkwell rules apply` prompts Y/N for every destructive rule unless `--yes` is passed; the global `[rules].confirm_destructive` toggle (default `true`) is an additional belt-and-suspenders override.
+- `rules.toml` is atomically rewritten via `.tmp` + `fsync` + `os.Rename`; orphans on write failure are cleaned by a defer.
+
+_Last reviewed against v0.61.0._

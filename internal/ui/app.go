@@ -3460,6 +3460,12 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		return m.dispatchRule(args[1:], strings.TrimSpace(strings.TrimPrefix(line, "rule")))
 	case "route":
 		return m.dispatchRoute(args[1:])
+	case "rules":
+		// Spec 32 §8.3 cmd-bar parity. v1 ships status-bar dispatch
+		// only; the full :rules manager modal is a follow-up
+		// iteration. Recognised subverbs: pull, list, apply (with
+		// --dry-run), enable, disable.
+		return m.dispatchRulesCmdBar(args[1:])
 	case "screener":
 		return m.dispatchScreener(args[1:])
 	case "archive", "done":

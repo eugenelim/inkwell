@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -84,6 +85,53 @@ unsubscribe = "U"
 
 // TestLoadParsesNewSections verifies the [triage] / [bulk] /
 // [calendar] sections added in PR 12 round-trip TOML → Config.
+func TestConfigDecodeRulesSection(t *testing.T) {
+	// Defaults.
+	def := Defaults()
+	require.Equal(t, "", def.Rules.File)
+	require.Equal(t, 1*time.Hour, def.Rules.PullStaleThreshold)
+	require.False(t, def.Rules.ASCIIFallback)
+	require.True(t, def.Rules.ConfirmDestructive)
+	require.True(t, def.Rules.EditorOpenAtRule)
+
+	// Overrides.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[rules]
+file = "/tmp/my-rules.toml"
+pull_stale_threshold = "30m"
+ascii_fallback = true
+confirm_destructive = false
+editor_open_at_rule = false
+`))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/my-rules.toml", cfg.Rules.File)
+	require.Equal(t, 30*time.Minute, cfg.Rules.PullStaleThreshold)
+	require.True(t, cfg.Rules.ASCIIFallback)
+	require.False(t, cfg.Rules.ConfirmDestructive)
+	require.False(t, cfg.Rules.EditorOpenAtRule)
+
+	// Unknown key rejection.
+	require.NoError(t, writeFile(path, `
+[rules]
+nope = "bad"
+`))
+	_, err = Load(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nope")
+}
+
+func TestConfigValidateRulesRejectsPathTraversal(t *testing.T) {
+	cfg := Defaults()
+	cfg.Rules.File = "../../etc/passwd"
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rules.file")
+	require.Contains(t, err.Error(), "..")
+}
+
 func TestLoadParsesNewSections(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

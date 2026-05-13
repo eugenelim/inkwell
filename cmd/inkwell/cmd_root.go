@@ -58,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newOOOCmd(rc))
 	cmd.AddCommand(newSettingsCmd(rc))
 	cmd.AddCommand(newRuleCmd(rc))
+	cmd.AddCommand(newRulesCmd(rc))
 	cmd.AddCommand(newCalendarCmd(rc))
 	cmd.AddCommand(newDaemonCmd(rc))
 	cmd.AddCommand(newExportCmd(rc))
