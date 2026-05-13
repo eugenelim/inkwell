@@ -206,6 +206,7 @@ func Defaults() *Config {
 			AttachmentMaxSizeMB: 25,
 			MaxAttachments:      20,
 			WebLinkTTL:          30 * time.Second,
+			BodyFormat:          "plain",
 		},
 		CLI: CLIConfig{
 			DefaultOutput:           "text",

@@ -1,6 +1,13 @@
 # Spec 33 — Rich-text / Markdown Drafts
 
-**Status:** Draft.
+**Status:** Shipped.
+**Shipped:** v0.62.0 — goldmark v1.8.2 wired; `[compose] body_format`
+config key landed (default `"plain"`, opt-in `"markdown"`);
+`compose.DraftBody` flows through `DraftCreator` → `Executor` →
+`graph.Client`; `action.Params` persists `content_type` for resume
+path; `Ctrl+E` writes `.md` tempfile in Markdown mode; `[md]`
+footer indicator; `ComposeSnapshot` round-trips `MarkdownMode`
+through crash recovery.
 **Depends on:** Spec 15 (compose / reply — `DraftCreator` interface,
 `ComposeModel`, `saveComposeCmd`, `Ctrl+E` editor drop-out,
 `compose.WriteTempfile`), Spec 14 (CLI mode — `inkwell messages

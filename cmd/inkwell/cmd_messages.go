@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eugenelim/inkwell/internal/action"
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -642,7 +643,7 @@ func newMessageReplyCmd(rc *rootContext) *cobra.Command {
 				return err
 			}
 			exec := action.New(app.store, app.graph, app.logger)
-			res, err := exec.CreateDraftReply(ctx, app.account.ID, args[0], body, nil, nil, nil, subject, nil)
+			res, err := exec.CreateDraftReply(ctx, app.account.ID, args[0], compose.DraftBody{Content: body, ContentType: "text"}, nil, nil, nil, subject, nil)
 			if err != nil {
 				return err
 			}
@@ -676,7 +677,7 @@ func newMessageReplyAllCmd(rc *rootContext) *cobra.Command {
 				return err
 			}
 			exec := action.New(app.store, app.graph, app.logger)
-			res, err := exec.CreateDraftReplyAll(ctx, app.account.ID, args[0], body, nil, nil, nil, subject, nil)
+			res, err := exec.CreateDraftReplyAll(ctx, app.account.ID, args[0], compose.DraftBody{Content: body, ContentType: "text"}, nil, nil, nil, subject, nil)
 			if err != nil {
 				return err
 			}
@@ -711,7 +712,7 @@ func newMessageForwardCmd(rc *rootContext) *cobra.Command {
 				return err
 			}
 			exec := action.New(app.store, app.graph, app.logger)
-			res, err := exec.CreateDraftForward(ctx, app.account.ID, args[0], body, toAddrs, nil, nil, subject, nil)
+			res, err := exec.CreateDraftForward(ctx, app.account.ID, args[0], compose.DraftBody{Content: body, ContentType: "text"}, toAddrs, nil, nil, subject, nil)
 			if err != nil {
 				return err
 			}

@@ -79,7 +79,7 @@ Capability completeness with native clients.
 | ----- | ------------------------------------- | ---- | ------------------------------------------------ |
 | 1     | Focused / Other tab (1.15)            | 31   | Shipped v0.60.0.                                  |
 | 2     | Server-side rules (1.14)              | 32   | Shipped v0.61.0 (spec 32) — CLI + cmd-bar + palette; modal manager deferred. |
-| 3     | Rich-text / Markdown drafts (1.18)    | —    | Editor-side; minor.                               |
+| 3     | Rich-text / Markdown drafts (1.18)    | 33   | Shipped v0.62.0 — opt-in `[compose] body_format = "markdown"`; goldmark + GFM. |
 | 4     | Calendar invite actions in mail (1.17)| —    | Scope-gated on `Calendars.ReadWrite`.             |
 | 5     | Multi-account (1.2)                   | —    | Significant refactor; do when stable.             |
 
@@ -282,9 +282,16 @@ Microsoft Graph already provides `inferenceClassification` (Focused / Other). Su
 
 When a meeting invite arrives as mail, render the response options inline (`[A]ccept / [T]entative / [D]ecline`). Out of scope today because we lack `Calendars.ReadWrite` — but if a future tenant grants it, this is a small addition.
 
-### 1.18 Rich-text / Markdown drafts — P3
+### 1.18 Rich-text / Markdown drafts — Shipped v0.62.0 (spec 33)
 
-v1 drafts are plain text. The platform accepts HTML drafts. We could let users compose in Markdown and convert to HTML on save. Not critical; plain text covers 90% of use cases.
+**Owner: spec 33.**
+
+Opt-in via `[compose] body_format = "markdown"`. inkwell converts the
+body to HTML via goldmark (CommonMark + GFM: tables, strikethrough,
+task lists, autolinks) before saving the draft on Graph. Compose
+footer shows `[md]` and `Ctrl+E` writes `.md` tempfiles so `$EDITOR`
+detects filetype. Default remains `"plain"` — no behavior change for
+existing users.
 
 ### 1.19 Watch mode — Shipped v0.58.0 (spec 29)
 

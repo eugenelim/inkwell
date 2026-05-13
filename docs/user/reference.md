@@ -338,6 +338,40 @@ a confirm modal offering to resume where you left off — `y`
 restores the form into ComposeMode; `n` discards it. Confirmed
 sessions older than 24h get garbage-collected on launch.
 
+**Markdown drafts (spec 33).** Set `[compose] body_format =
+"markdown"` in config to compose in CommonMark. inkwell converts
+the body to HTML via goldmark (GFM extensions: tables,
+`~~strikethrough~~`, `- [x]` task lists, autolinked URLs) before
+saving the draft. The compose footer shows ` · [md]` when this
+mode is on. `Ctrl+E` writes a `.md` tempfile so `$EDITOR` activates
+Markdown filetype detection. The reply quote chain (`> ` prefixed
+lines from the source) renders as a `<blockquote>` automatically.
+Default is `body_format = "plain"` — your draft body goes through
+unchanged.
+
+The footer indicator `[md]` is the only persistent visual signal
+that Markdown mode is on. If you type `**bold**` expecting literal
+asterisks but see them rendered as `<strong>bold</strong>` in
+Outlook, check this indicator (or your config).
+
+The format is captured at compose-entry time and cannot drift
+mid-session — a config change requires a fresh compose to take
+effect.
+
+**Outlook caveat.** Outlook desktop re-renders HTML drafts through
+its own editor when you open them for send, normalising whitespace
+and applying its default theme. goldmark's output (`<p>`,
+`<strong>`, `<ul>`, `<table>`, `<blockquote>` — no `<style>` or
+inline CSS) survives this cleanly; recipients see Outlook's
+default styling applied on top. Outlook desktop's default table CSS
+is sparse, so GFM tables render borderless there; OWA, Gmail, and
+Apple Mail render bordered tables out of the box.
+
+**Editing existing drafts.** Spec 33 covers the compose-once-save
+flow only. Reopening a saved draft from the Drafts folder for
+further editing in inkwell is not in scope — the user finalises
+edits in Outlook (which respects the draft's stored `contentType`).
+
 **Pane-scoped bindings**:
 - `r`: viewer = reply; messages pane = mark-read.
 - `R`: viewer = reply-all; messages pane = mark-unread; folders pane = rename-folder.
@@ -808,4 +842,4 @@ Deferred in v1 (rejected by the loader; preserved on round-trip for read-only di
 - `inkwell rules apply` prompts Y/N for every destructive rule unless `--yes` is passed; the global `[rules].confirm_destructive` toggle (default `true`) is an additional belt-and-suspenders override.
 - `rules.toml` is atomically rewritten via `.tmp` + `fsync` + `os.Rename`; orphans on write failure are cleaned by a defer.
 
-_Last reviewed against v0.61.0._
+_Last reviewed against v0.62.0._

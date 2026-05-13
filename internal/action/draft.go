@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -86,7 +87,7 @@ type DraftResult struct {
 // produce duplicate drafts. PR 7-ii adds proper resume logic on
 // startup that inspects the Params for a draft_id and stage-aware
 // behaviour.
-func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
 	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftReply, e.gc.CreateReply)
 }
@@ -97,7 +98,7 @@ func (e *Executor) CreateDraftReply(ctx context.Context, accountID int64, source
 // to PATCH because the user may have curated the recipients
 // (removed someone, added a Bcc) before pressing save. Spec 15 §5 /
 // PR 7-iii.
-func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
 	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftReplyAll, e.gc.CreateReplyAll)
 }
@@ -107,7 +108,7 @@ func (e *Executor) CreateDraftReplyAll(ctx context.Context, accountID int64, sou
 // "Forwarded message" header block + quote chain; the UI's
 // to/cc/bcc / body / subject overlay onto that via the stage 2
 // PATCH. Spec 15 §5 / PR 7-iii.
-func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
 	return e.createDraftFromSource(ctx, accountID, sourceMessageID, body, to, cc, bcc, subject, attachments,
 		store.ActionCreateDraftForward, e.gc.CreateForward)
 }
@@ -121,7 +122,10 @@ func (e *Executor) CreateDraftForward(ctx context.Context, accountID int64, sour
 // resume path knows from the absence of `draft_id` in Params that
 // stage 1 never landed and is the right place to either re-fire
 // or surface to the user.
-func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []AttachmentRef) (*DraftResult, error) {
+	if body.ContentType == "" {
+		body.ContentType = "text"
+	}
 	a := store.Action{
 		ID:        newActionID(),
 		AccountID: accountID,
@@ -129,18 +133,19 @@ func (e *Executor) CreateNewDraft(ctx context.Context, accountID int64, body str
 		Status:    store.StatusPending,
 		CreatedAt: time.Now(),
 		Params: map[string]any{
-			"body":    body,
-			"to":      stringSliceParam(to),
-			"cc":      stringSliceParam(cc),
-			"bcc":     stringSliceParam(bcc),
-			"subject": subject,
+			"body":         body.Content,
+			"content_type": body.ContentType,
+			"to":           stringSliceParam(to),
+			"cc":           stringSliceParam(cc),
+			"bcc":          stringSliceParam(bcc),
+			"subject":      subject,
 		},
 		SkipUndo: true,
 	}
 	if err := e.st.EnqueueAction(ctx, a); err != nil {
 		return nil, fmt.Errorf("draft: enqueue: %w", err)
 	}
-	ref, err := e.gc.CreateNewDraft(ctx, subject, body, to, cc, bcc)
+	ref, err := e.gc.CreateNewDraft(ctx, subject, body.Content, body.ContentType, to, cc, bcc)
 	if err != nil {
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
 		return nil, fmt.Errorf("createNewDraft: %w", err)
@@ -194,9 +199,12 @@ func (e *Executor) DiscardDraft(ctx context.Context, accountID int64, draftID st
 // shared executor body. The kind + stage1 fn parameterise the
 // three flavours; everything else (action enqueue, params persist,
 // stage 2 PATCH, attachment upload, status transitions) is identical.
-func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []AttachmentRef, kind store.ActionType, stage1 func(context.Context, string) (*graph.DraftRef, error)) (*DraftResult, error) {
+func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []AttachmentRef, kind store.ActionType, stage1 func(context.Context, string) (*graph.DraftRef, error)) (*DraftResult, error) {
 	if sourceMessageID == "" {
 		return nil, fmt.Errorf("draft: empty source message id")
+	}
+	if body.ContentType == "" {
+		body.ContentType = "text"
 	}
 	a := store.Action{
 		ID:        newActionID(),
@@ -206,7 +214,8 @@ func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, s
 		CreatedAt: time.Now(),
 		Params: map[string]any{
 			"source_message_id": sourceMessageID,
-			"body":              body,
+			"body":              body.Content,
+			"content_type":      body.ContentType,
 			"to":                stringSliceParam(to),
 			"cc":                stringSliceParam(cc),
 			"bcc":               stringSliceParam(bcc),
@@ -230,7 +239,7 @@ func (e *Executor) createDraftFromSource(ctx context.Context, accountID int64, s
 	}
 
 	out := &DraftResult{ID: ref.ID, WebLink: ref.WebLink}
-	if err := e.gc.PatchMessageBody(ctx, ref.ID, body, to, cc, bcc, subject); err != nil {
+	if err := e.gc.PatchMessageBody(ctx, ref.ID, body.Content, body.ContentType, to, cc, bcc, subject); err != nil {
 		_ = e.st.UpdateActionStatus(ctx, a.ID, store.StatusFailed, err.Error())
 		return out, fmt.Errorf("draft created, body update failed: %w", err)
 	}

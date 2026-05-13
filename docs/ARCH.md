@@ -113,6 +113,12 @@ inkwell/
 │   │   ├── attachments.go
 │   │   ├── links.go
 │   │   └── theme.go
+│   ├── compose/                 # draft compose helpers (spec 15) + Markdown→HTML (spec 33)
+│   │   ├── editor.go            # WriteTempfile, WriteTempfileExt, $EDITOR resolution
+│   │   ├── parse.go             # legacy tempfile parse (v1 compose flow)
+│   │   ├── template.go          # reply / forward skeleton + quote chain
+│   │   ├── markdown.go          # DraftBody type + goldmark CommonMark/GFM renderer (spec 33)
+│   │   └── security_test.go     # path-traversal regression coverage (spec 17 §4.4)
 │   ├── search/                  # hybrid search (spec 06)
 │   │   ├── search.go
 │   │   ├── local.go

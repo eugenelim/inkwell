@@ -44,9 +44,18 @@ func EditorCmd(path string) (*exec.Cmd, error) {
 
 // WriteTempfile creates a fresh tempfile under
 // ~/Library/Caches/inkwell/drafts/{uuid}.eml (or os.TempDir on
-// non-mac systems) and writes content to it. The file mode is 0600
-// — privacy invariant from CLAUDE.md §7.
+// non-mac systems) and writes content to it. Delegates to
+// WriteTempfileExt with the ".eml" suffix.
 func WriteTempfile(content string) (string, error) {
+	return WriteTempfileExt(content, ".eml")
+}
+
+// WriteTempfileExt creates a fresh tempfile like WriteTempfile but
+// with an explicit extension suffix. UUID prefix and cache-directory
+// path are identical to WriteTempfile; only the suffix differs.
+// Used by spec 33 to write ".md" tempfiles when the user has
+// [compose] body_format = "markdown", so $EDITOR detects filetype.
+func WriteTempfileExt(content, ext string) (string, error) {
 	dir, err := draftsDir()
 	if err != nil {
 		return "", err
@@ -58,7 +67,7 @@ func WriteTempfile(content string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, id+".eml")
+	path := filepath.Join(dir, id+ext)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return "", fmt.Errorf("compose: write tempfile: %w", err)
 	}

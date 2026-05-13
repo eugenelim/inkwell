@@ -65,6 +65,88 @@ func TestDeleteDraftServerErrorSurfaces(t *testing.T) {
 	require.Error(t, c.DeleteDraft(context.Background(), "draft-err"))
 }
 
+// TestPatchMessageBody_HTMLContentType verifies that spec 33's
+// new contentType parameter flows into the JSON payload's body
+// object, replacing the pre-spec-33 hard-coded "text".
+func TestPatchMessageBody_HTMLContentType(t *testing.T) {
+	var gotBody map[string]any
+	var gotMethod, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+
+	require.NoError(t, c.PatchMessageBody(context.Background(),
+		"draft-1", "<p>hi</p>\n", "html",
+		[]string{"alice@example.invalid"}, nil, nil, "Re: subj"))
+
+	require.Equal(t, http.MethodPatch, gotMethod)
+	require.Equal(t, "/me/messages/draft-1", gotPath)
+	bodyObj := gotBody["body"].(map[string]any)
+	require.Equal(t, "html", bodyObj["contentType"])
+	require.Equal(t, "<p>hi</p>\n", bodyObj["content"])
+	require.Equal(t, "Re: subj", gotBody["subject"])
+}
+
+// TestPatchMessageBody_TextContentType confirms the pre-spec-33
+// "text" path still works (default plain mode).
+func TestPatchMessageBody_TextContentType(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+
+	require.NoError(t, c.PatchMessageBody(context.Background(),
+		"draft-2", "plain body", "text", nil, nil, nil, ""))
+
+	bodyObj := gotBody["body"].(map[string]any)
+	require.Equal(t, "text", bodyObj["contentType"])
+	require.Equal(t, "plain body", bodyObj["content"])
+}
+
+// TestCreateNewDraft_HTMLContentType verifies spec 33's new
+// contentType parameter flows through CreateNewDraft.
+func TestCreateNewDraft_HTMLContentType(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":"new-1","webLink":"https://outlook.invalid/new-1"}`)
+	}))
+	defer srv.Close()
+
+	logger, _ := newCapturedLogger()
+	c, err := NewClient(&fakeAuth{}, Options{BaseURL: srv.URL, Logger: logger})
+	require.NoError(t, err)
+
+	ref, err := c.CreateNewDraft(context.Background(),
+		"Subj", "<p>hi</p>\n", "html",
+		[]string{"a@example.invalid"}, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "new-1", ref.ID)
+
+	bodyObj := gotBody["body"].(map[string]any)
+	require.Equal(t, "html", bodyObj["contentType"])
+	require.Equal(t, "<p>hi</p>\n", bodyObj["content"])
+}
+
 // TestAddDraftAttachmentGraphCall verifies that POST
 // /me/messages/{id}/attachments sends the correct @odata.type and
 // base64-encoded contentBytes.

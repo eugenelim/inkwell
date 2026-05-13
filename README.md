@@ -51,7 +51,7 @@ For the design decisions behind these, see
 
 ```sh
 # Download (replace vX.Y.Z with the latest release).
-gh release download v0.61.0 -p '*macos_arm64*' -D /tmp
+gh release download v0.62.0 -p '*macos_arm64*' -D /tmp
 tar -xzf /tmp/inkwell_0.60.0_macos_arm64.tar.gz -C /tmp
 xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
 sudo mv /tmp/inkwell /usr/local/bin/              # optional
@@ -172,6 +172,7 @@ current major surfaces:
 | "Done" alias for archive (`e`, `:done`, `[ui].archive_label = "done"`)      | ✅ v0.59+ |
 | Focused / Other tab (read-only Inbox sub-strip, `:focused` / `:other`)      | ✅ v0.60+ |
 | Server-side rules (`inkwell rules pull/apply`, `~/.config/inkwell/rules.toml`) | ✅ v0.61+ |
+| Markdown drafts (`[compose] body_format = "markdown"`, goldmark + GFM)        | ✅ v0.62+ |
 | Code-signing + notarization                                                 | 🚧 v1.0   |
 
 Reading the binary's full feature list at any version: see

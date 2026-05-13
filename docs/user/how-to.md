@@ -1233,6 +1233,71 @@ five command-palette rows for discoverability. The in-TUI manager
 modal is a follow-up iteration; the CLI is the complete authoring
 surface for v1.
 
+## Compose with Markdown formatting (spec 33)
+
+Spec 33 (`v0.62.0+`) adds an opt-in Markdown mode for the compose
+pane. With Markdown mode on, you write CommonMark in the textarea
+or `$EDITOR` and inkwell converts the body to HTML before saving
+the draft on Microsoft Graph.
+
+**Enable it.** Add to `~/Library/Application Support/inkwell/config.toml`:
+
+```toml
+[compose]
+body_format = "markdown"
+```
+
+Restart inkwell. Reply (`r`), reply-all (`R`), forward (`f`), and
+new-message (`m`) now save in Markdown mode. The compose footer
+shows ` · [md]` — this is the only persistent visual signal.
+
+**Compose.** Write standard CommonMark / GFM:
+
+- Inline: `**bold**`, `*italic*`, `~~strikethrough~~`, `` `code` ``
+- Lists: `- item` (unordered), `1. item` (ordered), `- [x] task`
+- Tables (GFM):
+  ```
+  | col1 | col2 |
+  | --- | --- |
+  | a | b |
+  ```
+- Block quotes: `> quoted text`
+- Fenced code blocks: triple-backtick fences
+- Autolinked URLs: bare `https://...` becomes a link
+
+The reply quote chain already uses `> ` line prefixes (added by
+`ApplyReplySkeleton`), so quoted text becomes a `<blockquote>`
+automatically — no extra work.
+
+**`Ctrl+E` editor drop-out.** In Markdown mode, `Ctrl+E` writes a
+`.md` tempfile so vim / nano / VS Code activate their Markdown
+syntax highlighting and bindings. On editor exit, the body returns
+to the textarea as raw Markdown (no eager conversion).
+
+**Outlook caveats.** When you press `s` to open the draft in
+Outlook for the actual send:
+
+- Outlook desktop re-renders HTML drafts through its own editor.
+  Whitespace gets normalised, default theme styles apply.
+  goldmark's output uses only `<p>`, `<strong>`, `<em>`, `<ul>`,
+  `<table>`, `<blockquote>` — no `<style>` or inline CSS — so it
+  survives Outlook's normalization cleanly.
+- Outlook desktop's default table CSS is sparse: GFM tables render
+  without borders there. OWA, Gmail, and Apple Mail render bordered
+  tables out of the box (their UA stylesheet handles it).
+- Markdown source is *not* preserved in the saved draft. The draft
+  on Graph is HTML; reopening it in Outlook shows the rendered
+  output, not the `**bold**` source.
+
+**Switch back to plain.** Set `body_format = "plain"` (or remove
+the key) and restart. Existing saved drafts are unaffected —
+their HTML body stays on Graph; future drafts go through unchanged.
+
+**Editing existing drafts.** Spec 33 covers compose → save → hand
+off. Reopening saved drafts from the Drafts folder for further
+editing in inkwell isn't in v1's compose surface — use Outlook for
+that flow.
+
 ---
 
-_Last reviewed against v0.61.0._
+_Last reviewed against v0.62.0._

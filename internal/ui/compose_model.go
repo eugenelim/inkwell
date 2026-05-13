@@ -54,6 +54,13 @@ type ComposeSnapshot struct {
 	Subject     string                  `json:"subject,omitempty"`
 	Body        string                  `json:"body,omitempty"`
 	Attachments []AttachmentSnapshotRef `json:"attachments,omitempty"`
+	// MarkdownMode mirrors the live ComposeModel.MarkdownMode at
+	// snapshot time (spec 33 §6.5). Persisted in compose_sessions
+	// so a resumed session converts on the same format the user
+	// originally selected. Body field is raw user text (Markdown
+	// source or plain) per the §6.5 invariant — opaque to any
+	// consumer that isn't the textarea.
+	MarkdownMode bool `json:"markdown_mode,omitempty"`
 }
 
 // AttachmentSnapshotRef is the UI-layer mirror of action.AttachmentRef.
@@ -88,6 +95,15 @@ type ComposeModel struct {
 	// shipped (spec-15 v1) — code paths must guard.
 	SessionID string
 
+	// MarkdownMode mirrors [compose] body_format = "markdown" (spec
+	// 33 §6.7). Set once at NewCompose() entry from config; never
+	// re-read from config during the session. Drives the footer
+	// indicator and the .md tempfile extension for Ctrl+E. The
+	// saveComposeCmd path reads snap.MarkdownMode (copied from this
+	// field at Snapshot() time) to decide whether to convert via
+	// goldmark.
+	MarkdownMode bool
+
 	to      textinput.Model
 	cc      textinput.Model
 	subject textinput.Model
@@ -120,6 +136,21 @@ func NewCompose() ComposeModel {
 		body:    body,
 		focused: ComposeFieldBody,
 	}
+}
+
+// newComposeWithFormat builds a ComposeModel and sets MarkdownMode
+// based on the [compose] body_format config value. "markdown"
+// enables MarkdownMode; anything else (including the safe empty
+// default) leaves it false. The two NewCompose() entry points that
+// feed a rendered view — New() at app construction and
+// startComposeOfKind on r/R/f/m — call this helper instead of
+// NewCompose() directly. The discard / reset call sites at
+// updateCompose's Ctrl+S and Ctrl+D paths use NewCompose() because
+// the model is immediately overwritten and never rendered.
+func newComposeWithFormat(bodyFormat string) ComposeModel {
+	m := NewCompose()
+	m.MarkdownMode = bodyFormat == "markdown"
+	return m
 }
 
 // To / Cc / Subject / Body are read-only accessors for the field
@@ -383,18 +414,19 @@ func (m ComposeModel) UpdateField(msg tea.Msg) (ComposeModel, tea.Cmd) {
 // shape. PR 7-ii's compose_sessions persistence consumes this.
 func (m ComposeModel) Snapshot() ComposeSnapshot {
 	return ComposeSnapshot{
-		Kind:        m.Kind,
-		SourceID:    m.SourceID,
-		To:          m.To(),
-		Cc:          m.Cc(),
-		Subject:     m.Subject(),
-		Body:        m.Body(),
-		Attachments: m.Attachments(),
+		Kind:         m.Kind,
+		SourceID:     m.SourceID,
+		To:           m.To(),
+		Cc:           m.Cc(),
+		Subject:      m.Subject(),
+		Body:         m.Body(),
+		Attachments:  m.Attachments(),
+		MarkdownMode: m.MarkdownMode,
 	}
 }
 
 // Restore populates the form from a Snapshot. Used by the
-// resume-on-startup flow that PR 7-ii will wire.
+// resume-on-startup flow that PR 7-ii wired.
 func (m *ComposeModel) Restore(s ComposeSnapshot) {
 	m.Kind = s.Kind
 	m.SourceID = s.SourceID
@@ -403,6 +435,7 @@ func (m *ComposeModel) Restore(s ComposeSnapshot) {
 	m.SetSubject(s.Subject)
 	m.SetBody(s.Body)
 	m.attachments = s.Attachments
+	m.MarkdownMode = s.MarkdownMode
 }
 
 // View renders the compose pane: headers stacked at the top, body
@@ -466,7 +499,11 @@ func (m ComposeModel) View(t Theme, width, height int) string {
 		attSection = strings.Join(lines, "\n")
 	}
 
-	footer := t.Dim.Render("Ctrl+S / Esc save  ·  Ctrl+D discard  ·  Tab cycle field  ·  Ctrl+E editor  ·  Ctrl+A attach")
+	footerText := "Ctrl+S / Esc save  ·  Ctrl+D discard  ·  Tab cycle field  ·  Ctrl+E editor  ·  Ctrl+A attach"
+	if m.MarkdownMode {
+		footerText += "  ·  [md]"
+	}
+	footer := t.Dim.Render(footerText)
 
 	parts := []string{header, "", bodySection}
 	if attSection != "" {

@@ -153,6 +153,62 @@ func TestComposeBodyAcceptsTextEdits(t *testing.T) {
 	require.Equal(t, "hello world", c.Body())
 }
 
+// TestComposeMarkdownModeFooterIndicator asserts the spec-33 [md]
+// indicator appears in the footer when MarkdownMode is true.
+func TestComposeMarkdownModeFooterIndicator(t *testing.T) {
+	src := store.Message{FromAddress: "alice@example.invalid", Subject: "hello"}
+	c := NewCompose()
+	c.MarkdownMode = true
+	c.ApplyReplySkeleton(src, "")
+	out := c.View(DefaultTheme(), 100, 30)
+	require.Contains(t, out, "[md]", "footer must show [md] when MarkdownMode is on")
+}
+
+// TestComposeMarkdownModeAbsentInPlain asserts the [md] indicator is
+// NOT rendered when MarkdownMode is false (default). The footer must
+// still contain the compose shortcuts — this isn't a "frame is empty"
+// check.
+func TestComposeMarkdownModeAbsentInPlain(t *testing.T) {
+	src := store.Message{FromAddress: "alice@example.invalid", Subject: "hello"}
+	c := NewCompose()
+	c.ApplyReplySkeleton(src, "")
+	out := c.View(DefaultTheme(), 100, 30)
+	require.NotContains(t, out, "[md]", "footer must NOT show [md] in plain mode")
+	// And the footer is still wired (regression sanity).
+	require.Contains(t, strings.ToLower(out), "ctrl+s")
+}
+
+// TestComposeSnapshotPreservesMarkdownMode asserts MarkdownMode
+// round-trips through Snapshot → Restore. compose_sessions.snapshot
+// JSON persistence depends on this for resume-on-restart consistency
+// (spec 33 §6.5).
+func TestComposeSnapshotPreservesMarkdownMode(t *testing.T) {
+	c := NewCompose()
+	c.MarkdownMode = true
+	c.SetBody("**hi**")
+	snap := c.Snapshot()
+	require.True(t, snap.MarkdownMode)
+	require.Equal(t, "**hi**", snap.Body)
+
+	other := NewCompose()
+	other.Restore(snap)
+	require.True(t, other.MarkdownMode)
+	require.Equal(t, "**hi**", other.Body())
+}
+
+// TestNewComposeWithFormatMarkdown verifies the helper that wires
+// MarkdownMode at NewCompose() entry from config.
+func TestNewComposeWithFormatMarkdown(t *testing.T) {
+	m := newComposeWithFormat("markdown")
+	require.True(t, m.MarkdownMode)
+	m = newComposeWithFormat("plain")
+	require.False(t, m.MarkdownMode)
+	m = newComposeWithFormat("")
+	require.False(t, m.MarkdownMode)
+	m = newComposeWithFormat("nonsense")
+	require.False(t, m.MarkdownMode)
+}
+
 // TestComposeViewRendersAllFieldsAndFooter is the visible-delta
 // invariant from the user's complaint: save / discard hints live
 // in a persistent footer at the bottom of the compose pane. To /

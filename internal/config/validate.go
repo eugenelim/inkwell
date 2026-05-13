@@ -73,6 +73,11 @@ func (c *Config) Validate() error {
 	if c.Rules.PullStaleThreshold < 0 {
 		errs = append(errs, fmt.Sprintf("rules.pull_stale_threshold %s must be non-negative", c.Rules.PullStaleThreshold))
 	}
+	switch c.Compose.BodyFormat {
+	case "", "plain", "markdown":
+	default:
+		errs = append(errs, fmt.Sprintf("compose.body_format %q must be \"plain\" or \"markdown\"", c.Compose.BodyFormat))
+	}
 	if strings.Contains(c.Rules.File, "..") {
 		// Spec 17 path-traversal guard (mirrors attachment_save_dir).
 		errs = append(errs, fmt.Sprintf("rules.file %q must not contain '..'", c.Rules.File))

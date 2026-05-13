@@ -183,6 +183,13 @@ type ComposeConfig struct {
 	// in Outlook" hint persists after a draft is saved. 0 disables
 	// auto-clear. Default 30s.
 	WebLinkTTL time.Duration `toml:"web_link_ttl"`
+	// BodyFormat selects how the draft body is submitted to Graph
+	// (spec 33). "plain" (default) sends contentType="text" with the
+	// raw textarea content. "markdown" converts the body via goldmark
+	// (CommonMark + GFM) to HTML and sends contentType="html". The
+	// [md] footer indicator appears in the compose pane when this
+	// is "markdown".
+	BodyFormat string `toml:"body_format"`
 }
 
 // PatternConfig owns the [pattern] section (spec 08 §13). Knobs

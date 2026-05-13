@@ -74,11 +74,15 @@ func (c *Client) createDraftFromSource(ctx context.Context, sourceMessageID, ver
 // recipients in one shot, returning a saved draft. Single-stage
 // (no PATCH needed) because the API accepts the entire payload up
 // front. Spec 15 §5 / PR 7-iii.
-func (c *Client) CreateNewDraft(ctx context.Context, subject, body string, to, cc, bcc []string) (*DraftRef, error) {
+//
+// contentType is "text" or "html" per spec 33 — the caller (action
+// layer) sets it from compose.DraftBody.ContentType. Plain "text"
+// preserves the pre-spec-33 wire format.
+func (c *Client) CreateNewDraft(ctx context.Context, subject, content, contentType string, to, cc, bcc []string) (*DraftRef, error) {
 	payload := map[string]any{
 		"body": map[string]string{
-			"contentType": "text",
-			"content":     body,
+			"contentType": contentType,
+			"content":     content,
 		},
 	}
 	if subject != "" {
@@ -118,17 +122,20 @@ func (c *Client) CreateNewDraft(ctx context.Context, subject, body string, to, c
 }
 
 // PatchMessageBody sets the body of an existing message (typically a
-// draft we just created via createReply). Body is plain text in
-// v0.11.0; rich HTML lifts when spec 15 graduates beyond minimum
-// viable.
+// draft we just created via createReply).
+//
+// contentType is "text" or "html" per spec 33 — the caller (action
+// layer) sets it from compose.DraftBody.ContentType. Spec 33 PATCHes
+// only body/subject/recipients; never internetMessageHeaders, which
+// would break In-Reply-To / References threading set by createReply.
 //
 // Also updates To / Cc / Bcc / Subject if any of the slices are
-// non-nil, so the user's edits to the tempfile headers round-trip.
-func (c *Client) PatchMessageBody(ctx context.Context, id, body string, to, cc, bcc []string, subject string) error {
+// non-nil, so the user's edits to the form headers round-trip.
+func (c *Client) PatchMessageBody(ctx context.Context, id, content, contentType string, to, cc, bcc []string, subject string) error {
 	payload := map[string]any{
 		"body": map[string]string{
-			"contentType": "text",
-			"content":     body,
+			"contentType": contentType,
+			"content":     content,
 		},
 	}
 	if subject != "" {

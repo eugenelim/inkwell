@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
+	"github.com/eugenelim/inkwell/internal/compose"
 	ilog "github.com/eugenelim/inkwell/internal/log"
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
@@ -2262,28 +2263,28 @@ func TestDiscardDraftConfirmCallsDiscard(t *testing.T) {
 // stubDraftCreator satisfies ui.DraftCreator.
 type stubDraftCreator struct{ onCall func() }
 
-func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s stubDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
 	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook.office.com/draft/" + srcID}, nil
 }
 
-func (s stubDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s stubDraftCreator) CreateNewDraft(_ context.Context, _ int64, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	if s.onCall != nil {
 		s.onCall()
 	}
@@ -2432,50 +2433,117 @@ type recordingDraftCreator struct {
 	lastKind string
 	// lastSourceID is "" for the New-draft path (no source).
 	lastSourceID string
+	// lastBody is the DraftBody passed by saveComposeCmd. Spec 33
+	// end-to-end checks read Content / ContentType from here.
+	lastBody compose.DraftBody
 }
 
-func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftReply(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
 	s.lastBcc = bcc
 	s.lastKind = "reply"
 	s.lastSourceID = srcID
+	s.lastBody = body
 	return &DraftRef{ID: "draft-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftReplyAll(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
 	s.lastBcc = bcc
 	s.lastKind = "reply_all"
 	s.lastSourceID = srcID
+	s.lastBody = body
 	return &DraftRef{ID: "draft-rall-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateDraftForward(_ context.Context, _ int64, srcID string, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
 	s.lastBcc = bcc
 	s.lastKind = "forward"
 	s.lastSourceID = srcID
+	s.lastBody = body
 	return &DraftRef{ID: "draft-fwd-" + srcID, WebLink: "https://outlook/draft/" + srcID}, nil
 }
 
-func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body string, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
+func (s *recordingDraftCreator) CreateNewDraft(_ context.Context, _ int64, body compose.DraftBody, to, cc, bcc []string, subject string, _ []DraftAttachmentRef) (*DraftRef, error) {
 	s.calls++
 	s.lastTo = to
 	s.lastCc = cc
 	s.lastBcc = bcc
 	s.lastKind = "new"
 	s.lastSourceID = ""
+	s.lastBody = body
 	return &DraftRef{ID: "draft-new", WebLink: "https://outlook/draft/new"}, nil
 }
 
 func (s *recordingDraftCreator) DiscardDraft(_ context.Context, _ int64, _ string) error {
 	return nil
+}
+
+// TestComposeMarkdownModePlainTextStillSendsHTML — spec 33 end-to-end
+// regression: with body_format=markdown and a plain-text body, the
+// DraftCreator must receive contentType="html" (goldmark wraps even
+// plain prose in <p>...</p>). Catches the "did MarkdownMode actually
+// wire through" failure class.
+func TestComposeMarkdownModePlainTextStillSendsHTML(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+	m.deps.ComposeBodyFormat = "markdown"
+
+	// Open the viewer first (Enter), then reply (r) to enter compose.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.Equal(t, ComposeMode, m.mode)
+	require.True(t, m.compose.MarkdownMode, "ComposeBodyFormat=markdown must propagate to ComposeModel")
+
+	// Set body to plain prose with no Markdown syntax.
+	m.compose.SetBody("just plain text")
+
+	// Save.
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = m2.(Model)
+	require.Equal(t, NormalMode, m.mode)
+	require.NotNil(t, cmd)
+	_ = cmd()
+
+	require.Equal(t, 1, stub.calls)
+	require.Equal(t, "html", stub.lastBody.ContentType,
+		"markdown mode must always send contentType=html")
+	require.Contains(t, stub.lastBody.Content, "<p>just plain text</p>",
+		"goldmark wraps even plain prose in <p>...</p>")
+}
+
+// TestComposePlainModeSendsText — counterpart: with the default
+// body_format=plain, body is sent as contentType=text unchanged.
+func TestComposePlainModeSendsText(t *testing.T) {
+	m := newDispatchTestModel(t)
+	stub := &recordingDraftCreator{}
+	m.deps.Drafts = stub
+	// ComposeBodyFormat unset → defaults to plain.
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = m2.(Model)
+	require.False(t, m.compose.MarkdownMode)
+	m.compose.SetBody("**not bold** here")
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = m2.(Model)
+	_ = cmd()
+
+	require.Equal(t, "text", stub.lastBody.ContentType)
+	require.Equal(t, "**not bold** here", stub.lastBody.Content,
+		"plain mode passes the user's body through verbatim")
 }
 
 // TestFolderSwitchClearsActiveSearch is the regression for the bug

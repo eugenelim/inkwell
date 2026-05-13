@@ -123,6 +123,47 @@ nope = "bad"
 	require.Contains(t, err.Error(), "nope")
 }
 
+// TestConfigDecodeComposeBodyFormat asserts that the spec-33
+// [compose] body_format key round-trips through TOML decoding for
+// both valid values, and that the default is "plain".
+func TestConfigDecodeComposeBodyFormat(t *testing.T) {
+	// Default.
+	def := Defaults()
+	require.Equal(t, "plain", def.Compose.BodyFormat)
+
+	// Override to markdown.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	require.NoError(t, writeFile(path, `
+[compose]
+body_format = "markdown"
+`))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "markdown", cfg.Compose.BodyFormat)
+
+	// Override to plain (explicit).
+	require.NoError(t, writeFile(path, `
+[compose]
+body_format = "plain"
+`))
+	cfg, err = Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "plain", cfg.Compose.BodyFormat)
+}
+
+// TestConfigValidateBodyFormatRejectsBadValue asserts that any
+// value other than "plain" / "markdown" fails Validate with a
+// useful message.
+func TestConfigValidateBodyFormatRejectsBadValue(t *testing.T) {
+	cfg := Defaults()
+	cfg.Compose.BodyFormat = "rich-text"
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "compose.body_format")
+	require.Contains(t, err.Error(), "rich-text")
+}
+
 func TestConfigValidateRulesRejectsPathTraversal(t *testing.T) {
 	cfg := Defaults()
 	cfg.Rules.File = "../../etc/passwd"

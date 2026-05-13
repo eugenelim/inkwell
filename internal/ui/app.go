@@ -211,6 +211,13 @@ type Deps struct {
 	// Drafts handles compose / reply (spec 15). Optional — when nil,
 	// the `r` keybinding in the viewer pane shows a friendly error.
 	Drafts DraftCreator
+	// ComposeBodyFormat threads [compose] body_format from config
+	// (spec 33). "plain" (default) or "markdown". Drives the
+	// MarkdownMode field on each new ComposeModel; saveComposeCmd
+	// reads MarkdownMode from the snapshot to decide whether to
+	// convert via goldmark. Empty / unknown values are treated as
+	// "plain" (safe default).
+	ComposeBodyFormat string
 	// Unsubscribe wires the U key (spec 16). Optional — when nil, U
 	// shows a friendly "unsubscribe not wired" message.
 	Unsubscribe UnsubscribeService
@@ -500,10 +507,10 @@ type DraftAttachmentRef struct {
 // argument plumbing. NewDraft drops sourceMessageID — POST
 // /me/messages doesn't reference a source.
 type DraftCreator interface {
-	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
-	CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
-	CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
-	CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateDraftReply(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateDraftReplyAll(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateDraftForward(ctx context.Context, accountID int64, sourceMessageID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
+	CreateNewDraft(ctx context.Context, accountID int64, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []DraftAttachmentRef) (*DraftRef, error)
 	// DiscardDraft deletes a server-side draft (spec 15 §6.3 / F-1).
 	// Called when the user presses 'D' after the draft was saved.
 	// Idempotent: 404 is treated as success.
@@ -1002,7 +1009,7 @@ func New(deps Deps) (Model, error) {
 		folderPicker:        NewFolderPicker(),
 		palette:             NewPalette(),
 		calendarDetail:      NewCalendarDetail(),
-		compose:             NewCompose(),
+		compose:             newComposeWithFormat(deps.ComposeBodyFormat),
 		attachPickInput:     newAttachPickInput(),
 		yanker:              newYanker(stdoutOSC52Writer),
 		activeTab:           -1,
@@ -2664,7 +2671,7 @@ func (m Model) startComposeOfKind(kind ComposeKind, src *store.Message) (tea.Mod
 		m.lastError = fmt.Errorf("compose: not wired (drafts component missing)")
 		return m, nil
 	}
-	m.compose = NewCompose()
+	m.compose = newComposeWithFormat(m.deps.ComposeBodyFormat)
 	m.compose.SessionID = newComposeSessionID()
 	userUPN := ""
 	if m.deps.Account != nil {
@@ -2750,7 +2757,14 @@ func (m Model) updateCompose(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyCtrlE:
 		body := m.compose.Body()
-		path, err := compose.WriteTempfile(body)
+		// Spec 33 §6.6: when Markdown mode is on, write a .md
+		// tempfile so $EDITOR detects filetype and activates
+		// Markdown syntax highlighting.
+		ext := ".eml"
+		if m.compose.MarkdownMode {
+			ext = ".md"
+		}
+		path, err := compose.WriteTempfileExt(body, ext)
 		if err != nil {
 			m.lastError = err
 			return m, nil

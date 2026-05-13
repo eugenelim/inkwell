@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/store"
 )
 
@@ -311,21 +312,36 @@ func (m Model) saveComposeCmd(snap ComposeSnapshot, sessionID string) tea.Cmd {
 		defer cancel()
 		ccList := splitAddressList(snap.Cc)
 		atts := snapshotRefsToAction(snap.Attachments)
+		// Spec 33 §6.5: convert Markdown → HTML before dispatch when
+		// the captured snapshot's MarkdownMode is set. The conversion
+		// is at this single point so both the textarea-only flow and
+		// the Ctrl+E editor flow share the same render path.
+		var draftBody compose.DraftBody
+		if snap.MarkdownMode {
+			html, mdErr := compose.RenderMarkdown(snap.Body)
+			if mdErr != nil {
+				confirm()
+				return draftSavedMsg{err: fmt.Errorf("markdown: %w", mdErr)}
+			}
+			draftBody = compose.DraftBody{Content: html, ContentType: "html"}
+		} else {
+			draftBody = compose.DraftBody{Content: snap.Body, ContentType: "text"}
+		}
 		var ref *DraftRef
 		var err error
 		switch snap.Kind {
 		case ComposeKindReplyAll:
 			ref, err = m.deps.Drafts.CreateDraftReplyAll(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject, atts)
+				draftBody, toList, ccList, nil, snap.Subject, atts)
 		case ComposeKindForward:
 			ref, err = m.deps.Drafts.CreateDraftForward(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject, atts)
+				draftBody, toList, ccList, nil, snap.Subject, atts)
 		case ComposeKindNew:
 			ref, err = m.deps.Drafts.CreateNewDraft(ctx, accountID,
-				snap.Body, toList, ccList, nil, snap.Subject, atts)
+				draftBody, toList, ccList, nil, snap.Subject, atts)
 		default:
 			ref, err = m.deps.Drafts.CreateDraftReply(ctx, accountID, snap.SourceID,
-				snap.Body, toList, ccList, nil, snap.Subject, atts)
+				draftBody, toList, ccList, nil, snap.Subject, atts)
 		}
 		confirm()
 		if err != nil {

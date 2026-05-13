@@ -17,6 +17,7 @@ import (
 
 	"github.com/eugenelim/inkwell/internal/action"
 	"github.com/eugenelim/inkwell/internal/auth"
+	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/config"
 	"github.com/eugenelim/inkwell/internal/graph"
 	ilog "github.com/eugenelim/inkwell/internal/log"
@@ -251,6 +252,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		Calendar:              calendarAdapter{gc: gc, st: st, accountID: acc.ID, showDeclined: cfg.Calendar.ShowDeclined},
 		Mailbox:               mailboxAdapter{gc: gc},
 		Drafts:                draftAdapter{exec: exec},
+		ComposeBodyFormat:     cfg.Compose.BodyFormat,
 		Search:                newSearchAdapter(st, gc, acc.ID, cfg.Search),
 		Unsubscribe:           newUnsubAdapter(st, gc, version),
 		SavedSearchSvc:        &savedSearchAdapter{mgr: ssm, accountID: acc.ID},
@@ -500,19 +502,19 @@ func (b bulkAdapter) BulkMove(ctx context.Context, accountID int64, ids []string
 // import internal/action.
 type draftAdapter struct{ exec *action.Executor }
 
-func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+func (d draftAdapter) CreateDraftReply(ctx context.Context, accountID int64, sourceID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
 	return convertDraftResult(d.exec.CreateDraftReply(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+func (d draftAdapter) CreateDraftReplyAll(ctx context.Context, accountID int64, sourceID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
 	return convertDraftResult(d.exec.CreateDraftReplyAll(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateDraftForward(ctx context.Context, accountID int64, sourceID, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+func (d draftAdapter) CreateDraftForward(ctx context.Context, accountID int64, sourceID string, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
 	return convertDraftResult(d.exec.CreateDraftForward(ctx, accountID, sourceID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
-func (d draftAdapter) CreateNewDraft(ctx context.Context, accountID int64, body string, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
+func (d draftAdapter) CreateNewDraft(ctx context.Context, accountID int64, body compose.DraftBody, to, cc, bcc []string, subject string, attachments []ui.DraftAttachmentRef) (*ui.DraftRef, error) {
 	return convertDraftResult(d.exec.CreateNewDraft(ctx, accountID, body, to, cc, bcc, subject, convertAttachmentRefs(attachments)))
 }
 
