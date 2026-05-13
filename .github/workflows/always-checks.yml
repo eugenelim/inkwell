@@ -1,0 +1,82 @@
+name: always-checks
+
+# Cheap, always-runs gates that don't depend on a Go toolchain or
+# the test suite. Split out from ci.yml / security.yml so a docs-only
+# PR still exercises these checks even when the heavy jobs are
+# skipped via paths-ignore.
+#
+# What belongs here: any gate that (a) runs in well under a minute
+# and (b) is meaningful regardless of whether Go code changed.
+# Doc-sweep catches plan-file drift on doc PRs; privacy-guard catches
+# real domains in fixtures; gitleaks catches secrets in any file;
+# dependency-review catches risky dep changes in any go.mod edit.
+#
+# What does NOT belong here: anything that needs a Go toolchain,
+# Go module cache, or runs the test suite. Those live in ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  doc-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: doc-sweep (CLAUDE.md §12.6 mechanical checks)
+        run: bash scripts/doc-sweep.sh
+
+  privacy-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: testdata never contains real domains
+        run: |
+          set -e
+          # Match any email address whose domain is not example.invalid.
+          if grep -rEi --include='*.json' --include='*.golden' --include='*.html' --include='*.txt' \
+              "@([A-Za-z0-9._-]+)\.(com|org|net|io|co|uk|de|fr)" internal/ docs/ 2>/dev/null; then
+            echo "::error::testdata contains a non-example.invalid domain. Use example.invalid for fixtures."
+            exit 1
+          fi
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history so gitleaks scans every commit, not just HEAD.
+          # Without fetch-depth=0, the action only sees a shallow
+          # clone and accidentally-committed credentials in older
+          # commits stay hidden.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No GITLEAKS_LICENSE — the action falls back to the
+          # OSS-licensed core ruleset, which is the right default
+          # for an OSS project.
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    # Only meaningful on PRs (compares HEAD vs base). Skip on push.
+    # Requires the repo's Dependency graph feature to be enabled
+    # (Settings → Code security and analysis → Dependency graph).
+    # When the setting is off the action errors out with
+    # "Dependency review is not supported on this repository";
+    # we run with continue-on-error until that setting is flipped
+    # so PRs aren't blocked by an unfixable infra-side gap.
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          # We don't pin a license allowlist yet — Go ecosystem is
+          # mostly MIT/BSD/Apache; revisit if we add a copyleft dep
+          # that would conflict with our distribution model.

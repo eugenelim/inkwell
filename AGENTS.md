@@ -201,18 +201,29 @@ regression.
 
 ### 5.9 CI scoping
 
-Two workflow tiers:
+Three workflow files, two tiers:
 
-- **`.github/workflows/docs-checks.yml`** — always runs. Cheap gates
-  (doc-sweep, privacy-guard) that don't need a Go toolchain. ~30s total.
-- **`.github/workflows/ci.yml`** — heavy `test` job (race, e2e, budget,
-  benchmarks, fuzz, staticcheck), ~30 min. Carries `paths-ignore` for
-  `**/*.md`, `docs/**`, `CLAUDE.md`, `.claude/**`, `.gitignore`,
-  `LICENSE*` — pure docs PRs skip it.
+- **`.github/workflows/always-checks.yml`** — always runs. Gates that
+  don't need a Go toolchain and are meaningful for any change:
+  `doc-sweep`, `privacy-guard`, `gitleaks` (secret scan, full
+  history), `dependency-review` (PR-only). ~1 min total.
+- **`.github/workflows/ci.yml`** — heavy `test` job (race, e2e,
+  budget, benchmarks, fuzz, staticcheck) + `permissions-check`,
+  ~30 min. Carries `paths-ignore` for docs paths.
+- **`.github/workflows/security.yml`** — Go-specific SAST and vuln
+  scanning (`gosec`, `semgrep`, `govulncheck`), ~2 min in parallel.
+  Same `paths-ignore` as ci.yml. Also runs weekly via cron to catch
+  new CVEs against unchanged code.
+
+The shared `paths-ignore` list (ci.yml, security.yml):
+
+```
+**/*.md, docs/**, CLAUDE.md, .claude/**, .gitignore, LICENSE*
+```
 
 Mixed PRs (one `.go` change alongside docs) bring the full pipeline
-back — `paths-ignore` triggers only when *every* changed path is in the
-list. Workflow file changes (`.github/**`) are intentionally NOT
+back — `paths-ignore` triggers only when *every* changed path is in
+the list. Workflow file changes (`.github/**`) are intentionally NOT
 ignored — workflow edits must be tested by running.
 
 Local discipline (§5.7 `make regress` before tag) is unchanged: the
