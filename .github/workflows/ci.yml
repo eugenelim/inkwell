@@ -54,6 +54,9 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@latest
           $(go env GOPATH)/bin/staticcheck ./... || true
 
+      - name: doc-sweep (CLAUDE.md §12.6 mechanical checks)
+        run: bash scripts/doc-sweep.sh
+
       - name: privacy guard - testdata never contains real domains
         run: |
           set -e

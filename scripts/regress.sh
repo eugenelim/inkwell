@@ -24,11 +24,11 @@ step() { printf "\n${bold}== %s ==${reset}\n" "$*"; }
 ok()   { printf "${green}✓${reset} %s\n" "$*"; }
 fail() { printf "${red}✗ %s${reset}\n" "$*"; exit 1; }
 
-step "0/6 Mail.Send scope guard"
+step "0/7 Mail.Send scope guard"
 bash "$(dirname "$0")/check-no-mail-send.sh" || fail "Mail.Send scope guard"
 ok "Mail.Send guard clean"
 
-step "1/6 gofmt -s (formatting)"
+step "1/7 gofmt -s (formatting)"
 diff_files=$(gofmt -s -l .)
 if [ -n "$diff_files" ]; then
   echo "$diff_files"
@@ -36,32 +36,36 @@ if [ -n "$diff_files" ]; then
 fi
 ok "all files formatted"
 
-step "2/6 go vet ./..."
+step "2/7 go vet ./..."
 go vet ./... || fail "go vet"
 ok "vet clean"
 
-step "3/6 go build ./..."
+step "3/7 go build ./..."
 go build ./... || fail "build"
 ok "build clean"
 
-step "4/6 go test -race ./... (unit + dispatch)"
+step "4/7 go test -race ./... (unit + dispatch)"
 go test -race -timeout 120s ./... || fail "race tests"
 ok "race tests green"
 
-step "5/6 go test -tags=e2e ./... (TUI e2e)"
+step "5/7 go test -tags=e2e ./... (TUI e2e)"
 go test -tags=e2e -timeout 120s ./... || fail "e2e tests"
 ok "e2e tests green"
 
 # Integration tag is reserved for tests that need recorded fixtures.
 # Run if any *_test.go uses the integration tag.
 if grep -rl "//go:build integration" --include="*.go" . >/dev/null 2>&1; then
-  step "6a/6 go test -tags=integration ./..."
+  step "6a/7 go test -tags=integration ./..."
   go test -tags=integration -timeout 120s ./... || fail "integration tests"
   ok "integration tests green"
 fi
 
-step "6/6 go test -bench=. -benchmem -run=^$ ./... (benches)"
+step "6/7 go test -bench=. -benchmem -run=^$ ./... (benches)"
 go test -bench=. -benchmem -run='^$' -timeout 600s ./... || fail "benchmarks"
 ok "benchmarks within budget"
+
+step "7/7 doc-sweep (CLAUDE.md §12.6 mechanical checks)"
+bash "$(dirname "$0")/doc-sweep.sh" || fail "doc-sweep"
+ok "doc-sweep clean"
 
 printf "\n${bold}${green}All regression gates green.${reset}\n"
