@@ -633,6 +633,7 @@ inkwell/
 │   ├── PRD.md
 │   ├── ARCH.md
 │   ├── CONFIG.md
+│   ├── adr/                   # immutable records of cross-cutting decisions
 │   ├── specs/                 # the source of truth for each feature
 │   ├── plans/                 # ralph-loop tracking notes (per-spec)
 │   ├── ROADMAP.md
