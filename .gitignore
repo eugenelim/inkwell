@@ -20,5 +20,10 @@ sec-reports/
 
 # Claude Code's project-local settings + scheduled-tasks lockfile.
 # Personal to the operator's session; not part of the repo's
-# build inputs.
-.claude/
+# build inputs. The agents/ and skills/ subdirs ARE checked in —
+# they're project-level agent contracts (adversarial-reviewer,
+# new-spec scaffolder, etc.) shared via the repo.
+.claude/*
+!.claude/agents/
+!.claude/skills/
+!.claude/commands/
