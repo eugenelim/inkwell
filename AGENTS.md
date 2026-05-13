@@ -1,9 +1,14 @@
-# CLAUDE.md — Inkwell contributor & AI-assistant guide
+# AGENTS.md — Inkwell contributor & AI-assistant guide
 
-This file is loaded into every Claude Code session for this repo. It encodes the
+This file is the canonical agent / contributor contract for the repo. It's
+loaded automatically by Claude Code (via the `CLAUDE.md` symlink) and is the
+file Cursor, Codex, and other agent tools should also read. It encodes the
 non-negotiable conventions, the test architecture, the privacy/performance
 rules, and the **ralph loop** the AI assistant uses to drive each spec to a
 clean, benchmarked, reviewed Definition-of-Done.
+
+Section numbers (`§N`) are stable contract surfaces — referenced from code
+comments, other docs, and spec/plan files. Don't renumber casually.
 
 Always read these in this order before touching code:
 
