@@ -199,6 +199,25 @@ regression.
 - `golangci-lint run` with the config at `.golangci.yml` once the project
   ships one.
 
+### 5.9 CI scoping
+
+Two workflow tiers:
+
+- **`.github/workflows/docs-checks.yml`** — always runs. Cheap gates
+  (doc-sweep, privacy-guard) that don't need a Go toolchain. ~30s total.
+- **`.github/workflows/ci.yml`** — heavy `test` job (race, e2e, budget,
+  benchmarks, fuzz, staticcheck), ~30 min. Carries `paths-ignore` for
+  `**/*.md`, `docs/**`, `CLAUDE.md`, `.claude/**`, `.gitignore`,
+  `LICENSE*` — pure docs PRs skip it.
+
+Mixed PRs (one `.go` change alongside docs) bring the full pipeline
+back — `paths-ignore` triggers only when *every* changed path is in the
+list. Workflow file changes (`.github/**`) are intentionally NOT
+ignored — workflow edits must be tested by running.
+
+Local discipline (§5.7 `make regress` before tag) is unchanged: the
+local suite always runs the full pipeline regardless of what changed.
+
 ---
 
 ## 6. Performance budgets (do not regress)
