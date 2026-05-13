@@ -1,10 +1,14 @@
 name: security
 
-# SAST + dependency scan. Three independent scanners — gosec
-# (Go-specific), Semgrep (multi-pattern SAST including p/golang and
-# p/secrets), govulncheck (the official Go vulnerability database
-# scanner). Results upload as artefacts so the operator can review
-# without rerunning locally.
+# Go-specific SAST and vulnerability scanners. All three independently
+# scan Go source / module graph; none of them have anything useful to
+# say about a docs-only change, so we apply the same `paths-ignore`
+# as ci.yml.
+#
+# Always-on secret + dependency gates (gitleaks, dependency-review)
+# moved to always-checks.yml — they're meaningful regardless of
+# whether Go code changed and don't share the toolchain setup cost
+# this workflow's jobs pay.
 #
 # False-positive policy: code-line annotations only (#nosec for gosec,
 # // nosemgrep for Semgrep). Avoid global suppressions; every
@@ -16,7 +20,21 @@ name: security
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'CLAUDE.md'
+      - '.claude/**'
+      - '.gitignore'
+      - 'LICENSE*'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'CLAUDE.md'
+      - '.claude/**'
+      - '.gitignore'
+      - 'LICENSE*'
   schedule:
     # Weekly run catches new CVEs against unchanged code.
     - cron: "0 6 * * 1"
@@ -97,40 +115,3 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: run govulncheck
         run: $(go env GOPATH)/bin/govulncheck ./...
-
-  gitleaks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # Full history so gitleaks scans every commit, not just HEAD.
-          # Without fetch-depth=0, the action only sees a shallow
-          # clone and accidentally-committed credentials in older
-          # commits stay hidden.
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No GITLEAKS_LICENSE — the action falls back to the
-          # OSS-licensed core ruleset, which is the right default
-          # for an OSS project.
-
-  dependency-review:
-    runs-on: ubuntu-latest
-    # Only meaningful on PRs (compares HEAD vs base). Skip on push.
-    # Requires the repo's Dependency graph feature to be enabled
-    # (Settings → Code security and analysis → Dependency graph).
-    # When the setting is off the action errors out with
-    # "Dependency review is not supported on this repository";
-    # we run with continue-on-error until that setting is flipped
-    # so PRs aren't blocked by an unfixable infra-side gap.
-    if: github.event_name == 'pull_request'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: moderate
-          # We don't pin a license allowlist yet — Go ecosystem is
-          # mostly MIT/BSD/Apache; revisit if we add a copyleft dep
-          # that would conflict with our distribution model.
