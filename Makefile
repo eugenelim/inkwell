@@ -48,6 +48,9 @@ regress: ## Full regression suite (CLAUDE.md §5.8). Run before tagging.
 regress-report: ## Per-feature regression report → reports/ (gitignored)
 	@./scripts/regress-report.sh
 
+doc-sweep: ## CLAUDE.md §12.6 mechanical checks (plan files, shipped consistency)
+	@./scripts/doc-sweep.sh
+
 sec: sec-gosec sec-semgrep sec-vuln ## Run gosec + semgrep + govulncheck
 
 sec-gosec: ## gosec — Go static security analyser (install: go install github.com/securego/gosec/v2/cmd/gosec@latest)
