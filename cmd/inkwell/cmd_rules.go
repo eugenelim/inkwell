@@ -422,7 +422,7 @@ func newRulesNewCmd(rc *rootContext) *cobra.Command {
 			if err := ensureRulesFileExists(path); err != nil {
 				return err
 			}
-			body, err := os.ReadFile(path)
+			body, err := os.ReadFile(path) // #nosec G304 — path is the user's rules.toml (DefaultPath or --file flag). Single-user desktop tool; the user owns the path. Path-traversal checked in config.Validate.
 			if err != nil {
 				return err
 			}
@@ -501,7 +501,7 @@ func openInEditor(path string, openAtRule bool, line int) error {
 		editor = "vi"
 	}
 	args := []string{path}
-	cmd := exec.Command(editor, args...)
+	cmd := exec.Command(editor, args...) // #nosec G204 G702 — editor is $EDITOR/$VISUAL or "vi" (user-controlled by the operator); path is the validated rules.toml on disk. Intentional shell-out identical to how git/mutt invoke $EDITOR.
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

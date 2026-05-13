@@ -197,7 +197,7 @@ func AtomicWriteFile(path string, content []byte, mode os.FileMode) (retErr erro
 		return fmt.Errorf("create parent dir: %w", err)
 	}
 
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode) // #nosec G304 — tmp is path+".tmp" derived from the user's rules.toml destination. Path-traversal rejected by config.Validate; atomic rename replaces the final file.
 	if err != nil {
 		return fmt.Errorf("open tmp file: %w", err)
 	}

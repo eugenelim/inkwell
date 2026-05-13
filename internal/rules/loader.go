@@ -21,7 +21,7 @@ import (
 // hard fail).
 func LoadCatalogue(path string) (*Catalogue, error) {
 	// Missing file is benign.
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 — path is the user's rules.toml (DefaultPath or --file flag). Path-traversal rejected by config.Validate; single-user desktop tool.
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &Catalogue{Path: path}, nil
