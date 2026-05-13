@@ -16,6 +16,12 @@ Always read these in this order before touching code:
 2. `docs/ARCH.md` — module layout, layering, data flow, invariants.
 3. `docs/CONFIG.md` — config keys (skim, reference on demand).
 4. `docs/specs/NN-*.md` — the spec you're implementing.
+5. `internal/<pkg>/AGENTS.md` — when you're working inside a specific
+   package. Per-package AGENTS.md files exist for `store`, `graph`,
+   `ui`, and `auth`; they encode package-specific invariants that
+   supplement (not restate) this file.
+6. `docs/adr/` — cross-cutting decisions and their alternatives, when
+   you're about to relitigate one.
 
 If a spec contradicts ARCH/PRD, the spec is wrong. Fix the spec first.
 
