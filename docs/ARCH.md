@@ -72,6 +72,7 @@ inkwell/
 │   │   ├── folders.go           # /me/mailFolders
 │   │   ├── delta.go             # delta query helpers
 │   │   ├── calendar.go          # /me/calendar, /me/events (spec 12)
+│   │   ├── event_message.go     # /me/messages/{id} $expand=eventMessage/event (spec 34)
 │   │   ├── mailbox.go           # /me/mailboxSettings (spec 13)
 │   │   ├── scheduler.go         # priority-aware concurrency (spec 03 §11)
 │   │   └── errors.go            # Graph error parsing
@@ -112,6 +113,7 @@ inkwell/
 │   │   ├── plain.go
 │   │   ├── attachments.go
 │   │   ├── links.go
+│   │   ├── invite.go            # spec 34 InviteCard renderer + graph→render Invite mirror
 │   │   └── theme.go
 │   ├── compose/                 # draft compose helpers (spec 15) + Markdown→HTML (spec 33)
 │   │   ├── editor.go            # WriteTempfile, WriteTempfileExt, $EDITOR resolution

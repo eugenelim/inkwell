@@ -1630,6 +1630,16 @@ type ViewerModel struct {
 	quotesExpanded bool
 	// rawHeaders carries the RFC 822 headers from the last body fetch.
 	rawHeaders []RawHeader
+	// inviteCard is the spec-34 pre-rendered invite metadata card
+	// shown above the body. Empty for non-invites and for invites
+	// where the event-fetch soft-failed.
+	inviteCard string
+	// inviteRouting is the spec-34 invite routing snapshot for the
+	// `o`-keystroke. Co-located with inviteCard so they share the
+	// same SetMessage clearing — otherwise the card glyph could
+	// disappear while the stale routing keeps sending `o` to the
+	// previous meeting's webLink (adversarial-review finding).
+	inviteRouting *InviteSnapshot
 }
 
 // NewViewer returns an empty viewer.
@@ -1643,6 +1653,42 @@ func (m *ViewerModel) SetMessage(msg store.Message) {
 	m.bodyState = 0
 	m.scrollY = 0
 	m.attachments = nil
+	// Spec 34: the previous invite card AND routing snapshot must
+	// not carry over to the new message. The BodyRenderedMsg
+	// reducer re-populates both via SetInvite when the new message
+	// is itself an invite.
+	m.inviteCard = ""
+	m.inviteRouting = nil
+}
+
+// SetInvite records the spec-34 invite card text + the routing
+// snapshot used by the `o`-keystroke. Both are nil/empty for
+// non-invite messages and for invites where the event-fetch
+// soft-failed without producing a webLink; the viewer pane omits
+// the card block in those cases.
+func (m *ViewerModel) SetInvite(snap *InviteSnapshot) {
+	if snap == nil {
+		m.inviteCard = ""
+		m.inviteRouting = nil
+		return
+	}
+	m.inviteCard = snap.Card
+	m.inviteRouting = snap
+}
+
+// InviteCard returns the current invite card text (empty when no
+// card is in scope). Exposed for tests; production code reads it
+// indirectly through View().
+func (m ViewerModel) InviteCard() string {
+	return m.inviteCard
+}
+
+// InviteRouting returns the routing snapshot for the `o`-keystroke
+// (nil when no invite is in scope). Exposed so the o-key handler in
+// dispatchViewer reads from the viewer-owned state, not a separately-
+// updated Model field.
+func (m ViewerModel) InviteRouting() *InviteSnapshot {
+	return m.inviteRouting
 }
 
 // SetAttachments records the attachment metadata loaded for the
@@ -1881,6 +1927,15 @@ func (m ViewerModel) View(t Theme, width, height int, focused bool) string {
 	// `📎` glyph; the user couldn't see filenames at all.
 	attLines := renderAttachmentLines(m.attachments, t.RenderTheme)
 	hdrs = append(hdrs, attLines...)
+	// Spec 34: the invite card paints between attachments and body
+	// so the reader sees the meeting metadata + the `o`-to-RSVP
+	// hint without scrolling. The card is multi-line (boxed via
+	// lipgloss); split on \n so the height-accounting math below
+	// (`room := height - len(hdrs)`) stays correct.
+	if m.inviteCard != "" {
+		hdrs = append(hdrs, strings.Split(m.inviteCard, "\n")...)
+		hdrs = append(hdrs, "")
+	}
 	body := m.body
 	if body == "" {
 		body = t.Dim.Render("(loading…)")

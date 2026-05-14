@@ -184,7 +184,7 @@ disabled because of a real-tenant 400 regression on the bare
 | `L`       | Toggle Reply Later for the focused message                    |
 | `P`       | Toggle Set Aside for the focused message                      |
 | `u`       | Undo the most recent triage action                            |
-| `o`       | Open message in system browser (OWA deep-link / webLink)      |
+| `o`       | Open message in system browser (OWA deep-link). On a meeting invite (`meetingRequest` / `meetingCancelled`), opens the **event** webLink instead — lands on the OWA calendar event where Accept / Tentative / Decline buttons are visible. |
 | `O`       | Open the URL picker (lists every URL the renderer extracted)  |
 | `1`–`9`   | Open extracted link N directly (skips the picker for quick access) |
 | `a`–`z`   | Save attachment with that accelerator letter to `~Downloads`  |
@@ -220,6 +220,30 @@ alacritty, foot, wezterm, ghostty, recent gnome-terminal / Konsole)
 make these directly clickable (Cmd-click on macOS, Ctrl-click on
 Linux). Older terminals (Apple Terminal.app) fall back to plain
 text — use the URL picker (`O`) instead.
+
+**Meeting invite card** (spec 34, since v0.63): when the focused
+message is a meeting invite (`meetingMessageType` is
+`meetingRequest`, `meetingCancelled`, or one of the response types),
+the viewer paints a compact card between the headers/attachments and
+the body. The card shows the meeting subject, when (in your resolved
+timezone), where (location or `💻 join` for online meetings),
+recurrence summary, organizer, and required / optional attendee
+counts with a breakdown of accepted / tentative / declined / pending.
+A coloured status pip in the header reflects your current RSVP
+(`🟢 accepted`, `🟡 tentative`, `🔴 declined`, `⚪ not responded`,
+`◆ you are the organizer`).
+
+Pressing `o` on a `meetingRequest` / `meetingCancelled` opens the
+**event** webLink in Outlook on the web — a one-keystroke hand-off
+that lands the user on the calendar event view, where Accept /
+Tentative / Decline buttons are visible. **This is a two-click
+interaction** by design: inkwell is a read + hand-off surface for
+calendar invites today; the inline `[A]ccept / [T]entative /
+[D]ecline` keystrokes require the `Calendars.ReadWrite` scope which
+is currently denied per PRD §3.2. Response-type messages
+(meetingAccepted / meetingTenativelyAccepted / meetingDeclined)
+render a single-line header card and fall through to the regular
+`message.webLink` on `o`.
 
 **Attachments block**: messages with attachments paint a compact
 list between the headers and the body — `Attach: 3 files · 4.4 MB`

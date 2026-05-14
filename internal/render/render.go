@@ -71,6 +71,13 @@ type BodyView struct {
 	Links        []ExtractedLink
 	State        BodyState
 	Headers      []FetchedHeader
+	// InviteCard, when non-empty, is the spec-34 invite metadata
+	// card that paints above the body in the viewer. Empty for
+	// non-invite messages and for invites where the event fetch
+	// soft-failed. Body() does NOT populate this — the UI assigns
+	// it out-of-band after the parallel GetEventMessage fetch
+	// returns (spec 34 §6.4).
+	InviteCard string
 }
 
 // ExtractedLink is one numbered hyperlink.
@@ -93,6 +100,11 @@ type BodyOpts struct {
 	// disables truncation. Real-tenant complaint: long URLs
 	// blocked vertical scrolling in the viewer.
 	URLDisplayMaxWidth int
+	// TZ is the user's resolved IANA timezone used by spec-34's
+	// invite-card date formatting. nil → time.UTC. Kept on BodyOpts
+	// so other date-formatting helpers can adopt the same source
+	// later. Body() itself does not use this field today.
+	TZ *time.Location
 }
 
 // BodyFetcher is the seam to [internal/graph.Client.GetMessageBody].

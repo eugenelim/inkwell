@@ -269,6 +269,7 @@ The following feature specs implement this PRD. Each lives in `docs/specs/`. Spe
 | 31  | `31-focused-other-tab.md`                          | post-v1, ROADMAP §0 bucket 4 — **shipped v0.60.0** |
 | 32  | `32-server-side-rules.md`                          | post-v1, ROADMAP §0 bucket 4 — **shipped v0.61.0** (CLI + cmd-bar + palette; modal manager deferred) |
 | 33  | `33-markdown-drafts.md`                            | post-v1, ROADMAP §0 bucket 4 — **shipped v0.62.0** (opt-in via `[compose] body_format = "markdown"`; goldmark + GFM extensions) |
+| 34  | `34-calendar-invites-read.md`                      | post-v1, ROADMAP §0 bucket 4 — **shipped v0.63.0** (read + hand-off only; `Calendars.ReadWrite` still denied per §3.2 — inline A/T/D is a follow-up) |
 
 Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across

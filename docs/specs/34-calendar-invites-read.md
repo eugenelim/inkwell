@@ -1,6 +1,7 @@
 # Spec 34 — Calendar invites in mail (read + hand-off)
 
-**Status:** Draft.
+**Status:** Shipped.
+**Shipped:** v0.63.0 (2026-05-14)
 **Depends on:** Spec 05 (renderer — `render.Body(ctx, m *store.Message,
 opts BodyOpts) (BodyView, error)` at `internal/render/render.go:206`,
 the `BodyView` struct at `internal/render/render.go:68`), Spec 12
@@ -320,7 +321,7 @@ to a single line at decode time:
 | Graph `pattern.type` | `daysOfWeek` populated? | Inkwell summary |
 | --- | --- | --- |
 | `daily` | n/a | "Daily" |
-| `weekly` | yes | "Weekly on Mon" (lowercase daysOfWeek title-cased + comma-joined) |
+| `weekly` | yes | "Weekly on Monday" (lowercase daysOfWeek title-cased + comma-joined) |
 | `weekly` | empty / missing | "Weekly" |
 | `absoluteMonthly` | n/a | "Monthly on the 15th" |
 | `relativeMonthly` | yes | "Monthly on the second Tuesday" |
@@ -502,7 +503,7 @@ if m.deps.Settings != nil {
         tz = loc
     }
 }
-opts := render.BodyOpts{..., TZ: tz, EventMessage: em}
+opts := render.BodyOpts{..., TZ: tz}
 ```
 
 `Deps.Calendar.GetEventMessage` returns the raw event times
@@ -647,7 +648,17 @@ None. The scope policy is explicit (`Calendars.ReadWrite` denied
 → hand-off only), the Graph shape is verified against
 `learn.microsoft.com`, and the existing viewer / render
 infrastructure takes the new `BodyView.InviteCard` field +
-`BodyOpts.EventMessage` thread without re-architecture.
+`BodyOpts.TZ` thread without re-architecture.
+
+**Layering note (shipped divergence from §6.x prose):** CLAUDE.md §2
+forbids `internal/ui` from importing `internal/graph`. The
+implementation therefore defines a render-package mirror —
+`render.Invite` / `render.InviteEvent` / `render.InviteAttendee` +
+`render.InviteFromGraph` — so `CalendarFetcher.GetEventMessage`
+returns `*render.Invite` and `RenderInviteCard(em *render.Invite, …)`
+takes the same. The decode types `graph.EventMessage` /
+`graph.EventMessageEvent` still live in `internal/graph` per §6.2.
+Behaviour is identical to the prose; only the type-path moved.
 
 ---
 

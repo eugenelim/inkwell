@@ -1064,6 +1064,7 @@ func TestCalendarJKEnterE2E(t *testing.T) {
 type e2eCalendarStub struct {
 	events []CalendarEvent
 	detail CalendarEventDetail
+	invite *render.Invite
 }
 
 func (s *e2eCalendarStub) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
@@ -1074,6 +1075,9 @@ func (s *e2eCalendarStub) ListEventsBetween(_ context.Context, _, _ time.Time) (
 }
 func (s *e2eCalendarStub) GetEvent(_ context.Context, _ string) (CalendarEventDetail, error) {
 	return s.detail, nil
+}
+func (s *e2eCalendarStub) GetEventMessage(_ context.Context, _ string) (*render.Invite, error) {
+	return s.invite, nil
 }
 
 // TestFolderPickerMOpensModalAndDispatchesMove is the spec 07
