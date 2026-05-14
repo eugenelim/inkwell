@@ -1938,6 +1938,11 @@ type stubCalendar struct {
 	betweenCalls     int
 	lastBetweenStart time.Time
 	lastBetweenEnd   time.Time
+	// Spec 34 invite-fetch stub.
+	invite          *render.Invite
+	inviteErr       error
+	inviteCalls     int
+	lastInviteMsgID string
 }
 
 func (s *stubCalendar) ListEventsToday(_ context.Context) ([]CalendarEvent, error) {
@@ -1955,6 +1960,12 @@ func (s *stubCalendar) GetEvent(_ context.Context, id string) (CalendarEventDeta
 	s.getCalls++
 	s.gotID = id
 	return s.detail, s.detailErr
+}
+
+func (s *stubCalendar) GetEventMessage(_ context.Context, messageID string) (*render.Invite, error) {
+	s.inviteCalls++
+	s.lastInviteMsgID = messageID
+	return s.invite, s.inviteErr
 }
 
 // TestWallSyncFiresOncePerCacheState is the regression for the

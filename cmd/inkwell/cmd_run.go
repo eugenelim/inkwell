@@ -820,6 +820,24 @@ func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEv
 	return out, nil
 }
 
+// GetEventMessage implements ui.CalendarFetcher for spec 34. Fetches
+// the eventMessage cast of a message id with its event navigation
+// property expanded, then converts the graph type to the
+// render-package projection so the UI does not need to import
+// internal/graph (CLAUDE.md §2 layering).
+//
+// The result is NOT persisted: events change server-side
+// (organizer reschedules, attendees RSVP) at a cadence the
+// message-delta doesn't track; a cached invite would create a
+// staleness class with no clear invalidation signal (spec 34 §5).
+func (c calendarAdapter) GetEventMessage(ctx context.Context, messageID string) (*render.Invite, error) {
+	em, err := c.gc.GetEventMessage(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	return render.InviteFromGraph(em), nil
+}
+
 func convertGraphEvents(accountID int64, events []graph.Event) []store.Event {
 	out := make([]store.Event, len(events))
 	now := time.Now()

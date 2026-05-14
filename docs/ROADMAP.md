@@ -80,7 +80,7 @@ Capability completeness with native clients.
 | 1     | Focused / Other tab (1.15)            | 31   | Shipped v0.60.0.                                  |
 | 2     | Server-side rules (1.14)              | 32   | Shipped v0.61.0 (spec 32) — CLI + cmd-bar + palette; modal manager deferred. |
 | 3     | Rich-text / Markdown drafts (1.18)    | 33   | Shipped v0.62.0 — opt-in `[compose] body_format = "markdown"`; goldmark + GFM. |
-| 4     | Calendar invite actions in mail (1.17)| —    | Scope-gated on `Calendars.ReadWrite`.             |
+| 4     | Calendar invite actions in mail (1.17)| 34   | Shipped v0.63.0 (spec 34) — read + hand-off only. Inline A/T/D still scope-gated on `Calendars.ReadWrite`. |
 | 5     | Multi-account (1.2)                   | —    | Significant refactor; do when stable.             |
 
 ### Bucket 5 — Search & knowledge
@@ -278,9 +278,21 @@ Microsoft Graph already provides `inferenceClassification` (Focused / Other). Su
 
 **Take.** The original pattern relies on disabling all-mail notifications and replacing them with selective notifications. Native macOS doesn't expose this for the platform's mail client, and our TUI has no notification subsystem at all. The concept survives as "stuff from people I haven't categorised yet" but loses the notification-suppression. Specced as **spec 28** (Bucket 3 §0): builds on spec 23's `sender_routing` table — pending senders (no row) appear in a redefined Screener virtual folder; screened-out senders' mail is hidden from default views. Opt-in behind `[screener].enabled`, default off. The notification-suppression piece is explicitly out of scope by construction (inkwell owns no notification surface; users keep native Outlook running for that).
 
-### 1.17 Calendar invitation actions in mail viewer — P3 (scope-gated)
+### 1.17 Calendar invitation actions in mail viewer — Shipped v0.63.0 (spec 34, read + hand-off)
 
-When a meeting invite arrives as mail, render the response options inline (`[A]ccept / [T]entative / [D]ecline`). Out of scope today because we lack `Calendars.ReadWrite` — but if a future tenant grants it, this is a small addition.
+**Owner: spec 34.**
+
+The read-only + hand-off subset shipped in v0.63.0. When a meeting
+invite arrives as mail, the viewer pane paints a card above the body
+with subject + when + where + organizer + required/optional counts +
+the user's current response status. Pressing `o` opens the event in
+Outlook on the web where the user clicks the RSVP button — a two-
+click hand-off honest about the read-only constraint.
+
+The full inline `[A]ccept / [T]entative / [D]ecline` capability
+remains scope-gated on `Calendars.ReadWrite` (PRD §3.2). A future
+spec that relaxes the denial layers the inline keystrokes onto
+spec 34's card without re-doing the detection / rendering work.
 
 ### 1.18 Rich-text / Markdown drafts — Shipped v0.62.0 (spec 33)
 

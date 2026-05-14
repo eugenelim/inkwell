@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/eugenelim/inkwell/internal/compose"
 	"github.com/eugenelim/inkwell/internal/customaction"
@@ -462,6 +463,14 @@ type CalendarFetcher interface {
 	// calendar list. Returns attendees and the body preview that the
 	// list view doesn't carry.
 	GetEvent(ctx context.Context, id string) (CalendarEventDetail, error)
+	// GetEventMessage fetches the eventMessage cast of a message id
+	// with its event navigation property expanded (spec 34). Returns
+	// nil when the message is not an invite or when the event field
+	// is elided by Graph. Returns *render.Invite (not *graph.EventMessage)
+	// so the UI keeps its no-graph-import discipline (CLAUDE.md §2):
+	// the calendarAdapter does the graph→render conversion via
+	// render.InviteFromGraph.
+	GetEventMessage(ctx context.Context, messageID string) (*render.Invite, error)
 }
 
 // MailboxSettings is the subset of mailbox settings the UI renders
@@ -1394,6 +1403,13 @@ func (m Model) updateInternal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.SetAttachments(msg.Attachments)
 			m.viewer.SetConversationThread(msg.Conversation, msg.MessageID)
 			m.viewer.SetRawHeaders(msg.RawHeaders)
+			// Spec 34: persist the invite snapshot on the viewer.
+			// Both the card text and the o-key routing snapshot
+			// live there so they share the SetMessage clearing
+			// (adversarial-review finding: a Model-level routing
+			// snapshot could go stale relative to the visible
+			// card on thread nav / list nav).
+			m.viewer.SetInvite(msg.Invite)
 		}
 		// Stale local id: Graph reassigns message IDs on Move
 		// (soft-delete, archive, user-folder move). The local row
@@ -5974,6 +5990,13 @@ func (m Model) executeUnsubCmd(action UnsubscribeAction) tea.Cmd {
 // FetchBodyAsync persisted them on the same call) so the viewer's
 // "Attachments:" block paints alongside the body without an extra
 // Graph round-trip.
+//
+// Spec 34: when the message's MeetingMessageType is an expandable
+// invite (meetingRequest / meetingCancelled), an errgroup runs
+// GetEventMessage in parallel with the body fetch. The invite is
+// rendered into a card via render.RenderInviteCard and surfaced on
+// BodyRenderedMsg.Invite. Soft-fail: a Graph error on the invite
+// fetch logs a WARN and leaves Invite=nil; the body still renders.
 func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	if m.deps.Renderer == nil {
 		return nil
@@ -5984,6 +6007,12 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 	if m.deps.Account != nil {
 		accID = m.deps.Account.ID
 	}
+	cal := m.deps.Calendar
+	tz := m.deps.CalendarTZ
+	if tz == nil {
+		tz = time.UTC
+	}
+	logger := m.deps.Logger
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -6004,6 +6033,7 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			Width:              viewerW,
 			Theme:              m.theme.RenderTheme,
 			URLDisplayMaxWidth: m.deps.URLDisplayMaxWidth,
+			TZ:                 tz,
 		}
 		loadAtts := func() []store.Attachment {
 			if !msg.HasAttachments || st == nil {
@@ -6033,24 +6063,131 @@ func (m Model) openMessageCmd(msg store.Message) tea.Cmd {
 			}
 			return conv
 		}
-		view, err := r.Body(ctx, &msg, opts)
-		if err != nil {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + err.Error(), State: int(render.BodyError)}
-		}
-		if view.State == render.BodyReady {
-			return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, TextExpanded: view.TextExpanded, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(view.Headers)}
-		}
-		// BodyFetching: dispatch the fetch synchronously inside this
-		// goroutine and return the final rendered view.
-		if f, ok := r.(bodyAsyncFetcher); ok {
-			final, err := f.FetchBodyAsync(ctx, &msg, opts)
+
+		// Spec 34 §6.1: body fetch + invite-event fetch run in
+		// parallel via errgroup so the slower of the two RTTs
+		// dominates instead of the sum. Either can soft-fail
+		// independently — body failure surfaces a BodyError;
+		// invite failure leaves Invite=nil and the body still
+		// renders. Both goroutines capture results into local
+		// variables; both return nil to avoid errgroup short-
+		// circuit (we want the invite goroutine to keep running
+		// even if the body goroutine sets an error).
+		var (
+			bodyView render.BodyView
+			bodyKind int // 0=ok, 1=render err, 2=fetch err
+			bodyErr  error
+			inv      *render.Invite
+		)
+		g, gctx := errgroup.WithContext(ctx)
+		g.Go(func() error {
+			view, err := r.Body(gctx, &msg, opts)
 			if err != nil {
-				return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + err.Error(), State: int(render.BodyError)}
+				bodyKind, bodyErr = 1, err
+				return nil
 			}
-			return BodyRenderedMsg{MessageID: msg.ID, Text: final.Text, TextExpanded: final.TextExpanded, Links: convertLinks(final.Links), State: int(final.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(final.Headers)}
+			if view.State == render.BodyReady {
+				bodyView = view
+				return nil
+			}
+			// BodyFetching: dispatch the fetch synchronously inside
+			// this goroutine and capture the final rendered view.
+			if f, ok := r.(bodyAsyncFetcher); ok {
+				final, err := f.FetchBodyAsync(gctx, &msg, opts)
+				if err != nil {
+					bodyKind, bodyErr = 2, err
+					return nil
+				}
+				bodyView = final
+				return nil
+			}
+			// Renderer doesn't implement the async fetcher seam;
+			// return the BodyFetching shape so the caller shows the
+			// "Loading…" placeholder.
+			bodyView = view
+			return nil
+		})
+		if cal != nil && render.HasExpandableEvent(msg.MeetingMessageType) {
+			g.Go(func() error {
+				e, err := cal.GetEventMessage(gctx, msg.ID)
+				if err != nil {
+					// Soft-fail per spec 34 §6.1: the body still renders,
+					// the card just won't paint. Log site is the only one
+					// in this Cmd that could carry sensitive context — we
+					// log msg id (already in logs at envelope time) and
+					// the wrapped Graph error code, never the email body.
+					if logger != nil {
+						logger.Warn("invite: event fetch failed",
+							"msg_id", msg.ID,
+							"err", err.Error())
+					}
+					return nil
+				}
+				inv = e
+				return nil
+			})
 		}
-		return BodyRenderedMsg{MessageID: msg.ID, Text: view.Text, TextExpanded: view.TextExpanded, Links: convertLinks(view.Links), State: int(view.State), Attachments: loadAtts(), Conversation: loadConv(), RawHeaders: convertHeaders(view.Headers)}
+		_ = g.Wait() // both goroutines return nil; errors captured locally
+
+		switch bodyKind {
+		case 1:
+			return BodyRenderedMsg{MessageID: msg.ID, Text: "render error: " + bodyErr.Error(), State: int(render.BodyError)}
+		case 2:
+			return BodyRenderedMsg{MessageID: msg.ID, Text: "fetch error: " + bodyErr.Error(), State: int(render.BodyError)}
+		}
+
+		// Spec 34 §4: response-type messages (meetingAccepted /
+		// meetingTenativelyAccepted / meetingDeclined) get a
+		// header-only card built from the cached row — no Graph
+		// fetch happened (HasExpandableEvent returned false), so
+		// inv is nil here. Construct a synthetic *render.Invite so
+		// RenderInviteCard's response-type branch (invite.go::
+		// renderResponseCard) lights up.
+		if inv == nil && isResponseTypeInvite(msg.MeetingMessageType) {
+			inv = &render.Invite{MeetingMessageType: msg.MeetingMessageType}
+		}
+
+		// Render the invite card now (if the parallel fetch yielded
+		// one, or if it's a response-type synthesised above). Pure
+		// function; no further I/O.
+		var snapshot *InviteSnapshot
+		if inv != nil {
+			cardText := render.RenderInviteCard(inv, msg.SentAt, tz, viewerW)
+			eventWebLink := ""
+			if inv.Event != nil {
+				eventWebLink = inv.Event.WebLink
+			}
+			snapshot = &InviteSnapshot{
+				MeetingMessageType: inv.MeetingMessageType,
+				EventWebLink:       eventWebLink,
+				Card:               cardText,
+			}
+		}
+
+		return BodyRenderedMsg{
+			MessageID:    msg.ID,
+			Text:         bodyView.Text,
+			TextExpanded: bodyView.TextExpanded,
+			Links:        convertLinks(bodyView.Links),
+			State:        int(bodyView.State),
+			Attachments:  loadAtts(),
+			Conversation: loadConv(),
+			RawHeaders:   convertHeaders(bodyView.Headers),
+			Invite:       snapshot,
+		}
 	}
+}
+
+// isResponseTypeInvite returns true for the spec-34 meetingMessageType
+// values that surface a header-only card without a Graph round-trip:
+// meetingAccepted, meetingTenativelyAccepted (Microsoft's typo preserved),
+// meetingDeclined.
+func isResponseTypeInvite(mt string) bool {
+	switch mt {
+	case "meetingAccepted", "meetingTenativelyAccepted", "meetingDeclined":
+		return true
+	}
+	return false
 }
 
 // isStaleIDError reports whether a body-render error text smells
@@ -6260,14 +6397,35 @@ func (m Model) dispatchViewer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Spec 05 §12 / PR 10: `o` (lowercase) opens the current message's
 	// webLink in the system browser (OWA deep link). Fast "escape
 	// hatch" for unreadable CSS-heavy emails.
+	//
+	// Spec 34: when the focused message is a meetingRequest /
+	// meetingCancelled AND the parallel-fetched event has a webLink,
+	// route to the event's webLink instead (lands the user on the
+	// OWA calendar event view where Accept / Tentative / Decline
+	// buttons are visible). Falls through to message.webLink on
+	// non-invite messages, on invites where the event-fetch
+	// soft-failed, and on response-type invites (accepted /
+	// tentativelyAccepted / declined).
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "o":
-		if cur := m.viewer.current; cur != nil {
-			if cur.WebLink != "" {
-				go openInBrowser(cur.WebLink)
-				m.engineActivity = "opening in browser…"
-			} else {
-				m.lastError = fmt.Errorf("open: no webLink for this message")
+		target := ""
+		hint := "opening in browser…"
+		if inv := m.viewer.InviteRouting(); inv != nil && inv.EventWebLink != "" {
+			switch inv.MeetingMessageType {
+			case "meetingRequest", "meetingCancelled":
+				target = inv.EventWebLink
+				hint = "opening invite in browser (RSVP there)…"
 			}
+		}
+		if target == "" {
+			if cur := m.viewer.current; cur != nil {
+				target = cur.WebLink
+			}
+		}
+		if target != "" {
+			go openInBrowser(target)
+			m.engineActivity = hint
+		} else if m.viewer.current != nil {
+			m.lastError = fmt.Errorf("open: no webLink for this message")
 		}
 
 	// Spec 05 §12 / PR 10: `[` navigates to the previous message in

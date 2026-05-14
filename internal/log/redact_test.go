@@ -91,3 +91,21 @@ func TestRedactorRaceFree(t *testing.T) {
 	wg.Wait()
 	require.NoError(t, c.AssertNoSecret("alice@example.invalid", "abc.def.ghi"))
 }
+
+// TestRedactorScrubsInviteFetchError covers the spec-34 §6.1
+// soft-fail log site `invite: event fetch failed` which carries
+// the wrapped *graph.GraphError as the `err` field. Graph error
+// messages can embed user addresses (e.g. "User alice@... cannot
+// access ..."); the redactor must tokenise them through the
+// generic email-in-string pattern.
+func TestRedactorScrubsInviteFetchError(t *testing.T) {
+	logger, c := NewCaptured(Options{Level: slog.LevelDebug})
+	logger.Warn("invite: event fetch failed",
+		slog.String("msg_id", "AAMkADExample=="),
+		slog.String("err", "graph: ErrorAccessDenied: User alice@example.invalid cannot access resource /me/messages/abc/event (status 403)"),
+	)
+	require.NoError(t, c.AssertNoSecret("alice@example.invalid"))
+	out := c.String()
+	require.Contains(t, out, "<email-",
+		"redactor must tokenise the email address embedded in the Graph error")
+}

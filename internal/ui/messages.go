@@ -139,6 +139,22 @@ type BodyRenderedMsg struct {
 	Attachments  []store.Attachment
 	Conversation []store.Message
 	RawHeaders   []RawHeader
+	// Invite, when non-nil, carries the spec-34 invite metadata
+	// fetched in parallel with the body. Nil for non-invite messages
+	// AND for invites whose event-fetch soft-failed. The viewer
+	// pane renders Invite.Card above the body; `o` keystroke routes
+	// to Invite.EventWebLink when present and MeetingMessageType is
+	// meetingRequest / meetingCancelled.
+	Invite *InviteSnapshot
+}
+
+// InviteSnapshot is the UI-side projection of a fetched + rendered
+// spec-34 invite. Defined here so messages.go does not import
+// internal/render (CLAUDE.md §2 mirror pattern).
+type InviteSnapshot struct {
+	MeetingMessageType string
+	EventWebLink       string
+	Card               string // pre-rendered invite card
 }
 
 // RawHeader is a single RFC 822 header name/value pair. Defined here

@@ -223,6 +223,54 @@ meeting URL. From the detail modal, `o` opens the event in Outlook,
 
 `Calendars.Read` only — to accept, decline, or modify, use Outlook.
 
+## Read a meeting invite from inkwell
+
+When a meeting invite arrives in your inbox, opening it (`Enter` on
+the row) paints a compact card above the message body:
+
+```
+┌────────────────────────────────────────────────┐
+│ 📅 Meeting invite · ⚪ not responded            │
+│                                                │
+│ When:      Wed 2026-05-20 · 15:00–16:00 PDT    │
+│ Where:     Conference room B  ·  💻 join        │
+│ Recurs:    Weekly on Monday                    │
+│ Organizer: Bob <bob@example.invalid>           │
+│ Required:  5 (1 accepted · 0 tentative ·       │
+│              0 declined · 4 pending)           │
+│ Optional:  2                                   │
+│                                                │
+│ Press o to open in Outlook web (RSVP there)    │
+└────────────────────────────────────────────────┘
+```
+
+The card answers "what is this meeting about?" without leaving the
+terminal. The status pip in the header reflects your current
+response: `🟢 accepted`, `🟡 tentative`, `🔴 declined`,
+`⚪ not responded`, or `◆ you are the organizer`.
+
+**To RSVP** — press `o`. Inkwell opens the **event** in Outlook on
+the web (not the message), so the Accept / Tentative / Decline
+buttons are visible. Click your response there. This is a two-click
+interaction by design: inkwell stays in its read + hand-off lane
+because the scope it would need to RSVP inline
+(`Calendars.ReadWrite`) is denied by policy. Inline `[A]ccept /
+`[T]entative` / `[D]ecline` keystrokes are a future enhancement
+gated on that policy changing.
+
+**Cancelled meetings** paint as `🚫 Meeting cancelled` and the
+`When:` line is suffixed with `(cancelled)`. `o` still opens the
+event in OWA so you can remove it from your calendar from there.
+
+**Response messages** in Sent Items (the "Accepted: …" / "Declined: …"
+threads you sent from another client) paint a single header line —
+no event-expand round-trip — so you can confirm at a glance which
+way you responded.
+
+If the event metadata fails to fetch (rare; surfaces as a status-bar
+toast), the card silently omits and the body still renders. Press
+`o` to fall through to the message webLink in that case.
+
 ## Toggle out-of-office (auto-reply)
 
 `:ooo on` enables automatic replies immediately. `:ooo off` disables.

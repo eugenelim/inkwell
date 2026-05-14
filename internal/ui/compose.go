@@ -443,7 +443,14 @@ func openInBrowserArgs(url string) ([]string, bool) {
 // `open`; Linux/BSD uses `xdg-open`. Best-effort; errors are silently
 // swallowed because the user already has the link in the status bar
 // and can copy it manually if this fails.
-func openInBrowser(url string) {
+//
+// Indirected via a package-level var so dispatch tests can swap it
+// for a recorder (production callers use `go openInBrowser(url)`
+// and never inspect the return; the var keeps the production
+// fire-and-forget shape).
+var openInBrowser = openInBrowserImpl
+
+func openInBrowserImpl(url string) {
 	args, ok := openInBrowserArgs(url)
 	if !ok {
 		return
