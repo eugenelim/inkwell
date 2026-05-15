@@ -109,3 +109,29 @@ func TestRedactorScrubsInviteFetchError(t *testing.T) {
 	require.Contains(t, out, "<email-",
 		"redactor must tokenise the email address embedded in the Graph error")
 }
+
+// TestRedact_HashMessageID_OneWayAndStable is spec 35 §8.5's
+// canonical assertion. The hash must be deterministic across calls,
+// irreversible (no substring of the input survives), and stable on
+// the empty input.
+func TestRedact_HashMessageID_OneWayAndStable(t *testing.T) {
+	id := "AAMkADExample0123456789abcdefABCDEF=="
+	h1 := HashMessageID(id)
+	h2 := HashMessageID(id)
+	require.Equal(t, h1, h2, "HashMessageID must be deterministic")
+	require.Len(t, h1, 16, "HashMessageID must return 16 hex characters")
+
+	// No 4+-char substring of the input may appear in the output.
+	for i := 0; i+4 <= len(id); i++ {
+		sub := id[i : i+4]
+		require.NotContains(t, h1, sub, "hash leaks input substring %q", sub)
+	}
+
+	// Empty id sentinel.
+	require.Empty(t, HashMessageID(""))
+
+	// Different ids hash to different digests (collision is allowed
+	// in principle for 16-hex truncation, but two close inputs should
+	// not collide in practice).
+	require.NotEqual(t, h1, HashMessageID("AAMkADDifferentInput=="))
+}

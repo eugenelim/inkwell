@@ -139,22 +139,42 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 
 	// Sync engine
 	engine, err = isync.New(gc, st, exec, isync.Options{
-		AccountID:             acc.ID,
-		Logger:                logger,
-		ForegroundInterval:    cfg.Sync.ForegroundInterval,
-		BackgroundInterval:    cfg.Sync.BackgroundInterval,
-		SubscribedFolders:     cfg.Sync.SubscribedWellKnown,
-		ExcludedFolders:       cfg.Sync.ExcludedFolders,
-		DeltaPageSize:         cfg.Sync.DeltaPageSize,
-		RetryMaxBackoff:       cfg.Sync.RetryMaxBackoff,
-		BodyCacheMaxCount:     cfg.Cache.BodyCacheMaxCount,
-		BodyCacheMaxBytes:     cfg.Cache.BodyCacheMaxBytes,
-		DoneActionsRetention:  cfg.Cache.DoneActionsRetention,
-		CalendarLookaheadDays: cfg.Calendar.LookaheadDays,
-		CalendarLookbackDays:  cfg.Calendar.LookbackDays,
+		AccountID:                acc.ID,
+		Logger:                   logger,
+		ForegroundInterval:       cfg.Sync.ForegroundInterval,
+		BackgroundInterval:       cfg.Sync.BackgroundInterval,
+		SubscribedFolders:        cfg.Sync.SubscribedWellKnown,
+		ExcludedFolders:          cfg.Sync.ExcludedFolders,
+		DeltaPageSize:            cfg.Sync.DeltaPageSize,
+		RetryMaxBackoff:          cfg.Sync.RetryMaxBackoff,
+		BodyCacheMaxCount:        cfg.Cache.BodyCacheMaxCount,
+		BodyCacheMaxBytes:        cfg.Cache.BodyCacheMaxBytes,
+		DoneActionsRetention:     cfg.Cache.DoneActionsRetention,
+		CalendarLookaheadDays:    cfg.Calendar.LookaheadDays,
+		CalendarLookbackDays:     cfg.Calendar.LookbackDays,
+		BodyIndexEnabled:         cfg.BodyIndex.Enabled,
+		BodyIndexMaxCount:        cfg.BodyIndex.MaxCount,
+		BodyIndexMaxBytes:        cfg.BodyIndex.MaxBytes,
+		BodyIndexMaxBodyBytes:    cfg.BodyIndex.MaxBodyBytes,
+		BodyIndexFolderAllowlist: cfg.BodyIndex.FolderAllowlist,
 	})
 	if err != nil {
 		return fmt.Errorf("sync engine: %w", err)
+	}
+
+	// Spec 35 §6.3: on startup, if the user has flipped
+	// [body_index].enabled from true → false between runs, purge the
+	// index now. The presence of body_text rows with .enabled = false
+	// is a misconfig — fix it before the user surprises themselves.
+	if !cfg.BodyIndex.Enabled {
+		if stats, err := st.BodyIndexStats(ctx); err == nil && stats.Rows > 0 {
+			logger.Info("body index disabled — purging on startup",
+				slog.Int64("rows", stats.Rows),
+				slog.Int64("bytes", stats.Bytes))
+			if perr := st.PurgeBodyIndex(ctx); perr != nil {
+				logger.Warn("body index purge failed", slog.String("err", perr.Error()))
+			}
+		}
 	}
 
 	// Renderer with the production graph-backed body fetcher.
@@ -176,6 +196,7 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 		PrettyTables:             cfg.Rendering.PrettyTables,
 		PrettyTableMaxRows:       cfg.Rendering.PrettyTableMaxRows,
 		Logger:                   logger,
+		OnBodyDecoded:            engine.MaybeIndexBody,
 	})
 
 	// Kick off the engine. Its loop runs an immediate first cycle

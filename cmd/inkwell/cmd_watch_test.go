@@ -50,6 +50,8 @@ func (f *fakeEngine) Done() <-chan struct{}                                 { re
 func (f *fakeEngine) Wake()                                                 {}
 func (f *fakeEngine) OnThrottle(retryAfter time.Duration)                   {}
 func (f *fakeEngine) SyncCalendar(ctx context.Context) error                { return nil }
+func (f *fakeEngine) MaybeIndexBody(ctx context.Context, _ *store.Message, _ string) {
+}
 func (f *fakeEngine) Send(ev isync.Event) {
 	select {
 	case <-f.done:

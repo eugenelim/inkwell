@@ -117,6 +117,13 @@ type Engine interface {
 	// UI callers should prefer Wake() which coalesces with the
 	// regular mail cycle. Spec 12 §5.
 	SyncCalendar(ctx context.Context) error
+	// MaybeIndexBody is the spec 35 §6.3 hook the renderer fires
+	// after a successful body decode. No-op when
+	// [body_index].enabled is false. Exposed on the interface so
+	// the cmd layer can pass it as render.Options.OnBodyDecoded
+	// without depending on the unexported engine type. The
+	// receiver implementation lives in body_index_hook.go.
+	MaybeIndexBody(ctx context.Context, m *store.Message, indexableText string)
 }
 
 // ActionDrainer is the seam between sync and the action executor (spec

@@ -9,6 +9,8 @@ package log
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -44,6 +46,32 @@ var SensitiveKeys = map[string]bool{
 // redacted at the given level. Subjects are visible only at DEBUG.
 func SubjectIsSensitiveAtLevel(level slog.Level) bool {
 	return level > slog.LevelDebug
+}
+
+// HashMessageID returns a deterministic, irreversible 16-character
+// hex digest of id (truncated SHA-256). Used by spec 35's body
+// indexer and the `inkwell index` CLI for DEBUG-level diagnostics
+// where a developer needs to correlate two log lines without
+// exposing the underlying Graph message ID.
+//
+// Properties:
+//   - Stable: same id always hashes to the same digest, within and
+//     across process restarts.
+//   - Irreversible: no portion of the original id appears in the
+//     output (sha256 → 64 hex chars; we truncate to the first 16).
+//   - Cheap: a single sha256 invocation per call (no per-process
+//     salt, no key material — collisions are acceptable for a
+//     correlation aid).
+//
+// Returns the empty string when id is empty so a DEBUG log line
+// that passed an unset id doesn't accidentally emit a stable
+// "empty-string hash" token.
+func HashMessageID(id string) string {
+	if id == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:8])
 }
 
 var (

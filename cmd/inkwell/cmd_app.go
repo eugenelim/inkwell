@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eugenelim/inkwell/internal/auth"
+	"github.com/eugenelim/inkwell/internal/config"
 	"github.com/eugenelim/inkwell/internal/graph"
 	"github.com/eugenelim/inkwell/internal/store"
 )
@@ -21,6 +22,7 @@ type headlessApp struct {
 	store     store.Store
 	graph     *graph.Client
 	account   *store.Account
+	cfg       *config.Config
 	logger    *slog.Logger
 	logCloser io.Closer
 }
@@ -104,6 +106,7 @@ func buildHeadlessApp(ctx context.Context, rc *rootContext) (*headlessApp, error
 		store:     st,
 		graph:     gc,
 		account:   acc,
+		cfg:       cfg,
 		logger:    logger,
 		logCloser: logCloser,
 	}, nil
