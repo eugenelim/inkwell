@@ -1,4 +1,4 @@
-.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version regress regress-report sec sec-gosec sec-semgrep sec-vuln
+.PHONY: help build test test-race test-bench test-e2e lint vet fmt clean run install snapshot tag-version regress regress-report sec sec-gosec sec-semgrep sec-vuln ai-fuzz
 
 BIN_NAME := inkwell
 BIN_DIR  := bin
@@ -50,6 +50,9 @@ regress-report: ## Per-feature regression report → reports/ (gitignored)
 
 doc-sweep: ## `docs/CONVENTIONS.md` §12.6 mechanical checks (plan files, shipped consistency)
 	@./scripts/doc-sweep.sh
+
+ai-fuzz: ## AI exploratory fuzz — drives the TUI with random input, writes corpus to .context/ai-fuzz/. STEPS=N (default 8). Review by reading REVIEW.md in the run dir.
+	@./scripts/ai-fuzz.sh $(STEPS)
 
 sec: sec-gosec sec-semgrep sec-vuln ## Run gosec + semgrep + govulncheck
 
