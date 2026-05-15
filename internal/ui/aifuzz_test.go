@@ -144,6 +144,27 @@ var unsafePath = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 func sanitize(s string) string { return unsafePath.ReplaceAllString(s, "_") }
 
+// modalFingerprint matches Lipgloss rounded-corner glyphs used by the
+// inkwell modal style (Help overlay, Settings, OOF, Confirm, etc.).
+// When the previous frame contains one of these, the picker biases hard
+// toward `esc` so the fuzz doesn't waste steps bouncing keys off a
+// modal that swallows them. Found via the first smoke run, where 6 of
+// 8 steps were no-ops because the help overlay opened on step 2.
+var modalFingerprint = regexp.MustCompile(`[╭╰╮╯]`)
+
+// pickAction biases toward `esc` with 50% probability when the previous
+// frame looks like a modal; otherwise picks uniformly from the alphabet.
+func pickAction(rng *rand.Rand, alphabet []fuzzAction, prevFrame string) fuzzAction {
+	if modalFingerprint.MatchString(prevFrame) && rng.Float64() < 0.5 {
+		for _, a := range alphabet {
+			if a.label == "esc" {
+				return a
+			}
+		}
+	}
+	return alphabet[rng.Intn(len(alphabet))]
+}
+
 // writeUnifiedDiff shells out to `diff -u` to produce a unified diff. If
 // diff is unavailable, writes a placeholder rather than failing the test.
 func writeUnifiedDiff(prevPath, newPath, outPath string) {
@@ -217,7 +238,7 @@ func TestAIFuzzExplore(t *testing.T) {
 	var rows []stepRow
 
 	for i := 1; i <= steps; i++ {
-		act := alphabet[rng.Intn(len(alphabet))]
+		act := pickAction(rng, alphabet, prev)
 		tm.Send(act.msg)
 		fmt.Fprintln(actionsLog, act.label)
 
