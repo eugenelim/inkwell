@@ -223,6 +223,11 @@ func TestPaletteEnterArchiveDispatches(t *testing.T) {
 	require.Equal(t, NormalMode, m.mode)
 	require.Error(t, m.lastError, "runTriage should set lastError when deps.Triage is nil")
 	require.Contains(t, m.lastError.Error(), "triage: not wired")
+	// User-facing status surfaces must not leak internal Go source-file
+	// paths. ai-fuzz run-1778881327 step 01 surfaced this on `d` against
+	// the e2e fixture; the breadcrumb was developer-only jargon.
+	require.NotContains(t, m.lastError.Error(), "cmd_run.go",
+		"internal source-file path must not appear in user-visible status text")
 }
 
 // TestPaletteWidthClampDropsBindings confirms width<30 hides the
