@@ -68,6 +68,7 @@ non-`Inkwell/`-prefixed categories or saved searches.
 | Configuration | `~/Library/Application Support/inkwell/config.toml` | user-set | TOML; user-readable, no secrets. |
 | Logs | `~/Library/Logs/inkwell/inkwell.log` | 0600 | Bodies, tokens, and PII are scrubbed by the log redaction layer (`internal/log/redact.go`). 8 redaction tests verify the contract. |
 | Drafts in progress | `~/Library/Caches/inkwell/drafts/<uuid>.eml` | 0600 | Cleaned up after Graph confirms draft creation. Verified by `internal/compose/security_test.go::TestDraftTempfileMode`. |
+| Decoded body index (spec 35; opt-in) | `body_text` + `body_fts` + `body_trigram` rows inside `mail.db` | 0600 | Enabled only via `[body_index].enabled = true`. Holds the same plaintext the renderer's `html2text` already shows on-screen — no new content category, just durable storage of what the user has already viewed. Cap default 500 MB; `inkwell index disable` purges; flipping the config flag to `false` triggers a one-shot purge on next startup. |
 
 On Linux, paths follow the XDG Base Directory spec
 (`~/.config/inkwell/`, `~/.cache/inkwell/`, `~/.local/share/inkwell/`).

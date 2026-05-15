@@ -518,6 +518,26 @@ Spec 32. Server-side Inbox message rules management via Microsoft Graph's `/me/m
 
 ---
 
+## `[body_index]`
+
+Spec 35. Opt-in local body indexing — when enabled, decoded plaintext bodies land in `body_text` and a pair of FTS5 surfaces (`body_fts` for keyword search, `body_trigram` for substring / regex narrowing). Off by default; users opt in to widen the on-disk surface. The body index is independently evicted from the body LRU (`[cache].body_cache_max_count` / `.max_bytes` — spec 02): bodies turn over fast, the index is durable. See `docs/THREAT_MODEL.md` "Threats and mitigations" + `docs/PRIVACY.md` "Where data is stored" for the privacy posture.
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | — | Master switch. When `false` every indexer code path is a no-op. Toggling `true → false` triggers a one-shot `PurgeBodyIndex` on next startup (with an INFO log line). |
+| `max_count` | int | `5000` | 100–100000 | Max indexed messages. LRU eviction by `last_accessed_at`. |
+| `max_bytes` | int | `524288000` (500 MB) | 50 MB–10 GB | Max total decoded-text bytes. Eviction triggers on whichever cap (count or bytes) hits first. Trigram + unicode61 indexes add ~3–4× on top of this; users with bigger allow-lists should size accordingly. |
+| `max_body_bytes` | int | `1048576` (1 MB) | 64 KB–10 MB | Per-message clamp. Bodies above this truncate to N bytes and the row is tagged `truncated=1`. Spec 35 §7 validation: must be ≤ `max_bytes / 8`. |
+| `folder_allowlist` | list of strings | `[]` | — | Optional. When non-empty only the named folders are indexed (matched against `display_name` or `well_known_name`). Empty means "all subscribed folders". |
+| `stemming` | bool | `false` | — | Reserved for spec 35 v2. v1 ships only the default `unicode61 remove_diacritics 2` tokenizer; flipping `stemming = true` logs a config-validation warning and behaves as `false`. |
+| `max_regex_candidates` | int | `2000` | 100–50000 | Cap on the trigram-narrowed candidate set fed to the Go regex post-filter. Spec 35 §7 validation: must be ≤ `max_count × 2`. |
+| `backfill_on_enable` | bool | `false` | — | Reserved (v1 default `false`). When implemented, auto-runs `inkwell index rebuild` after the user toggles `enabled false → true`. |
+| `regex_post_filter_timeout` | duration | `"5s"` | 500ms–60s | Wall-clock cap on the Go regex post-filter per search call. On timeout returns whatever matched and a status warning. |
+
+**Owner spec:** 35.
+
+---
+
 ## Example complete config
 
 A user's `~/.config/inkwell/config.toml` overriding defaults:

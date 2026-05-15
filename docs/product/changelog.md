@@ -21,7 +21,17 @@ For long-form release notes, see GitHub Releases.
 
 ### Added
 
-- _populated as specs ship before the next tag._
+- Opt-in local body indexing — `[body_index].enabled = true`
+  decodes message bodies into a parallel `body_text` table plus
+  two FTS5 surfaces (unicode61 for tokens, trigram for substring
+  / regex narrowing). Pattern language now admits regex on
+  `~s` / `~b` / `~B` (`/.../` delimiter, `\/` escape) when the
+  index is enabled. New `inkwell index {status, rebuild, evict,
+  disable}` CLI surfaces the size, caps, and destructive ops.
+  Default off; bounded by configurable count + bytes caps (default
+  5000 messages / 500 MB); `inkwell index disable` purges
+  everything. No new Graph scopes. (spec 35, ongoing — UI surfaces
+  in a follow-up iteration)
 
 ## [0.63.0] — 2026-05-14
 

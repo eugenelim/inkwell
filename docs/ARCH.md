@@ -293,7 +293,14 @@ Two-tier model.
 - `:save <path>` → fetch, write to disk, do not cache.
 - `:open` → fetch to temp file, hand to `open(1)`.
 
-Rationale: envelope sync is fast (<1KB per message). Body fetch is heavy (often 50KB+ per HTML email). Eager body sync bloats the mailbox by 100x and dominates initial-backfill time. Lazy body fetch costs ~200ms on first open of a message; subsequent opens are local.
+**Tier 3 — body index (opt-in, spec 35):**
+- `body_text` — decoded plaintext per indexed message (`html2text` strip + whitespace collapse via `render.DecodeForIndex`).
+- `body_fts` — FTS5 token index (`unicode61 remove_diacritics 2`) over `body_text`.
+- `body_trigram` — FTS5 trigram index (`detail=none`) over `body_text` — accelerates `LIKE '%lit%'` for the regex narrowing path.
+- Default off. When `[body_index].enabled = true`, the renderer's post-decode hook fires `engine.MaybeIndexBody`, which truncates to `[body_index].max_body_bytes` and writes via `store.IndexBody`. Independent eviction from the body LRU (`[body_index].max_count` / `.max_bytes`).
+- The body index is the on-disk surface that supports `~b /regex/` (and `~b foo` without a server round-trip) at perf budgets PRD §7 can't reach via Graph `$search`.
+
+Rationale: envelope sync is fast (<1KB per message). Body fetch is heavy (often 50KB+ per HTML email). Eager body sync bloats the mailbox by 100x and dominates initial-backfill time. Lazy body fetch costs ~200ms on first open of a message; subsequent opens are local. The body index doubles as a search corpus — its eviction outlives the render cache so search recall is durable across LRU turnover.
 
 ## 7. Local store schema (high level)
 
@@ -313,6 +320,9 @@ Detailed schema in `specs/02-local-cache-schema/spec.md`. Tables:
 | `events`       | Cached calendar events (spec 12)                               |
 | `compose_sessions` | In-flight compose-form snapshots for crash recovery (spec 15 §7) |
 | `messages_fts` | FTS5 virtual table over subject + bodyPreview                  |
+| `body_text`    | Opt-in decoded plaintext per indexed message (spec 35)         |
+| `body_fts`     | FTS5 unicode61 over `body_text` (spec 35)                      |
+| `body_trigram` | FTS5 trigram over `body_text` for substring / regex (spec 35)  |
 
 ## 8. Action execution model
 

@@ -1,7 +1,7 @@
 # Spec 35 — Body regex & local body indexing
 
 ## Status
-not-started — spec ratified; implementation not yet begun.
+in-progress — slices 1-4 + slice 6 + slice 7 (this doc) shipped to main. Slice 5 (saved-search Manager threading + UI sidebar grey-out + `/regex:` prefix + palette rows + `:index` cmd-bar verb) and slice 8 (integration / e2e / bench) pending before tagging v0.64.0.
 
 ## DoD checklist
 Copied from `docs/specs/35-body-regex-local-indexing/spec.md` §16. Tick
@@ -233,3 +233,101 @@ time. All warm-buffer-cache p95 on dev machine.
   unchanged; the new `render.DecodeForIndex` is the only path
   that should feed `body_text`. Do not "reuse" the viewer's
   already-decoded string — it's wrapped.
+
+### Iter 2 — 2026-05-15 (implementation slices 1-7)
+
+- Slice 1: migration 015 + canary
+  - Verifier: `internal/store/fts_probe_test.go` (trigram, porter,
+    unicode61, ascii, external-content, detail=none, LIKE accel) red → green
+  - `tabs_test.go:40` + `sender_routing_test.go:320` +
+    `rules_test.go` schema-version asserts bumped to "15".
+  - `store/AGENTS.md` invariant 1 amended with the
+    cache-management write carve-out (EvictBodies +
+    IndexBody/UnindexBody/EvictBodyIndex/PurgeBodyIndex).
+- Slice 2: indexer (`internal/store/body_index.go`) — 9 new Store
+  methods + 20 unit tests. SQL-injection probe (literal
+  `'); DROP TABLE …`) red → green. `UpdateMessageFields` wired
+  to propagate folder moves into `body_text.folder_id`.
+- Slice 3: render hook + sync hook + config.
+  - `render.DecodeForIndex` exports the pre-wrap html2text path;
+    `decode_for_index_test.go` enforces the token-preservation
+    invariant (no newlines mid-token).
+  - `render.Options.OnBodyDecoded` callback; render package
+    free of sync import.
+  - `internal/sync/body_index_hook.go` bridges renderer →
+    `store.IndexBody` with folder allow-list.
+  - `maintenance.go` runs `EvictBodyIndex` after `EvictBodies`.
+  - `[body_index]` config section + validation (max_body_bytes
+    ≤ max_bytes/8; max_regex_candidates ≤ max_count×2).
+- Slice 4: pattern integration.
+  - `RegexValue` concrete type implementing `PredicateValue`.
+  - `lexer.go` recognises `/.../` with `\/` escape.
+  - `parser.go` admits regex on ~s / ~b / ~B; rejects on ~h and
+    others; surfaces `regexp.Compile` errors with column position.
+  - `CompileOptions.BodyIndexEnabled` + `MaxRegexCandidates`;
+    selectStrategy step 0 → `StrategyLocalRegex`.
+  - `CompileLocal` split into back-compat + `CompileLocalWithOpts`;
+    body-field arms flip to `bt.content` JOIN when index on.
+  - `eval_local_regex.go` extracts mandatory ≥3-char literals via
+    `regexp/syntax` walk; refuses `ErrRegexUnboundedScan` when no
+    predicate contributes a literal; `ExecuteAgainst` runs
+    trigram narrow + Go regex post-filter with wall-clock cap.
+  - `EvalEnv.BodyTextFor` enables lazy body lookup in the
+    in-memory regex path (TwoStage refinement).
+  - 16 pattern tests covering lexer / parser / strategy /
+    literal extraction / structural-part carry / emit routing.
+- Slice 6 (interleaved before docs sweep): CLI + logging.
+  - `redact.HashMessageID` (truncated SHA-256, 16 hex chars).
+  - `internal/sync/body_index_hook_test.go::TestMaybeIndexBody
+    _RedactsNoSensitiveFields` enforces §8.5 (no msg id / folder
+    id / content in the indexer error log line).
+  - `Engine` interface gains `MaybeIndexBody` so the cmd layer
+    wires the renderer callback without the unexported type.
+  - `cmd/inkwell/cmd_run.go` threads the `[body_index].*` knobs
+    into Engine.Options; renderer.OnBodyDecoded =
+    engine.MaybeIndexBody. Startup auto-purge when
+    `enabled = false` but rows exist (config flip detector).
+  - `cmd/inkwell/cmd_index.go` — `status` / `rebuild` /
+    `evict` / `disable` with --json, --folder, --limit, --force,
+    --older-than, --message-id, --yes flags.
+- Slice 7 (this iteration): docs.
+  - `docs/CONFIG.md` `[body_index]` section.
+  - `docs/ARCH.md` §6 Tier 3 + §7 schema-table rows.
+  - `docs/PRD.md` §10 inventory row.
+  - `docs/product/roadmap.md` Bucket 5 row updated.
+  - `docs/THREAT_MODEL.md` new row + `internal/sync/
+    body_index_hook_test.go` cite.
+  - `docs/PRIVACY.md` "Where data is stored" row.
+  - `docs/specs/06-search-hybrid/spec.md` §11 OOS bullet struck
+    + back-reference to spec 35.
+
+Result: spec 35 ships in stages (commits aaa65f0 + 5061ce2 + this
+docs commit). The CLI + indexer + pattern integration are
+end-to-end functional from a fresh inkwell binary. **Pending for
+ship as v0.64.0:**
+- Slice 5 (saved-search Manager BodyIndexEnabled threading;
+  `LastCompileError` transient field; UI sidebar grey-out;
+  `/regex:` search-mode prefix; status indicators; palette rows;
+  `:index` cmd-bar verb) — wider UI surface, can land in a
+  follow-up iteration.
+- Slice 8 (integration test with 5k synthetic corpus; TUI e2e
+  for regex search + :index; benchmarks for every §14 perf
+  budget row; property-based literal extraction) — measurement
+  gates the v0.64 tag.
+
+Critique:
+- The `ListBodyMessageIDs` shim in `cmd_index.go::rebuildFromBodyLRU`
+  is a placeholder — the rebuild walks `ListMessages` and skips
+  rows where `GetBody` misses. For the default 500-LRU config this
+  is fine; for users with higher caps the iteration cost grows.
+  Follow-up should add a dedicated `store.ListCachedBodies`
+  helper.
+- `bodyLRUSnapshot` in `cmd_index.go` returns zeroes; the
+  `inkwell index status` output's "Body LRU" line is dormant
+  until a dedicated stats helper lands. Cleanup deferred.
+- The structural-carry in `CompileLocalRegex` re-uses
+  `CompileLocalWithOpts` rather than emitting an inline WHERE —
+  works, but produces fully-qualified `body_preview LIKE` /
+  `bt.content LIKE` fragments depending on `opts.BodyIndexEnabled`.
+  Acceptable for v1 since the regex path always has the index
+  on, but worth tightening when the helper API is touched.

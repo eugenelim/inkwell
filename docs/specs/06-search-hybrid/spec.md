@@ -422,6 +422,6 @@ New keys this spec adds:
 
 - Structured pattern queries (`~f bob`, `~d <30d`, etc.) — spec 08.
 - Saved searches as virtual folders — spec 11.
-- Searching message bodies (not just previews) locally — would require local body indexing, which we don't do (bodies LRU-evict; index would be unstable). Server-side $search covers full body.
+- ~~Searching message bodies (not just previews) locally — would require local body indexing, which we don't do (bodies LRU-evict; index would be unstable). Server-side $search covers full body.~~ **Superseded by spec 35** — opt-in local body indexing ships the `body_text` + `body_fts` + `body_trigram` surfaces; see `docs/specs/35-body-regex-local-indexing/spec.md`.
 - Search history / recall. Not in v1.
 - Boolean expression UI (a query builder). Power users use the pattern language (spec 08); casual users use plain text.

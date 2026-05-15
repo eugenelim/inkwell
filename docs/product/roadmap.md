@@ -87,7 +87,7 @@ Capability completeness with native clients.
 
 | Order | Item                                  | Notes                                        |
 | ----- | ------------------------------------- | -------------------------------------------- |
-| 1     | Body regex / local body indexing (1.13) | Schema change.                              |
+| 1     | Body regex / local body indexing (1.13) | **In progress** (spec 35) — opt-in `[body_index]`; migration 015; `~b /regex/` + `inkwell index` CLI. |
 | 2     | Clips (1.12)                          | New `clips` table; FTS-searchable.           |
 | 3     | Alternative query syntax (1.24)       | Parser flag, cheap.                          |
 
