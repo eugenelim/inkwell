@@ -12,6 +12,38 @@ pure refactor) — but say so in the Summary rather than silently deleting.
 **Spec:** <!-- docs/specs/NN-*.md, or "n/a — refactor/chore" -->
 **Spec 17 impact:** <!-- one line: "none" | "new log site at X — redaction test added" | "new file I/O at Y — §4.4 path check added" | etc. -->
 
+## What did you not change that you considered?
+
+<!--
+The dog that didn't bark. Honest scope. List the obvious adjacent
+changes you decided to leave out and why — out-of-scope, separate
+PR, follow-up issue, deliberately accepted residual risk. Catches
+more bugs than any other section in this template.
+-->
+
+## Reviewer subagents run
+
+<!--
+One line per reviewer. State "clean — ready to commit", "not run —
+<reason>", or paste the final-pass summary. Pick the reviewers the
+diff warrants; don't run all three by default.
+
+- `adversarial-reviewer` — always run for any non-trivial change
+  (after gates pass).
+- `security-reviewer` — if the diff crosses auth / Graph HTTP /
+  SQL composition / file I/O with user paths / subprocess / new
+  on-disk surface / log redaction. See `.claude/agents/security-reviewer.md`
+  for the full gate list.
+- `quality-engineer` — for non-trivial logic, new test surface,
+  perf budgets, or testability seams. See `.claude/agents/quality-engineer.md`.
+
+Each subagent must return `Clean — ready to commit.` before merge.
+-->
+
+- `adversarial-reviewer`: <!-- "clean" / "not run — <reason>" -->
+- `security-reviewer`: <!-- "clean" / "not run — no security boundary crossed" -->
+- `quality-engineer`: <!-- "clean" / "not run — trivial change" -->
+
 ## Spec content (`docs/CONVENTIONS.md` §11)
 
 - [ ] Which Graph scope(s)? Are they in PRD §3.1?

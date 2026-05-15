@@ -109,10 +109,21 @@ checklist.)
 
 ## Specialist subagents
 
+Pick the ones the diff warrants; don't run all three by default. Each
+must return `Clean — ready to commit.` before the PR ships.
+
 - [`adversarial-reviewer`](.claude/agents/adversarial-reviewer.md) — spec /
-  plan / implementation drift; missing edge cases; scope creep. Default
-  reviewer; runs after gates pass. Re-run iteratively until it returns
-  `Clean — ready to commit.`
+  plan / implementation drift; missing edge cases; scope creep. **Default
+  reviewer**; runs after gates pass.
+- [`security-reviewer`](.claude/agents/security-reviewer.md) — for diffs
+  that cross a security boundary (auth, Graph HTTP, SQL composition,
+  file I/O, subprocess, new on-disk surface, log redaction). Attacks
+  along the five `docs/CONVENTIONS.md` §7 hard invariants + spec 17
+  threat-model table + STRIDE. Complements (does not replace) gosec /
+  semgrep / govulncheck.
+- [`quality-engineer`](.claude/agents/quality-engineer.md) — testability,
+  observability, reliability, perf-budget honesty, maintainability. Also
+  drafts unit / integration / TUI e2e / benchmark tests on request.
 
 ## Skills available to you
 
@@ -122,6 +133,9 @@ a name:
 - `new-spec` — scaffold `docs/specs/NN-<title>.md` +
   `docs/plans/spec-NN.md` together (the v0.12.0 missing-plan-file
   regression made this rule).
+- `bug-fix` — fix a defect with root-cause discipline: reproduce →
+  failing test (same commit as fix per `docs/CONVENTIONS.md §5.7`) →
+  root vs symptom → minimum diff → commit body documents *why*.
 
 ## Things you should not do without asking
 

@@ -106,36 +106,45 @@ If a change violates any of these, the change is wrong.
 
 Every spec lands with all four layers green:
 
-- **Unit** (`*_test.go`): pure functions, parsers, encoders,
-  migrations, evaluators. ≥80% coverage on `internal/store`,
-  `graph`, `pattern`, `auth`, `sync`. Race detector mandatory.
-- **Benchmarks** (`Benchmark*`): one per perf-budget row in the
-  spec. Fails the test if the budget is missed by >50%. Fixtures
-  in `internal/<pkg>/testdata/`; synthesised fixtures in
-  `internal/<pkg>/testfixtures.go`, not committed as binary blobs.
-- **Integration** (`integration_test.go`, build-tag `integration`):
-  real SQLite in tmpdir, `httptest.Server` replaying canned Graph
-  JSON from `internal/graph/testdata/`.
-- **TUI e2e** (`*_e2e_test.go`, build-tag `e2e`): drive
-  `teatest.NewTestModel`; assert on the **visible delta a real
-  user would notice**, not just "some string appears in the
-  buffer". Every key binding, focus change, cursor move, mode
-  change, pane swap must have a test that captures frames
-  before/after and asserts the user-visible glyph moved (cursor
-  `▶` row, focus marker `▌ <Pane>`, viewer content swap, modal
-  centering).
+### 5.1 Unit (`*_test.go`)
 
-The "visible delta" rule exists because v0.2.6 shipped with passing
+Pure functions, parsers, encoders, migrations, evaluators. ≥80%
+coverage on `internal/store`, `graph`, `pattern`, `auth`, `sync`.
+Race detector mandatory.
+
+### 5.2 Benchmarks (`Benchmark*`)
+
+One per perf-budget row in the spec. Fails the test if the budget
+is missed by >50%. Fixtures in `internal/<pkg>/testdata/`;
+synthesised fixtures in `internal/<pkg>/testfixtures.go`, not
+committed as binary blobs.
+
+### 5.3 Integration (`integration_test.go`, build-tag `integration`)
+
+Real SQLite in tmpdir, `httptest.Server` replaying canned Graph
+JSON from `internal/graph/testdata/`.
+
+### 5.4 TUI e2e (`*_e2e_test.go`, build-tag `e2e`) — the visible-delta rule
+
+Drive `teatest.NewTestModel`; assert on the **visible delta a real
+user would notice**, not just "some string appears in the buffer".
+Every key binding, focus change, cursor move, mode change, pane
+swap must have a test that captures frames before/after and asserts
+the user-visible glyph moved (cursor `▶` row, focus marker
+`▌ <Pane>`, viewer content swap, modal centering).
+
+The visible-delta rule exists because v0.2.6 shipped with passing
 dispatch tests but broken e2e visual feedback — real-tenant users
 couldn't see the cursor move because the assertions never verified
 visible feedback. `internal/ui/app_e2e_test.go` is the source of
 truth: new keymap entries, new panes, new modes land alongside
 their test.
 
-We never test live tenant calls in CI (manual smoke in
-`docs/qa-checklist.md` before each release), the Microsoft Graph
-SDK (we don't depend on it), or macOS Keychain end-to-end (mock
-the `keyring` interface).
+### 5.5 What we never test in CI
+
+Live tenant calls (manual smoke in `docs/qa-checklist.md` before
+each release), the Microsoft Graph SDK (we don't depend on it),
+macOS Keychain end-to-end (mock the `keyring` interface).
 
 ### 5.6 Mandatory commands
 
