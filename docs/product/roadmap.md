@@ -87,7 +87,7 @@ Capability completeness with native clients.
 
 | Order | Item                                  | Notes                                        |
 | ----- | ------------------------------------- | -------------------------------------------- |
-| 1     | Body regex / local body indexing (1.13) | **In progress** (spec 35) — opt-in `[body_index]`; migration 015; `~b /regex/` + `inkwell index` CLI. |
+| 1     | Body regex / local body indexing (1.13) | Shipped v0.64.0 (spec 35) — opt-in `[body_index]`; migration 015; `~b /regex/` + `inkwell index` CLI. |
 | 2     | Clips (1.12)                          | New `clips` table; FTS-searchable.           |
 | 3     | Alternative query syntax (1.24)       | Parser flag, cheap.                          |
 
@@ -258,7 +258,7 @@ A `:clips` command opens an FTS5-searchable view of all clips. `Enter` on a clip
 
 **Take.** Doesn't fit existing email-client conventions but the TUI demographic will appreciate something like this. Could ship as a "knowledge cache" mini-feature.
 
-### 1.13 Body regex search locally — P2
+### 1.13 Body regex search locally — Shipped v0.64.0 (spec 35)
 
 Today, body content isn't locally indexed (FTS5 covers subject + bodyPreview only). Server `$search` is token-based, not regex. Adding local body indexing would change the cache from envelope-first to body-first, which has memory and sync-time implications. Worth doing if users complain about search precision.
 

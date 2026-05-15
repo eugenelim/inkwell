@@ -1,6 +1,7 @@
 # Spec 35 — Body regex & local body indexing
 
-**Status:** Draft.
+**Status:** Shipped.
+**Shipped:** v0.64.0 (2026-05-15)
 **Tracking note:** `docs/specs/35-body-regex-local-indexing/plan.md`.
 **Depends on:** Spec 02 (store schema, `bodies` table + LRU at
 `internal/store/bodies.go:31-119`, `messages_fts` at

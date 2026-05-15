@@ -1,7 +1,7 @@
 # Spec 35 — Body regex & local body indexing
 
 ## Status
-in-progress — slices 1-4 + slice 6 + slice 7 (this doc) shipped to main. Slice 5 (saved-search Manager threading + UI sidebar grey-out + `/regex:` prefix + palette rows + `:index` cmd-bar verb) and slice 8 (integration / e2e / bench) pending before tagging v0.64.0.
+done — **Shipped v0.64.0 (2026-05-15)**. All eight slices landed on main across commits b042025 → 16fe6ab. The §14 perf-budget table covers 9 of 11 rows with measured benches; the two deferred rows (cold-start with [body_index].enabled = true, `inkwell index rebuild` 500 cached bodies) need TUI / cmd-package harnesses larger than the benches themselves and stay tagged for a follow-up measurement pass.
 
 ## DoD checklist
 Copied from `docs/specs/35-body-regex-local-indexing/spec.md` §16. Tick

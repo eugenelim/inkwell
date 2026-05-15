@@ -21,6 +21,12 @@ For long-form release notes, see GitHub Releases.
 
 ### Added
 
+- _populated as specs ship before the next tag._
+
+## [0.64.0] — 2026-05-15
+
+### Added
+
 - Opt-in local body indexing — `[body_index].enabled = true`
   decodes message bodies into a parallel `body_text` table plus
   two FTS5 surfaces (unicode61 for tokens, trigram for substring
@@ -28,10 +34,16 @@ For long-form release notes, see GitHub Releases.
   `~s` / `~b` / `~B` (`/.../` delimiter, `\/` escape) when the
   index is enabled. New `inkwell index {status, rebuild, evict,
   disable}` CLI surfaces the size, caps, and destructive ops.
+  Saved searches that no longer compile under the current
+  `[body_index].enabled` flag stay in the sidebar greyed out with
+  a `!` indicator — Enter shows a status-bar hint pointing at the
+  config knob instead of running a known-bad pattern. New `/regex:`
+  prefix in search-mode dispatches as `~b /<expr>/` via the
+  trigram-narrow + Go-regex post-filter path. Four palette rows +
+  `:index <subverb>` cmd-bar verb for in-TUI discovery.
   Default off; bounded by configurable count + bytes caps (default
   5000 messages / 500 MB); `inkwell index disable` purges
-  everything. No new Graph scopes. (spec 35, ongoing — UI surfaces
-  in a follow-up iteration)
+  everything. No new Graph scopes. (spec 35)
 
 ## [0.63.0] — 2026-05-14
 
@@ -84,7 +96,8 @@ This changelog is the canonical surface going forward (from v0.64
 onward, every user-visible release lands a Keep-a-Changelog entry
 in this file in the same PR per `docs/CONVENTIONS.md` §12.6).
 
-[Unreleased]: https://github.com/eugenelim/inkwell/compare/v0.63.0...HEAD
+[Unreleased]: https://github.com/eugenelim/inkwell/compare/v0.64.0...HEAD
+[0.64.0]: https://github.com/eugenelim/inkwell/releases/tag/v0.64.0
 [0.63.0]: https://github.com/eugenelim/inkwell/releases/tag/v0.63.0
 [0.62.0]: https://github.com/eugenelim/inkwell/releases/tag/v0.62.0
 [0.61.0]: https://github.com/eugenelim/inkwell/releases/tag/v0.61.0

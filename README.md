@@ -51,7 +51,7 @@ For the design decisions behind these, see
 
 ```sh
 # Download (replace vX.Y.Z with the latest release).
-gh release download v0.63.0 -p '*macos_arm64*' -D /tmp
+gh release download v0.64.0 -p '*macos_arm64*' -D /tmp
 tar -xzf /tmp/inkwell_0.60.0_macos_arm64.tar.gz -C /tmp
 xattr -d com.apple.quarantine /tmp/inkwell        # macOS Gatekeeper
 sudo mv /tmp/inkwell /usr/local/bin/              # optional
@@ -174,6 +174,7 @@ current major surfaces:
 | Server-side rules (`inkwell rules pull/apply`, `~/.config/inkwell/rules.toml`) | ✅ v0.61+ |
 | Markdown drafts (`[compose] body_format = "markdown"`, goldmark + GFM)        | ✅ v0.62+ |
 | Calendar invites in mail (card in viewer, `o` opens event in OWA)             | ✅ v0.63+ |
+| Opt-in local body index + regex search (`~b /regex/`, `inkwell index`)        | ✅ v0.64+ |
 | Code-signing + notarization                                                 | 🚧 v1.0   |
 
 Reading the binary's full feature list at any version: see
