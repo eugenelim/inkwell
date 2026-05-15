@@ -92,6 +92,31 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Sprintf("account.signin_mode %q invalid (auto|interactive|device_code)", c.Account.SignInMode))
 	}
+	// Spec 35 §7.1 body-index validation. Only enforced when enabled —
+	// users with the feature off do not need to size the caps.
+	if c.BodyIndex.Enabled {
+		if c.BodyIndex.MaxCount <= 0 {
+			errs = append(errs, "body_index.max_count must be > 0 when enabled")
+		}
+		if c.BodyIndex.MaxBytes <= 0 {
+			errs = append(errs, "body_index.max_bytes must be > 0 when enabled")
+		}
+		if c.BodyIndex.MaxBodyBytes <= 0 {
+			errs = append(errs, "body_index.max_body_bytes must be > 0 when enabled")
+		} else if c.BodyIndex.MaxBytes > 0 && c.BodyIndex.MaxBodyBytes > c.BodyIndex.MaxBytes/8 {
+			errs = append(errs, fmt.Sprintf("body_index.max_body_bytes (%d) must be ≤ max_bytes/8 (%d)",
+				c.BodyIndex.MaxBodyBytes, c.BodyIndex.MaxBytes/8))
+		}
+		if c.BodyIndex.MaxRegexCandidates <= 0 {
+			errs = append(errs, "body_index.max_regex_candidates must be > 0 when enabled")
+		} else if c.BodyIndex.MaxCount > 0 && c.BodyIndex.MaxRegexCandidates > c.BodyIndex.MaxCount*2 {
+			errs = append(errs, fmt.Sprintf("body_index.max_regex_candidates (%d) must be ≤ max_count×2 (%d)",
+				c.BodyIndex.MaxRegexCandidates, c.BodyIndex.MaxCount*2))
+		}
+		if c.BodyIndex.RegexPostFilterTimeout <= 0 {
+			errs = append(errs, "body_index.regex_post_filter_timeout must be > 0 when enabled")
+		}
+	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}

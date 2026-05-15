@@ -12,6 +12,7 @@ const (
 	tkEOF      tokenKind = iota
 	tkOperator           // ~f, ~s, ~A, …
 	tkArgument           // bare-word or quoted argument to an operator
+	tkRegex              // /regex/ argument (spec 35 §9.1)
 	tkAnd                // & (or implicit between adjacent predicates)
 	tkOr                 // |
 	tkNot                // !
@@ -71,6 +72,30 @@ func lex(src string) ([]token, error) {
 					return nil, fmt.Errorf("pattern: unterminated quoted argument starting at %d", j)
 				}
 				out = append(out, token{kind: tkArgument, val: src[start:k], pos: j})
+				i = k + 1
+				continue
+			}
+			// Spec 35 §9.1: /.../ regex argument. Embedded `/` is escaped
+			// via `\/`. The unescaped body becomes the RegexValue.Raw.
+			if next == '/' {
+				k := j + 1
+				var buf []byte
+				for k < len(src) {
+					if src[k] == '\\' && k+1 < len(src) && src[k+1] == '/' {
+						buf = append(buf, '/')
+						k += 2
+						continue
+					}
+					if src[k] == '/' {
+						break
+					}
+					buf = append(buf, src[k])
+					k++
+				}
+				if k >= len(src) {
+					return nil, fmt.Errorf("pattern: unterminated regex argument starting at %d", j)
+				}
+				out = append(out, token{kind: tkRegex, val: string(buf), pos: j})
 				i = k + 1
 				continue
 			}

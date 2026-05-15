@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/eugenelim/inkwell/internal/store"
 )
 
 // runMaintenance is the spec 02 §8 housekeeping pass. Runs in its
@@ -55,6 +57,21 @@ func (e *engine) maintenancePass(ctx context.Context) {
 		logger.Warn("body eviction failed", slog.String("err", err.Error()))
 	} else if evicted > 0 {
 		logger.Info("body LRU evicted", slog.Int("count", evicted))
+	}
+
+	// Spec 35 §6.4: body index has its own caps + LRU, independent of
+	// the body LRU. Cap-driven eviction only — `inkwell index evict
+	// --older-than=…` is the explicit time-based path.
+	if e.opts.BodyIndexEnabled {
+		indexed, err := e.st.EvictBodyIndex(ctx, store.EvictBodyIndexOpts{
+			MaxCount: e.opts.BodyIndexMaxCount,
+			MaxBytes: e.opts.BodyIndexMaxBytes,
+		})
+		if err != nil {
+			logger.Warn("body index eviction failed", slog.String("err", err.Error()))
+		} else if indexed > 0 {
+			logger.Info("body index evicted", slog.Int("count", indexed))
+		}
 	}
 
 	if e.opts.DoneActionsRetention > 0 {

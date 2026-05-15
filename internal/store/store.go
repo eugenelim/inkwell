@@ -19,7 +19,7 @@ import (
 var migrationsFS embed.FS
 
 // SchemaVersion is the latest migration version this build targets.
-const SchemaVersion = 14
+const SchemaVersion = 15
 
 // ErrNotFound is returned by Get* methods when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
@@ -76,6 +76,28 @@ type Store interface {
 	PutBody(ctx context.Context, b Body) error
 	TouchBody(ctx context.Context, messageID string) error
 	EvictBodies(ctx context.Context, maxCount int, maxBytes int64) (evicted int, err error)
+
+	// Body index (spec 35).
+	// IndexBody stores decoded plaintext + refreshes the FTS5 surfaces
+	// via triggers. Idempotent: re-indexing the same content is a no-op
+	// for the FTS tables (the `AFTER UPDATE OF content` trigger only
+	// fires when the content actually changes).
+	IndexBody(ctx context.Context, e BodyIndexEntry) error
+	UnindexBody(ctx context.Context, messageID string) error
+	BodyIndexStats(ctx context.Context) (BodyIndexStats, error)
+	EvictBodyIndex(ctx context.Context, opts EvictBodyIndexOpts) (evicted int, err error)
+	PurgeBodyIndex(ctx context.Context) error
+	SearchBodyText(ctx context.Context, q BodyTextQuery) ([]BodyTextHit, error)
+	SearchBodyTrigramCandidates(ctx context.Context, q BodyTrigramQuery) ([]BodyCandidate, error)
+	// GetBodyText returns the decoded plaintext for a single message
+	// (used by the in-memory regex evaluator's lazy-load path —
+	// spec 35 §9.5 `EvalEnv.BodyTextFor`). Returns [ErrNotFound] when
+	// the message is not in the body index.
+	GetBodyText(ctx context.Context, messageID string) (string, error)
+	// UpdateBodyTextFolder moves an indexed row to a new folder_id when
+	// a message is moved across folders. No-op when the message is not
+	// indexed. Spec 35 §7.2 / §12.
+	UpdateBodyTextFolder(ctx context.Context, messageID, folderID string) error
 
 	// Attachments
 	ListAttachments(ctx context.Context, messageID string) ([]Attachment, error)

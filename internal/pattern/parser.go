@@ -2,6 +2,7 @@ package pattern
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -134,15 +135,43 @@ func (p *parser) parsePredicate() (Node, error) {
 	if !opTakesArgument(op.val) {
 		return Predicate{Field: field, Value: EmptyValue{}}, nil
 	}
-	if p.peek().kind != tkArgument {
-		return nil, fmt.Errorf("pattern: operator ~%s requires an argument at offset %d", op.val, op.pos)
+	switch p.peek().kind {
+	case tkArgument:
+		arg := p.eat()
+		val, err := buildPredicateValue(field, arg.val)
+		if err != nil {
+			return nil, fmt.Errorf("pattern: ~%s: %w", op.val, err)
+		}
+		return Predicate{Field: field, Value: val}, nil
+	case tkRegex:
+		arg := p.eat()
+		val, err := buildRegexValue(field, arg.val, arg.pos)
+		if err != nil {
+			return nil, err
+		}
+		return Predicate{Field: field, Value: val}, nil
 	}
-	arg := p.eat()
-	val, err := buildPredicateValue(field, arg.val)
+	return nil, fmt.Errorf("pattern: operator ~%s requires an argument at offset %d", op.val, op.pos)
+}
+
+// buildRegexValue compiles a regex argument and gates it against
+// fields where regex makes sense. Spec 35 §9.1 allows ~b / ~B / ~s
+// regex; everything else rejects at parse time so the user gets a
+// pointed error rather than "no matches".
+func buildRegexValue(f Field, raw string, pos int) (RegexValue, error) {
+	switch f {
+	case FieldSubject, FieldBody, FieldSubjectOrBody:
+		// OK — these route through eval_local_regex / eval_memory.
+	case FieldHeader:
+		return RegexValue{}, fmt.Errorf("pattern: ~h does not support regex (Graph $search is token-based); use a literal value")
+	default:
+		return RegexValue{}, fmt.Errorf("pattern: regex is only supported on ~s, ~b, ~B (got field %v at offset %d)", f, pos)
+	}
+	re, err := regexp.Compile(raw)
 	if err != nil {
-		return nil, fmt.Errorf("pattern: ~%s: %w", op.val, err)
+		return RegexValue{}, fmt.Errorf("pattern: regex compile error at offset %d: %w", pos, err)
 	}
-	return Predicate{Field: field, Value: val}, nil
+	return RegexValue{Raw: raw, Compiled: re}, nil
 }
 
 // buildPredicateValue converts a raw argument string into the typed

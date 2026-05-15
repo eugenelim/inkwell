@@ -18,7 +18,7 @@ func TestMigration014AppliesCleanly(t *testing.T) {
 	var version string
 	require.NoError(t, st.db.QueryRowContext(ctx,
 		`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&version))
-	require.Equal(t, "14", strings.TrimSpace(version))
+	require.Equal(t, "15", strings.TrimSpace(version))
 
 	// Table exists.
 	var name string

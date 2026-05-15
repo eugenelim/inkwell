@@ -164,6 +164,15 @@ type Options struct {
 	DoneActionsRetention time.Duration
 	VacuumOnMaintenance  bool
 
+	// Spec 35 §6/§7 body index. Enabled gates the entire indexer
+	// (no writes, no maintenance pass on body_text). The other
+	// fields mirror [body_index] config keys.
+	BodyIndexEnabled         bool
+	BodyIndexMaxCount        int
+	BodyIndexMaxBytes        int64
+	BodyIndexMaxBodyBytes    int64
+	BodyIndexFolderAllowlist []string
+
 	// CalendarLookaheadDays / CalendarLookbackDays bound the calendar
 	// sync window (spec 12 §5). Zero means "use defaults" (30/7).
 	// Set to <0 to disable calendar sync entirely (used by tests).
@@ -250,6 +259,11 @@ type engine struct {
 	// logs. The lock is held for the entire cycle (sub-second
 	// typically); it does NOT block the wakeup / Stop paths.
 	cycleMu sync.Mutex
+
+	// Spec 35 §6.3 body-index hook. The allow-list of folder ids is
+	// resolved lazily on first use and cached for the engine's life.
+	bodyIndexMu          sync.Mutex
+	bodyIndexResolvedSet map[string]struct{}
 }
 
 // New constructs an Engine. The [graph.Client] handles auth + throttle;

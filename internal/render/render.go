@@ -43,7 +43,20 @@ type Options struct {
 	// Logger receives fallback / error log messages from the renderer.
 	// nil disables logging.
 	Logger *slog.Logger
+	// OnBodyDecoded fires after a successful body decode (cache fill
+	// via FetchBodyAsync or warm hit re-decoded after eviction). The
+	// callback receives the **pre-wrap** decoded plaintext from
+	// [DecodeForIndex] so the body index does not silently break
+	// regex matches on tokens the viewer happened to wrap (spec 35
+	// §6.3). nil disables the hook — the renderer must stay
+	// independent of sync / store-write paths beyond what the
+	// renderer already does today.
+	OnBodyDecoded BodyDecodedCallback
 }
+
+// BodyDecodedCallback fires after a body is successfully decoded.
+// Caller (sync.Engine) decides whether to index. Spec 35 §6.3.
+type BodyDecodedCallback func(ctx context.Context, m *store.Message, indexableText string)
 
 // BodyState enumerates the visible state of a body fetch.
 type BodyState int
@@ -191,6 +204,7 @@ func NewWithOptions(st store.Store, fetcher BodyFetcher, opts Options) Renderer 
 		prettyTables:             opts.PrettyTables,
 		prettyTableMaxRows:       maxRows,
 		logger:                   opts.Logger,
+		onBodyDecoded:            opts.OnBodyDecoded,
 	}
 }
 
@@ -206,9 +220,39 @@ type renderer struct {
 	prettyTables             bool
 	prettyTableMaxRows       int
 	logger                   *slog.Logger
+	onBodyDecoded            BodyDecodedCallback
 	// inflight guards against concurrent duplicate fetches for the same
 	// message ID. Stores messageID → struct{}{}.
 	inflight sync.Map
+}
+
+// fireOnBodyDecoded calls the optional OnBodyDecoded hook with the
+// pre-wrap plaintext from [DecodeForIndex]. Errors from
+// DecodeForIndex are swallowed silently — the index hook must never
+// fail the viewer fetch. Spec 35 §6.3.
+func (r *renderer) fireOnBodyDecoded(ctx context.Context, m *store.Message, body store.Body) {
+	if r.onBodyDecoded == nil || m == nil {
+		return
+	}
+	var indexable string
+	switch body.ContentType {
+	case "html":
+		t, err := DecodeForIndex(body.Content)
+		if err != nil {
+			return
+		}
+		indexable = t
+	case "text":
+		// Plain bodies: collapse whitespace runs but skip html2text.
+		t, _ := DecodeForIndex(body.Content)
+		indexable = t
+	default:
+		return
+	}
+	if indexable == "" {
+		return
+	}
+	r.onBodyDecoded(ctx, m, indexable)
 }
 
 // Body implements [Renderer]. On a cache hit it renders inline; on a
@@ -222,6 +266,7 @@ func (r *renderer) Body(ctx context.Context, m *store.Message, opts BodyOpts) (B
 	got, err := r.store.GetBody(ctx, m.ID)
 	if err == nil {
 		_ = r.store.TouchBody(ctx, m.ID)
+		r.fireOnBodyDecoded(ctx, m, *got)
 		return r.renderBody(*got, opts), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
@@ -281,6 +326,7 @@ func (r *renderer) FetchBodyAsync(ctx context.Context, m *store.Message, opts Bo
 		}
 		_ = r.store.UpsertAttachments(ctx, atts)
 	}
+	r.fireOnBodyDecoded(ctx, m, body)
 	view := r.renderBody(body, opts)
 	view.Headers = fb.Headers
 	return view, nil

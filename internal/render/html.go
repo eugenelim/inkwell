@@ -55,6 +55,38 @@ func (r *renderer) htmlToTextWithConfig(rawHTML string, width, urlMaxDisplay int
 	return htmlToText(rawHTML, width, urlMaxDisplay, theme, r.prettyTables, r.prettyTableMaxRows)
 }
 
+// DecodeForIndex returns the decoded plaintext of rawHTML for the
+// body index (spec 35 §6.3). It runs the same trackingPixel strip +
+// html2text.FromString pipeline as the viewer renderer but skips the
+// width-wrap pass in [normalisePlain] — indexing wrapped text would
+// silently break `~b /token=abc/` matches when the wrapper inserts a
+// newline mid-token. Whitespace runs are collapsed per line so
+// `token=abc` survives intact. For `text/plain` bodies, rawHTML may
+// already be plain text; the html2text pass on plain text is a near
+// no-op (handles stray entities) and we still collapse whitespace.
+func DecodeForIndex(rawHTML string) (string, error) {
+	cleaned := trackingPixel.ReplaceAllString(rawHTML, "")
+	text, err := html2text.FromString(cleaned, html2text.Options{
+		PrettyTables: false,
+		OmitLinks:    false,
+	})
+	if err != nil {
+		return "", err
+	}
+	// Collapse runs of whitespace per line; keep newlines as paragraph
+	// separators. Do NOT word-wrap — the index needs un-wrapped tokens.
+	var b strings.Builder
+	b.Grow(len(text))
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		// strings.Fields collapses spaces, tabs, NBSPs into single spaces.
+		b.WriteString(strings.Join(strings.Fields(line), " "))
+	}
+	return b.String(), nil
+}
+
 // runExternalConverter pipes html into cmd's stdin and returns stdout.
 func runExternalConverter(cmd, html string, timeout time.Duration) (string, error) {
 	if timeout <= 0 {

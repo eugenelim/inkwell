@@ -15,10 +15,17 @@ repo opens that file. All other packages consume Store's typed API.
 
 ## Hard invariants (specific to this package)
 
-1. **No write path outside the action queue.** UI / sync / search call
-   read methods directly, but writes go through `internal/action` →
-   `store.EnqueueAction` → `store.ApplyAction`. Direct `UPDATE` /
-   `INSERT` from outside the package is a layering violation.
+1. **No mail-state write outside the action queue.** Mail mutations
+   (move, mark-read, soft-delete, flag, categorise, draft) flow
+   through `internal/action` → `store.EnqueueAction` → `Executor.Drain`.
+   Direct `UPDATE` / `INSERT` against `messages` / `folders` /
+   `actions` from outside the package is a layering violation.
+   **Cache-management writes** are the explicit exception:
+   `EvictBodies` (spec 02 §3.5), `IndexBody` / `UnindexBody` /
+   `EvictBodyIndex` / `PurgeBodyIndex` (spec 35 §6.2) are owned by
+   the store, do not touch Graph, are idempotent, and have no undo.
+   They are called from sync's maintenance loop or render's
+   post-decode hook, not from the action queue.
 2. **Migrations are forward-only.** Add a numbered file under
    `migrations/`, bump `SchemaVersion` in `store.go`, and add a
    regression test that asserts the new version. Down-migrations do not

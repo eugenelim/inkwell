@@ -31,6 +31,11 @@ const (
 	// the cached envelopes. Used when the AST mixes a server-
 	// only predicate (~b) with a local-only one (~N / ~F / ~i).
 	StrategyTwoStage
+	// StrategyLocalRegex narrows a regex match via the spec 35
+	// trigram index, then post-filters with Go regexp.
+	// Selected when the AST contains a [RegexValue] and the
+	// caller has [body_index] enabled. Spec 35 §9.2 / §9.4.
+	StrategyLocalRegex
 )
 
 // String returns the human-readable strategy name (used by
@@ -47,6 +52,8 @@ func (s ExecutionStrategy) String() string {
 		return "StrategyServerHybrid"
 	case StrategyTwoStage:
 		return "StrategyTwoStage"
+	case StrategyLocalRegex:
+		return "StrategyLocalRegex"
 	}
 	return fmt.Sprintf("StrategyUnknown(%d)", int(s))
 }
@@ -95,6 +102,17 @@ type CompileOptions struct {
 	// 08 §7.2 — useful for big-list patterns where the user
 	// prefers cache hits over a 2s server round-trip.
 	PreferLocal bool
+	// BodyIndexEnabled mirrors `[body_index].enabled`. When true,
+	// ~b / ~B route against `body_text` (the spec 35 index) and
+	// regex predicates are admitted on ~s / ~b / ~B. When false,
+	// ~b / ~B keep the legacy `body_preview` LIKE behaviour and a
+	// regex on ~b / ~B returns [ErrRegexRequiresLocalIndex] at
+	// compile time. Spec 35 §9.2.
+	BodyIndexEnabled bool
+	// MaxRegexCandidates caps the trigram-narrowed candidate set
+	// fed to the Go regex post-filter. Mirrors
+	// `[body_index].max_regex_candidates`. 0 → 2000 (spec 35 §7).
+	MaxRegexCandidates int
 }
 
 // ErrPatternUnsupported is returned by Compile when the supplied
@@ -107,6 +125,22 @@ var ErrPatternUnsupported = fmt.Errorf("pattern: unsupported predicate combinati
 // The strategy selector consumes this signal to pick a fallback
 // path (TwoStage / StrategyLocalOnly).
 var ErrUnsupported = fmt.Errorf("pattern: backend cannot express this predicate")
+
+// Spec 35 §9.3 sentinels surfaced by Compile when a regex predicate
+// can't be evaluated under the current configuration.
+var (
+	// ErrRegexUnboundedScan is returned when a regex predicate has no
+	// mandatory literal of length ≥ 3 — the trigram narrow can't run
+	// and a full-scan post-filter would violate perf budgets.
+	ErrRegexUnboundedScan = fmt.Errorf("pattern: regex requires at least one 3-character literal substring; add a literal anchor or scope to a folder")
+	// ErrRegexRequiresLocalIndex is returned when a regex predicate
+	// touches body fields (~b / ~B) but [body_index] is disabled.
+	ErrRegexRequiresLocalIndex = fmt.Errorf("pattern: regex body / subject-or-body search needs [body_index].enabled = true; run 'inkwell index rebuild' first")
+	// ErrRegexNotSupportedOnHeader is returned when a regex predicate
+	// is attached to ~h. Graph $search has no regex; we refuse rather
+	// than silently lose semantics.
+	ErrRegexNotSupportedOnHeader = fmt.Errorf("pattern: ~h does not support regex; Graph $search is token-based — use a literal value or run a folder-scoped search")
+)
 
 // Compile parses src, walks the AST to classify each predicate
 // against the backend matrix (spec 08 §7.1), and produces a
@@ -152,18 +186,44 @@ type astCapability struct {
 	hasFolderScope  string
 	hasNonLocalPred bool // any predicate that local SQL rejects today
 	predicateCount  int
+	// Spec 35 §9.2: regex predicates and the fields they touch.
+	hasRegex            bool
+	regexOnBody         bool // ~b / ~B with RegexValue
+	regexOnHeader       bool // ~h with RegexValue (already rejected at parse time; defensive)
+	regexOnSubjectOnly  bool // only ~s carries regex
+	regexPredicateCount int
 }
 
 // analyse walks the AST once and tallies per-backend support
 // signals.
 func analyse(root Node) astCapability {
 	var cap astCapability
+	regexSubjectOnly := true
+	regexCount := 0
 	walk(root, func(n Node) {
 		p, ok := n.(Predicate)
 		if !ok {
 			return
 		}
 		cap.predicateCount++
+		// Spec 35 §9.2 regex detection runs alongside the existing
+		// per-field tallies.
+		if _, isRegex := p.Value.(RegexValue); isRegex {
+			cap.hasRegex = true
+			regexCount++
+			switch p.Field {
+			case FieldBody, FieldSubjectOrBody:
+				cap.regexOnBody = true
+				regexSubjectOnly = false
+			case FieldHeader:
+				cap.regexOnHeader = true
+				regexSubjectOnly = false
+			case FieldSubject:
+				// subject-only stays true unless a non-subject regex appears
+			default:
+				regexSubjectOnly = false
+			}
+		}
 		switch p.Field {
 		case FieldBody, FieldSubjectOrBody:
 			cap.hasBody = true
@@ -182,6 +242,10 @@ func analyse(root Node) astCapability {
 			}
 		}
 	})
+	cap.regexPredicateCount = regexCount
+	if cap.hasRegex {
+		cap.regexOnSubjectOnly = regexSubjectOnly
+	}
 	return cap
 }
 
@@ -275,6 +339,30 @@ func walk(n Node, fn func(Node)) {
 // CompilationPlan. Spec 08 §7.2 decision tree.
 func selectStrategy(root Node, cap astCapability, opts CompileOptions) (ExecutionStrategy, CompilationPlan, error) {
 	notes := []string{}
+
+	// Spec 35 §9.2 step 0: regex predicates route locally via the
+	// trigram index, or fail explicitly. Runs before every other
+	// branch so the user sees a pointed error rather than e.g.
+	// StrategyServerSearch trying to render a regex into $search.
+	if cap.hasRegex {
+		if cap.regexOnHeader {
+			return 0, CompilationPlan{}, ErrRegexNotSupportedOnHeader
+		}
+		if cap.regexOnBody && !opts.BodyIndexEnabled {
+			return 0, CompilationPlan{}, ErrRegexRequiresLocalIndex
+		}
+		// Mandatory-literal extraction happens at emit time, in
+		// eval_local_regex; a "no literal" failure surfaces as
+		// ErrRegexUnboundedScan from CompileLocalRegex. Subject-only
+		// regex is admitted regardless of BodyIndexEnabled — subjects
+		// live on `messages` and don't need body_text.
+		notes = append(notes, fmt.Sprintf("Strategy: %s", StrategyLocalRegex))
+		notes = append(notes, "Reason: regex predicate; trigram narrow + Go regexp post-filter.")
+		return StrategyLocalRegex, CompilationPlan{
+			GraphFolderID: cap.hasFolderScope,
+			Notes:         notes,
+		}, nil
+	}
 
 	// Step 0: LocalOnly forced — try the local evaluator
 	// directly. If CompileLocal accepts the AST (which today

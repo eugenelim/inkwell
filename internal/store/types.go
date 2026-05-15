@@ -90,6 +90,76 @@ type Body struct {
 	LastAccessedAt time.Time
 }
 
+// BodyIndexEntry is the input to [Store.IndexBody]. ContentSize and
+// the indexed-at / last-accessed-at timestamps are set by the
+// implementation; the caller supplies decoded plaintext truncated to
+// `[body_index].max_body_bytes`. Spec 35 §6.1.
+type BodyIndexEntry struct {
+	MessageID string
+	AccountID int64
+	FolderID  string
+	Content   string // decoded plaintext, post-html2text, pre-wrap; caller truncates
+	Truncated bool   // true when Content was clipped at max_body_bytes
+}
+
+// BodyIndexStats summarises the body index for `inkwell index status`
+// and the maintenance loop. Spec 35 §6.1.
+type BodyIndexStats struct {
+	Rows            int64
+	Bytes           int64
+	Truncated       int64
+	OldestIndexedAt time.Time
+	NewestIndexedAt time.Time
+}
+
+// EvictBodyIndexOpts composes count-cap, byte-cap, age-based,
+// folder-scoped, and single-message eviction shapes into one call.
+// A zero value evicts nothing. Spec 35 §6.1.
+type EvictBodyIndexOpts struct {
+	MaxCount  int       // 0 disables count-cap eviction
+	MaxBytes  int64     // 0 disables byte-cap eviction
+	OlderThan time.Time // zero disables age-based eviction
+	FolderID  string    // optional folder scope
+	MessageID string    // optional single-message eviction
+}
+
+// BodyTextQuery selects rows from body_fts. Spec 35 §6.1.
+type BodyTextQuery struct {
+	AccountID int64
+	FolderID  string // optional
+	Query     string // FTS5 MATCH expression
+	Limit     int
+}
+
+// BodyTextHit is one [Store.SearchBodyText] result.
+type BodyTextHit struct {
+	MessageID string
+	Score     float64 // BM25
+	Snippet   string  // FTS5 snippet() output around the match
+}
+
+// BodyTrigramQuery is the trigram-narrowing query used by the regex
+// post-filter path (spec 35 §3.3 step 2). Each literal must be at
+// least 3 characters; the implementation AND-conjoins them. The
+// optional StructuralWhere is appended as an AND clause over the
+// `messages` row (used by eval_local for combined predicates).
+type BodyTrigramQuery struct {
+	AccountID       int64
+	FolderID        string
+	Literals        []string // each ≥ 3 chars
+	StructuralWhere string   // optional SQL fragment over `messages m`
+	StructuralArgs  []any
+	Limit           int
+}
+
+// BodyCandidate is one trigram-narrowed candidate row: the message
+// id plus the full decoded body so the Go regex post-filter doesn't
+// need a second round-trip.
+type BodyCandidate struct {
+	MessageID string
+	Content   string
+}
+
 // Attachment is the metadata-only attachment row. Bytes are not cached.
 type Attachment struct {
 	ID          string

@@ -235,5 +235,16 @@ func Defaults() *Config {
 			ConfirmDestructive: true,
 			EditorOpenAtRule:   true,
 		},
+		BodyIndex: BodyIndexConfig{
+			Enabled:                false,
+			MaxCount:               5000,
+			MaxBytes:               500 * 1024 * 1024,
+			MaxBodyBytes:           1024 * 1024,
+			FolderAllowlist:        nil,
+			Stemming:               false,
+			MaxRegexCandidates:     2000,
+			BackfillOnEnable:       false,
+			RegexPostFilterTimeout: 5 * time.Second,
+		},
 	}
 }

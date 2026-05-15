@@ -14,56 +14,73 @@ type SQLClause struct {
 }
 
 // CompileLocal produces a [SQLClause] that selects the messages
-// matching the AST against the local SQLite store. Returns an error
-// when the AST contains a node the local backend can't evaluate
-// (currently only ~h header lookups, which are server-only — bulk
-// ops will route those to Graph $filter via spec 09).
+// matching the AST against the local SQLite store. Equivalent to
+// [CompileLocalWithOpts] with a zero CompileOptions — preserved for
+// callers (most of the codebase) that don't care about body-index
+// routing.
 func CompileLocal(root Node) (*SQLClause, error) {
+	return CompileLocalWithOpts(root, CompileOptions{})
+}
+
+// CompileLocalWithOpts is the body-index-aware variant. When
+// opts.BodyIndexEnabled is true, ~b and ~B route against the spec 35
+// `body_text` table (with a JOIN added at the outer SELECT layer by
+// the caller — see [LocalBodyIndexJoin]). When false, the legacy
+// `body_preview` LIKE behaviour is preserved exactly.
+func CompileLocalWithOpts(root Node, opts CompileOptions) (*SQLClause, error) {
 	if root == nil {
 		return nil, fmt.Errorf("CompileLocal: nil AST")
 	}
-	w, args, err := emitLocal(root)
+	w, args, err := emitLocal(root, opts)
 	if err != nil {
 		return nil, err
 	}
 	return &SQLClause{Where: w, Args: args}, nil
 }
 
-func emitLocal(n Node) (string, []any, error) {
+// LocalBodyIndexJoin is the SQL fragment a caller must add to a
+// `SELECT ... FROM messages m` query when the compiled WHERE clause
+// references the `body_text` table. Spec 35 §9.2: bodies live in a
+// sibling table joined by message id. Empty when `body_text` isn't
+// referenced — callers may inspect the SQL string and append this
+// only when needed.
+const LocalBodyIndexJoin = " JOIN body_text bt ON bt.message_id = m.id"
+
+func emitLocal(n Node, opts CompileOptions) (string, []any, error) {
 	switch v := n.(type) {
 	case And:
-		l, la, err := emitLocal(v.L)
+		l, la, err := emitLocal(v.L, opts)
 		if err != nil {
 			return "", nil, err
 		}
-		r, ra, err := emitLocal(v.R)
+		r, ra, err := emitLocal(v.R, opts)
 		if err != nil {
 			return "", nil, err
 		}
 		return "(" + l + " AND " + r + ")", append(la, ra...), nil
 	case Or:
-		l, la, err := emitLocal(v.L)
+		l, la, err := emitLocal(v.L, opts)
 		if err != nil {
 			return "", nil, err
 		}
-		r, ra, err := emitLocal(v.R)
+		r, ra, err := emitLocal(v.R, opts)
 		if err != nil {
 			return "", nil, err
 		}
 		return "(" + l + " OR " + r + ")", append(la, ra...), nil
 	case Not:
-		s, args, err := emitLocal(v.X)
+		s, args, err := emitLocal(v.X, opts)
 		if err != nil {
 			return "", nil, err
 		}
 		return "(NOT " + s + ")", args, nil
 	case Predicate:
-		return emitPredicate(v)
+		return emitPredicate(v, opts)
 	}
 	return "", nil, fmt.Errorf("emitLocal: unknown node %T", n)
 }
 
-func emitPredicate(p Predicate) (string, []any, error) {
+func emitPredicate(p Predicate, opts CompileOptions) (string, []any, error) {
 	switch p.Field {
 	case FieldHasAttachments:
 		return "has_attachments = 1", nil, nil
@@ -77,11 +94,17 @@ func emitPredicate(p Predicate) (string, []any, error) {
 
 	switch v := p.Value.(type) {
 	case StringValue:
-		return emitStringPredicate(p.Field, v)
+		return emitStringPredicate(p.Field, v, opts)
 	case DateValue:
 		return emitDatePredicate(p.Field, v)
 	case RoutingValue:
 		return emitRoutingPredicate(v)
+	case RegexValue:
+		// Regex predicates are routed at the strategy layer
+		// (StrategyLocalRegex). If they reach emitLocal, the
+		// caller forgot to gate; surface a typed error rather
+		// than a silently empty WHERE clause.
+		return "", nil, fmt.Errorf("emitPredicate: RegexValue on field %v must route through StrategyLocalRegex, not CompileLocal", p.Field)
 	}
 	return "", nil, fmt.Errorf("emitPredicate: unsupported value type %T for field %v", p.Value, p.Field)
 }
@@ -108,7 +131,7 @@ func emitRoutingPredicate(v RoutingValue) (string, []any, error) {
 	)`, []any{v.Destination}, nil
 }
 
-func emitStringPredicate(f Field, v StringValue) (string, []any, error) {
+func emitStringPredicate(f Field, v StringValue, opts CompileOptions) (string, []any, error) {
 	switch f {
 	case FieldFrom:
 		return likeAny([]string{"from_address", "from_name"}, v)
@@ -123,8 +146,17 @@ func emitStringPredicate(f Field, v StringValue) (string, []any, error) {
 	case FieldSubject:
 		return likeOne("subject", v)
 	case FieldBody:
+		if opts.BodyIndexEnabled {
+			// Spec 35 §9.2: route ~b through body_text. The caller is
+			// responsible for prepending [LocalBodyIndexJoin] to the
+			// outer SELECT so `bt.content` resolves.
+			return likeOne("bt.content", v)
+		}
 		return likeOne("body_preview", v)
 	case FieldSubjectOrBody:
+		if opts.BodyIndexEnabled {
+			return likeAny([]string{"subject", "bt.content"}, v)
+		}
 		return likeAny([]string{"subject", "body_preview"}, v)
 	case FieldFolder:
 		return likeOne("folder_id", v) // exact match in practice; folder names not in messages row

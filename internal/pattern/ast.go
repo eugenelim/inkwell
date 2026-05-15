@@ -10,7 +10,10 @@
 // property test.
 package pattern
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 // Field enumerates the operator-targeted fields. Each ~x operator
 // produces a Predicate node bound to one Field.
@@ -120,6 +123,15 @@ type RoutingValue struct {
 	Destination string
 }
 
+// RegexValue is the argument for a regex-form predicate (spec 35
+// §9.1). Raw is the regex source between the `/` delimiters;
+// Compiled is produced at parse time so syntax errors surface with a
+// column position exactly like date errors (spec 08 §5.2).
+type RegexValue struct {
+	Raw      string
+	Compiled *regexp.Regexp
+}
+
 func (And) isNode()       {}
 func (Or) isNode()        {}
 func (Not) isNode()       {}
@@ -129,3 +141,4 @@ func (StringValue) isValue()  {}
 func (DateValue) isValue()    {}
 func (EmptyValue) isValue()   {}
 func (RoutingValue) isValue() {}
+func (RegexValue) isValue()   {}

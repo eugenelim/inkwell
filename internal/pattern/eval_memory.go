@@ -15,6 +15,12 @@ import (
 // `~o` without help from the caller.
 type EvalEnv struct {
 	Routing map[string]string
+	// BodyTextFor lazily fetches a message's decoded body for regex
+	// evaluation against ~b / ~B (spec 35 §9.5). nil disables the
+	// regex path — a RegexValue on body fields evaluates to false
+	// without raising an error. Returns store.ErrNotFound when the
+	// message is not in the body index.
+	BodyTextFor func(messageID string) (string, error)
 }
 
 // EvaluateInMemory walks the AST against a single in-memory
@@ -78,6 +84,46 @@ func evalMemPredicate(p Predicate, m *store.Message, env EvalEnv) bool {
 		return evalMemDate(p.Field, v, m)
 	case RoutingValue:
 		return evalMemRouting(v, m, env)
+	case RegexValue:
+		return evalMemRegex(p.Field, v, m, env)
+	}
+	return false
+}
+
+// evalMemRegex evaluates a [RegexValue] on ~s / ~b / ~B against the
+// in-memory message. Spec 35 §9.5: subject regex uses m.Subject
+// directly; body / subject-or-body regex requires env.BodyTextFor.
+// When BodyTextFor is nil OR returns an error, the predicate
+// evaluates to false (TwoStage drops the candidate — see spec 35
+// §9.5's "deep-archive gap" note).
+func evalMemRegex(f Field, v RegexValue, m *store.Message, env EvalEnv) bool {
+	if v.Compiled == nil {
+		return false
+	}
+	switch f {
+	case FieldSubject:
+		return v.Compiled.MatchString(m.Subject)
+	case FieldBody:
+		if env.BodyTextFor == nil {
+			return false
+		}
+		body, err := env.BodyTextFor(m.ID)
+		if err != nil {
+			return false
+		}
+		return v.Compiled.MatchString(body)
+	case FieldSubjectOrBody:
+		if v.Compiled.MatchString(m.Subject) {
+			return true
+		}
+		if env.BodyTextFor == nil {
+			return false
+		}
+		body, err := env.BodyTextFor(m.ID)
+		if err != nil {
+			return false
+		}
+		return v.Compiled.MatchString(body)
 	}
 	return false
 }

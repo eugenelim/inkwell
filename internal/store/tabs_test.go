@@ -37,7 +37,7 @@ func TestMigration012AppliesCleanly(t *testing.T) {
 	// references migration 012 because it asserts 012's table
 	// extension (tab_order column + partial unique index), not the
 	// version cap. Tracked alongside [SchemaVersion] in store.go.
-	require.Equal(t, "14", strings.TrimSpace(ver))
+	require.Equal(t, "15", strings.TrimSpace(ver))
 
 	// tab_order column exists and is NULL for new rows.
 	acc := SeedAccount(t, s)

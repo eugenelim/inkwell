@@ -46,6 +46,38 @@ type Config struct {
 	Screener        ScreenerConfig        `toml:"screener"`
 	Inbox           InboxConfig           `toml:"inbox"`
 	Rules           RulesConfig           `toml:"rules"`
+	BodyIndex       BodyIndexConfig       `toml:"body_index"`
+}
+
+// BodyIndexConfig owns the [body_index] section (spec 35 §7). Default
+// is fully disabled — the user opts in to widen the on-disk surface.
+type BodyIndexConfig struct {
+	// Enabled is the master switch. When false, every indexer code
+	// path is a no-op. Spec 35 §7.
+	Enabled bool `toml:"enabled"`
+	// MaxCount caps the number of indexed messages (LRU eviction).
+	MaxCount int `toml:"max_count"`
+	// MaxBytes caps the total decoded-text bytes (LRU eviction).
+	MaxBytes int64 `toml:"max_bytes"`
+	// MaxBodyBytes truncates any single body above this size and
+	// sets `truncated = 1` on the row. Spec 35 §7.
+	MaxBodyBytes int64 `toml:"max_body_bytes"`
+	// FolderAllowlist limits indexing to the named folders (matched
+	// against display_name or well_known_name). Empty = all
+	// subscribed folders.
+	FolderAllowlist []string `toml:"folder_allowlist"`
+	// Stemming reserves a v2 follow-up — flipping the knob in v1
+	// logs a validation warning and behaves as false (spec 35 §7).
+	Stemming bool `toml:"stemming"`
+	// MaxRegexCandidates caps the trigram-narrowed candidate set
+	// fed to the Go regex post-filter (spec 35 §7).
+	MaxRegexCandidates int `toml:"max_regex_candidates"`
+	// BackfillOnEnable runs `inkwell index rebuild` automatically
+	// after the user toggles Enabled false → true (spec 35 §7).
+	BackfillOnEnable bool `toml:"backfill_on_enable"`
+	// RegexPostFilterTimeout caps the wall-clock spent on the Go
+	// regex post-filter for a single search call (spec 35 §7).
+	RegexPostFilterTimeout time.Duration `toml:"regex_post_filter_timeout"`
 }
 
 // InboxConfig owns the [inbox] section (spec 31). Inbox-scoped UI

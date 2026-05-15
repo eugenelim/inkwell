@@ -218,8 +218,18 @@ func (s *store) UpdateMessageFields(ctx context.Context, id string, f MessageFie
 	}
 	args = append(args, id)
 	// #nosec G202 — `sets` is built from a fixed set of column-name string literals above (is_read, flag_status, flag_due_at, flag_completed_at, folder_id, categories, last_modified_at). User-supplied values bind via `?`.
-	_, err := s.db.ExecContext(ctx, "UPDATE messages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-	return err
+	if _, err := s.db.ExecContext(ctx, "UPDATE messages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
+		return err
+	}
+	// Spec 35 §7.2 / §12: keep body_text.folder_id in sync with the
+	// message row so folder-scoped body searches stay correct after a
+	// move. No-op when the message is not indexed.
+	if f.FolderID != nil {
+		if err := s.UpdateBodyTextFolder(ctx, id, *f.FolderID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // upsertMessageSQL preserves unsubscribe_url / unsubscribe_one_click
