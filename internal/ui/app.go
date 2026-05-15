@@ -5058,7 +5058,7 @@ func (m Model) dispatchList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the status bar.
 func (m Model) runUndo() (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("undo: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("undo: not wired")
 		return m, nil
 	}
 	var accountID int64
@@ -5082,7 +5082,7 @@ func (m Model) runUndo() (tea.Model, tea.Cmd) {
 // buffer is empty.
 func (m Model) startFolderNameInput(action, folderID, parentID string) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("folder: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("folder: not wired")
 		return m, nil
 	}
 	m.pendingFolderAction = action
@@ -5175,7 +5175,7 @@ func (m Model) updateFolderNameInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 // startFolderDelete opens the spec 18 delete-confirm modal.
 func (m Model) startFolderDelete(f store.Folder) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("folder: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("folder: not wired")
 		return m, nil
 	}
 	prompt := fmt.Sprintf("Delete folder %q? Children + messages cascade to Deleted Items server-side.\n\nUse Outlook's Deleted Items to recover.\n\n[y]es / [N]o", f.DisplayName)
@@ -5201,7 +5201,7 @@ type folderActionDoneMsg struct {
 // the category name; Enter dispatches; Esc cancels.
 func (m Model) startCategoryInput(action string, src store.Message) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("category: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("category: not wired")
 		return m, nil
 	}
 	m.pendingCategoryAction = action
@@ -5281,7 +5281,7 @@ func (m Model) updateCategoryInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 // destinations always appear above the alphabetical section.
 func (m Model) startMove(src store.Message) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("move: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("move: not wired")
 		return m, nil
 	}
 	folders := m.folders.raw
@@ -5485,7 +5485,7 @@ func bumpRecentFolder(recents []string, id string, max int) []string {
 // `Triage.PermanentDelete`. n / Esc cancels.
 func (m Model) startPermanentDelete(src store.Message) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("permanent_delete: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("permanent_delete: not wired")
 		return m, nil
 	}
 	subj := src.Subject
@@ -5519,7 +5519,7 @@ func truncateForModal(s string, n int) string {
 // as unsubResolvedMsg → confirm modal.
 func (m Model) startUnsubscribe(messageID string) (tea.Model, tea.Cmd) {
 	if m.deps.Unsubscribe == nil {
-		m.lastError = fmt.Errorf("unsubscribe: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("unsubscribe: not wired")
 		return m, nil
 	}
 	if messageID == "" {
@@ -5678,7 +5678,7 @@ func (m Model) startMute() (tea.Model, tea.Cmd) {
 func (m Model) runTriage(name string, src store.Message, postFocus Pane,
 	fn func(context.Context, int64, store.Message) error) (tea.Model, tea.Cmd) {
 	if m.deps.Triage == nil {
-		m.lastError = fmt.Errorf("triage: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("triage: not wired")
 		return m, nil
 	}
 	var accountID int64
@@ -6658,7 +6658,7 @@ func safeAttachmentPath(dir, name string) (string, error) {
 // confirm modal first; small files dispatch the download cmd directly.
 func (m Model) startSaveAttachment(att store.Attachment) (tea.Model, tea.Cmd) {
 	if m.deps.Attachments == nil {
-		m.lastError = fmt.Errorf("save attachment: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("save attachment: not wired")
 		return m, nil
 	}
 	const bytesPerMB = 1024 * 1024
@@ -6681,7 +6681,7 @@ func (m Model) startSaveAttachment(att store.Attachment) (tea.Model, tea.Cmd) {
 // (spec 05 §12 / PR 10). Large files get a confirm modal first.
 func (m Model) startOpenAttachment(att store.Attachment) (tea.Model, tea.Cmd) {
 	if m.deps.Attachments == nil {
-		m.lastError = fmt.Errorf("open attachment: not wired (run from cmd_run.go path)")
+		m.lastError = fmt.Errorf("open attachment: not wired")
 		return m, nil
 	}
 	const bytesPerMB = 1024 * 1024
