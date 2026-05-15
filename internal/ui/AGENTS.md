@@ -54,6 +54,14 @@ bindings, panes, modes, theme, command palette, viewer renderer.
 - Unit tests for dispatch logic (`dispatch_test.go`, `keys_test.go`).
 - E2E tests via `teatest` for visible-delta. Build tag `e2e`.
 - New mode → corresponding test in `app_e2e_test.go`.
+- **AI exploratory fuzz** (`internal/ui/aifuzz_test.go`, build tag
+  `e2e && aifuzz`). Drives the real `Model` with a 38-action fuzz
+  alphabet and writes frames + unified diffs to
+  `.context/ai-fuzz/run-<ts>/` for Claude Code to oracle. Required
+  closing ritual for **any spec or major change that touches this
+  package** (`docs/CONVENTIONS.md` §11 DoD): `make ai-fuzz`, read
+  `REVIEW.md`, fix or file every flagged anomaly. Replay a finding
+  with `INKWELL_FUZZ_SEED=N scripts/ai-fuzz.sh <steps>`.
 
 ## Common pitfalls
 

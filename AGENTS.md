@@ -98,6 +98,13 @@ go tool cover -func=cover.out
 # Full regression suite (mandatory before every tag)
 make regress
 
+# AI exploratory fuzz (mandatory closing ritual for TUI-touching specs;
+# `docs/CONVENTIONS.md` §11 DoD). Produces a corpus for Claude Code to
+# oracle — no API key, no SaaS dependency.
+make ai-fuzz                         # 8-step smoke (default)
+STEPS=30 make ai-fuzz                # longer pass
+# Review with: cat .context/ai-fuzz/run-*/REVIEW.md
+
 # Build
 go build ./...
 go build -o bin/inkwell ./cmd/inkwell
