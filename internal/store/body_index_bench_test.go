@@ -110,6 +110,44 @@ func BenchmarkIndexBody_10KB(b *testing.B) {
 	}
 }
 
+// BenchmarkIndexBody_1MB covers spec 35 §14 row 3 (target <60 ms p95).
+func BenchmarkIndexBody_1MB(b *testing.B) {
+	s := openBodyIndexBenchStore(b)
+	acc, fld := benchSeedRoot(b, s)
+	ctx := context.Background()
+	body := makeBody(44, 1024*1024)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mid := fmt.Sprintf("ix-1m-%d", i)
+		_ = s.UpsertMessage(ctx, Message{
+			ID: mid, AccountID: acc, FolderID: fld, ReceivedAt: time.Now(),
+		})
+		if err := s.IndexBody(ctx, BodyIndexEntry{
+			MessageID: mid, AccountID: acc, FolderID: fld, Content: body,
+		}); err != nil {
+			b.Fatalf("IndexBody: %v", err)
+		}
+	}
+}
+
+// BenchmarkPurgeBodyIndex_5kCorpus covers spec 35 §14 row 10
+// (target <1 s p95 over 5 000 rows). The whole-table DELETE
+// cascades through both FTS5 surfaces via the AFTER DELETE
+// trigger; the trigger fan-out is the dominant cost.
+func BenchmarkPurgeBodyIndex_5kCorpus(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		s := openBodyIndexBenchStore(b)
+		acc, fld := benchSeedRoot(b, s)
+		seedCorpus(b, s, acc, fld, "pg", 5_000, 4*1024)
+		ctx := context.Background()
+		b.StartTimer()
+		if err := s.PurgeBodyIndex(ctx); err != nil {
+			b.Fatalf("PurgeBodyIndex: %v", err)
+		}
+	}
+}
+
 // BenchmarkSearchBodyText_5kCorpus covers spec 35 §14 row 4.
 // 5 000 bodies × 4 KB; budget <80 ms p95 at 50 k bodies. 5 k is
 // what the CI bench corpus tolerates without bloating bench time;

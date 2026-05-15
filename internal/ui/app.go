@@ -417,6 +417,13 @@ type SavedSearch struct {
 	Pinned   bool
 	Count    int // -1 = not yet evaluated; ≥0 = match count from last refresh
 	TabOrder *int
+	// LastCompileError mirrors store.SavedSearch.LastCompileError —
+	// spec 35 §9.6. Non-empty when the saved search no longer
+	// compiles under the current [body_index].enabled flag (typical
+	// cause: user saved `~b /regex/` while the index was on, then
+	// turned it off). Sidebar render path greys out the row and
+	// replaces the count badge with `!`.
+	LastCompileError string
 }
 
 // SavedSearchService is the CRUD + count-refresh surface the UI consumes.
@@ -3206,6 +3213,36 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
+		// Spec 35 §10.1: `regex:<expr>` rewrites to `~b /<expr>/` and
+		// runs through the filter machinery so the trigram narrow +
+		// Go regex post-filter (the spec-35 local-regex strategy)
+		// fires. We surface a [regex local-only] indicator and skip
+		// the hybrid Searcher entirely — Graph $search has no regex.
+		if rest, ok := strings.CutPrefix(q, "regex:"); ok {
+			rest = strings.TrimSpace(rest)
+			if rest == "" {
+				return m, nil
+			}
+			// Escape `/` in the regex source so the lexer's /.../ form
+			// terminates only at the intended close delimiter.
+			expr := strings.ReplaceAll(rest, `/`, `\/`)
+			pat := "~b /" + expr + "/"
+			m.focused = ListPane
+			if !m.searchActive && m.priorFolderID == "" {
+				m.priorFolderID = m.list.FolderID
+			}
+			m.searchActive = false
+			m.searchQuery = ""
+			// Spec 35 §10.1 visible-delta cue. engineActivity paints
+			// in the top status-bar's right pane and is visible as
+			// soon as the keystroke dispatches — independent of
+			// whether the underlying filter ends up succeeding,
+			// failing with ErrRegexRequiresLocalIndex, or showing a
+			// match count. The filter hint below the panes shows the
+			// pattern + count once runFilterCmd completes.
+			m.engineActivity = "[regex local-only]"
+			return m, m.runFilterCmd(pat)
+		}
 		// Detect spec 06 §5.3 `--all` prefix: cross-folder search.
 		allFolders := false
 		if strings.HasPrefix(q, "--all") {
@@ -3496,6 +3533,11 @@ func (m Model) dispatchCommand(line string) (tea.Model, tea.Cmd) {
 		// iteration. Recognised subverbs: pull, list, apply (with
 		// --dry-run), enable, disable.
 		return m.dispatchRulesCmdBar(args[1:])
+	case "index":
+		// Spec 35 §10.3 cmd-bar parity. v1 routes every subverb to
+		// a hint pointing at the CLI equivalent; the in-TUI status
+		// modal is a follow-up iteration.
+		return m.dispatchIndexCmdBar(args[1:])
 	case "screener":
 		return m.dispatchScreener(args[1:])
 	case "archive", "done":
@@ -4571,6 +4613,15 @@ func (m Model) dispatchFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// machinery. Selection auto-focuses the list pane (parity
 		// with regular folder navigation).
 		if ss, ok := m.folders.SelectedSavedSearch(); ok {
+			// Spec 35 §9.6: saved searches that fail to compile under
+			// the current [body_index].enabled flag are surfaced in
+			// the sidebar with a `!` badge but stay non-actionable.
+			// Enter shows a toast with the fix hint instead of trying
+			// to run a pattern we know won't compile.
+			if ss.LastCompileError != "" {
+				m.engineActivity = "saved search '" + ss.Name + "' can't run: " + ss.LastCompileError + " — enable [body_index] and rebuild"
+				return m, nil
+			}
 			m.focused = ListPane
 			if !m.searchActive && m.priorFolderID == "" {
 				m.priorFolderID = m.list.FolderID
@@ -7156,6 +7207,14 @@ func (m Model) View() string {
 		}
 		archVerb := archiveVerbLower(m.archiveLabel)
 		hint := fmt.Sprintf("filter: %s · matched %d%s · ;d delete · ;a %s · :unfilter", m.filterPattern, len(m.filterIDs), folderHint, archVerb)
+		// Spec 35 §10.1: surface the "this is a regex pattern; server
+		// branch was skipped" cue when the user typed a regex form.
+		// We look at the filter pattern source rather than carrying a
+		// separate flag — the `/.../` token shape is the source of
+		// truth.
+		if strings.Contains(m.filterPattern, " /") && strings.HasSuffix(strings.TrimSpace(m.filterPattern), "/") {
+			hint += "  [regex local-only]"
+		}
 		if m.bulkPending {
 			hint = fmt.Sprintf("bulk: press d (delete) or a (%s) — esc to cancel", archVerb)
 		}

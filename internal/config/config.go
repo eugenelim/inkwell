@@ -390,6 +390,14 @@ type SavedSearchSettings struct {
 	// same :filter pattern before a "save this search" hint appears.
 	// 0 disables the suggestion.
 	SuggestSaveAfterNUses int `toml:"suggest_save_after_n_uses"`
+	// BodyIndexEnabled mirrors [body_index].enabled at the savedsearch
+	// layer so Manager threads it into every pattern.Compile call.
+	// Saving `~b /regex/` succeeds when this is true; the picker
+	// surfaces ErrRegexRequiresLocalIndex when it's false.
+	// Populated from cfg.BodyIndex.Enabled at savedsearch.New site
+	// (cmd/inkwell/cmd_run.go). Not exposed in [saved_search] TOML —
+	// it is a runtime cross-reference, not a separate config knob.
+	BodyIndexEnabled bool `toml:"-"`
 }
 
 // TabsConfig owns the [tabs] section (spec 24). Tabs are saved

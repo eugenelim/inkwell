@@ -221,7 +221,9 @@ func runRoot(cmd *cobra.Command, rc *rootContext) error {
 	// loads initial list for the sidebar. Falls back to TOML config
 	// entries when the Manager is empty so legacy [[saved_searches]]
 	// config blocks still work.
-	ssm := savedsearch.New(st, acc.ID, cfg.SavedSearch)
+	ssCfg := cfg.SavedSearch
+	ssCfg.BodyIndexEnabled = cfg.BodyIndex.Enabled
+	ssm := savedsearch.New(st, acc.ID, ssCfg)
 	if cfg.SavedSearch.SeedDefaults {
 		if seedErr := ssm.SeedDefaults(ctx, acc.UPN); seedErr != nil {
 			logger.Warn("saved searches: seed defaults failed", "err", seedErr)
@@ -1237,11 +1239,12 @@ func (a *savedSearchAdapter) RefreshCounts(ctx context.Context) ([]ui.SavedSearc
 			}
 		}
 		result[i] = ui.SavedSearch{
-			ID:      ss.ID,
-			Name:    ss.Name,
-			Pattern: ss.Pattern,
-			Pinned:  ss.Pinned,
-			Count:   count,
+			ID:               ss.ID,
+			Name:             ss.Name,
+			Pattern:          ss.Pattern,
+			Pinned:           ss.Pinned,
+			Count:            count,
+			LastCompileError: ss.LastCompileError,
 		}
 	}
 	return result, nil
@@ -1286,12 +1289,13 @@ func convertSavedSearchList(list []store.SavedSearch) []ui.SavedSearch {
 	out := make([]ui.SavedSearch, len(list))
 	for i, ss := range list {
 		out[i] = ui.SavedSearch{
-			ID:       ss.ID,
-			Name:     ss.Name,
-			Pattern:  ss.Pattern,
-			Pinned:   ss.Pinned,
-			Count:    -1,
-			TabOrder: ss.TabOrder,
+			ID:               ss.ID,
+			Name:             ss.Name,
+			Pattern:          ss.Pattern,
+			Pinned:           ss.Pinned,
+			Count:            -1,
+			TabOrder:         ss.TabOrder,
+			LastCompileError: ss.LastCompileError,
 		}
 	}
 	return out

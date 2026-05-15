@@ -354,6 +354,16 @@ type SavedSearch struct {
 	SortOrder int
 	TabOrder  *int
 	CreatedAt time.Time
+	// LastCompileError is a TRANSIENT field populated by
+	// [savedsearch.Manager.List] after the row is scanned — never
+	// persisted to SQLite, never serialised to the TOML mirror.
+	// Non-empty when the saved-search pattern fails to compile under
+	// the current [body_index].enabled flag (spec 35 §9.6): e.g. a
+	// `~b /regex/` saved while the index was on, then accessed after
+	// the user flipped the flag off. The sidebar render path greys
+	// out rows with a non-empty value and replaces the count badge
+	// with a `!` indicator.
+	LastCompileError string
 }
 
 // MessageQuery describes a filtered list query for [Store.ListMessages].

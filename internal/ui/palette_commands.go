@@ -668,7 +668,36 @@ func buildStaticPaletteRows(m *Model) []PaletteRow {
 	}...)
 	rows = append(rows, buildInboxPaletteRows(m)...)
 	rows = append(rows, buildMessageRulesPaletteRows(m)...)
+	rows = append(rows, buildBodyIndexPaletteRows(m)...)
 	return rows
+}
+
+// buildBodyIndexPaletteRows returns the spec 35 §10.3 four-row
+// `inkwell index` block. Each row's RunFn prefills the cmd-bar with
+// `:index <subverb>`; the dispatcher surfaces a hint pointing at the
+// CLI equivalent. The rows are always available — the cmd-bar
+// dispatcher handles the [body_index].enabled = false case with a
+// specific error so the user discovers the feature through the
+// palette without having to flip the config first.
+func buildBodyIndexPaletteRows(_ *Model) []PaletteRow {
+	mkRow := func(id, title, subverb string) PaletteRow {
+		return PaletteRow{
+			ID:        id,
+			Title:     title,
+			Binding:   ":index " + subverb,
+			Section:   sectionCommands,
+			Available: availTrue,
+			RunFn: func(mm Model) (tea.Model, tea.Cmd) {
+				return prefillCmdBar(mm, "index "+subverb)
+			},
+		}
+	}
+	return []PaletteRow{
+		mkRow("index_status", "Index — Status", "status"),
+		mkRow("index_rebuild", "Index — Rebuild", "rebuild"),
+		mkRow("index_evict", "Index — Evict older than…", "evict --older-than=90d"),
+		mkRow("index_disable", "Index — Disable (destructive)", "disable"),
+	}
 }
 
 // buildMessageRulesPaletteRows returns the spec 32 §7.6 rule-

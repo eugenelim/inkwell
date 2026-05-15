@@ -46,8 +46,26 @@ func New(st store.Store, accountID int64, cfg config.SavedSearchSettings) *Manag
 }
 
 // List returns all saved searches for the account, pinned-first then sort_order.
+// Spec 35 §9.6: each row's [store.SavedSearch.LastCompileError] is populated by
+// attempting pattern.Compile under the current [body_index].enabled flag. The
+// UI greys out rows with a non-empty value rather than dropping them — the
+// user keeps visibility into the saved search and can fix the config to
+// restore it.
 func (m *Manager) List(ctx context.Context) ([]store.SavedSearch, error) {
-	return m.st.ListSavedSearches(ctx, m.accountID)
+	rows, err := m.st.ListSavedSearches(ctx, m.accountID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		_, cerr := pattern.Compile(rows[i].Pattern, pattern.CompileOptions{
+			LocalOnly:        true,
+			BodyIndexEnabled: m.cfg.BodyIndexEnabled,
+		})
+		if cerr != nil {
+			rows[i].LastCompileError = cerr.Error()
+		}
+	}
+	return rows, nil
 }
 
 // Get retrieves one saved search by name. Returns nil, nil if not found.
@@ -69,7 +87,7 @@ func (m *Manager) Get(ctx context.Context, name string) (*store.SavedSearch, err
 // for this name and rewrites the TOML mirror.
 func (m *Manager) Save(ctx context.Context, ss store.SavedSearch) error {
 	ss.AccountID = m.accountID
-	if _, err := pattern.Compile(ss.Pattern, pattern.CompileOptions{LocalOnly: true}); err != nil {
+	if _, err := pattern.Compile(ss.Pattern, pattern.CompileOptions{LocalOnly: true, BodyIndexEnabled: m.cfg.BodyIndexEnabled}); err != nil {
 		return fmt.Errorf("invalid pattern: %w", err)
 	}
 	if err := m.st.PutSavedSearch(ctx, ss); err != nil {
@@ -140,7 +158,7 @@ func (m *Manager) Evaluate(ctx context.Context, name string, force bool) (*EvalR
 		return nil, fmt.Errorf("saved search %q not found", name)
 	}
 
-	compiled, err := pattern.Compile(ss.Pattern, pattern.CompileOptions{LocalOnly: true})
+	compiled, err := pattern.Compile(ss.Pattern, pattern.CompileOptions{LocalOnly: true, BodyIndexEnabled: m.cfg.BodyIndexEnabled})
 	if err != nil {
 		return nil, fmt.Errorf("compile %q: %w", name, err)
 	}
@@ -215,7 +233,7 @@ func (m *Manager) SeedDefaults(ctx context.Context, upn string) error {
 // the old row is deleted and a new one is inserted with the new name.
 // The cache is invalidated for both names so the next Evaluate re-queries.
 func (m *Manager) Edit(ctx context.Context, originalName, newName, pat string, pinned bool) error {
-	if _, err := pattern.Compile(pat, pattern.CompileOptions{LocalOnly: true}); err != nil {
+	if _, err := pattern.Compile(pat, pattern.CompileOptions{LocalOnly: true, BodyIndexEnabled: m.cfg.BodyIndexEnabled}); err != nil {
 		return fmt.Errorf("invalid pattern: %w", err)
 	}
 	if originalName == newName {
@@ -269,7 +287,7 @@ func (m *Manager) Edit(ctx context.Context, originalName, newName, pat string, p
 // returning the count of matching messages. Used by the edit modal to dry-run
 // a pattern before committing.
 func (m *Manager) EvaluatePattern(ctx context.Context, patternSrc string) (int, error) {
-	compiled, err := pattern.Compile(patternSrc, pattern.CompileOptions{LocalOnly: true})
+	compiled, err := pattern.Compile(patternSrc, pattern.CompileOptions{LocalOnly: true, BodyIndexEnabled: m.cfg.BodyIndexEnabled})
 	if err != nil {
 		return 0, fmt.Errorf("invalid pattern: %w", err)
 	}

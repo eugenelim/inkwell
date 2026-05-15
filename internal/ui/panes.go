@@ -38,6 +38,12 @@ type displayedFolder struct {
 	savedPattern string
 	savedPinned  bool
 	savedCount   int // -1 = not yet evaluated; ≥0 = match count from last refresh
+	// savedCompileError is spec 35 §9.6's grey-out signal. Non-empty
+	// when the saved pattern fails to compile under the current
+	// [body_index].enabled flag (typical cause: ~b /regex/ saved while
+	// the index was on, then the user flipped it off). When set, the
+	// row renders greyed and the count badge becomes `!`.
+	savedCompileError string
 	// isSavedHeader marks the synthetic "Saved Searches" section
 	// divider — non-selectable, not a saved search itself.
 	isSavedHeader bool
@@ -383,12 +389,13 @@ func (m *FoldersModel) rebuild() {
 		items = append(items, displayedFolder{isSavedHeader: true})
 		for _, s := range m.saved {
 			items = append(items, displayedFolder{
-				isSaved:      true,
-				savedID:      s.ID,
-				savedName:    s.Name,
-				savedPattern: s.Pattern,
-				savedPinned:  s.Pinned,
-				savedCount:   s.Count,
+				isSaved:           true,
+				savedID:           s.ID,
+				savedName:         s.Name,
+				savedPattern:      s.Pattern,
+				savedPinned:       s.Pinned,
+				savedCount:        s.Count,
+				savedCompileError: s.LastCompileError,
 			})
 		}
 	}
@@ -734,7 +741,14 @@ func (m FoldersModel) SelectedSavedSearch() (SavedSearch, bool) {
 	if !it.isSaved {
 		return SavedSearch{}, false
 	}
-	return SavedSearch{ID: it.savedID, Name: it.savedName, Pattern: it.savedPattern, Pinned: it.savedPinned, Count: it.savedCount}, true
+	return SavedSearch{
+		ID:               it.savedID,
+		Name:             it.savedName,
+		Pattern:          it.savedPattern,
+		Pinned:           it.savedPinned,
+		Count:            it.savedCount,
+		LastCompileError: it.savedCompileError,
+	}, true
 }
 
 // FindByName returns the folder whose DisplayName or WellKnownName
@@ -884,12 +898,23 @@ func (m FoldersModel) View(t Theme, width, height int, focused bool) string {
 				marker = "· "
 			}
 			line = marker + "☆ " + it.savedName
-			if it.savedCount >= 0 {
+			// Spec 35 §9.6: saved searches that fail to compile under
+			// the current [body_index].enabled flag get a `!` badge in
+			// place of the count and render dimmed. The pattern stays
+			// visible so the user can see what's broken; the dispatcher
+			// blocks Enter on these rows (see app.go).
+			switch {
+			case it.savedCompileError != "":
+				line = line + "  !"
+			case it.savedCount >= 0:
 				line = fmt.Sprintf("%s  %d", line, it.savedCount)
 			}
 			styled := truncate(line, width-1)
-			if i == m.cursor && focused {
+			switch {
+			case i == m.cursor && focused:
 				styled = t.FoldersSel.Render(styled)
+			case it.savedCompileError != "":
+				styled = t.Dim.Render(styled)
 			}
 			rows = append(rows, styled)
 			continue
