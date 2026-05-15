@@ -95,7 +95,7 @@ required: the event reaches the client via the `messages`
 endpoint with the eventMessage cast, not via `/me/events/{id}`.
 
 **Denied scope acknowledged.** `Calendars.ReadWrite` (PRD §3.2)
-is the gate on inline A/T/D. CI lint guard from CLAUDE.md §7
+is the gate on inline A/T/D. CI lint guard from `docs/CONVENTIONS.md` §7
 invariant 4 enforces. This spec ships read + hand-off; nothing
 in it attempts to acquire or work around the denied scope.
 
@@ -625,7 +625,7 @@ the spec-05 viewer-open budget intact.
 
 ---
 
-## 10. Cross-cutting checklist (CLAUDE.md §11)
+## 10. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [ ] Graph scope(s)? `Mail.ReadWrite` only — already requested. `Calendars.Read` not required (the event reaches the client via the message endpoint). No new scopes. `Calendars.ReadWrite` denial acknowledged in §3.
 - [ ] Store reads / writes? No schema change. `meeting_message_type` already on rows from migration 002. The fetched `EventMessage` is never persisted.
@@ -650,7 +650,7 @@ None. The scope policy is explicit (`Calendars.ReadWrite` denied
 infrastructure takes the new `BodyView.InviteCard` field +
 `BodyOpts.TZ` thread without re-architecture.
 
-**Layering note (shipped divergence from §6.x prose):** CLAUDE.md §2
+**Layering note (shipped divergence from §6.x prose):** `docs/CONVENTIONS.md` §2
 forbids `internal/ui` from importing `internal/graph`. The
 implementation therefore defines a render-package mirror —
 `render.Invite` / `render.InviteEvent` / `render.InviteAttendee` +

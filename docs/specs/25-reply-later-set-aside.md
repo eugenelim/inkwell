@@ -649,7 +649,7 @@ Y failed` / `0 messages to act on` shapes. Spec 25 only supplies the
 verb / category strings.
 
 The subject in the single-message toast is the focused message's
-subject. Per ARCH §12 / CLAUDE.md §7.3, subject lines must NOT
+subject. Per ARCH §12 / `docs/CONVENTIONS.md` §7.3, subject lines must NOT
 appear in log output outside DEBUG. The toast is terminal UI only
 and is not logged. Spec 19 §5.5 set this precedent.
 
@@ -999,7 +999,7 @@ benchmark required for that path.
 | Sidebar count for a stack falls to 0 while the user has the stack view open | Sidebar entry hides on next rebuild; the list-pane view shows the empty-state message. The user can `2` to focus list and `Esc` / pick another folder. |
 | User mutes a thread (`M`), the list reloads with `ExcludeMuted: true` (the focused thread vanishes), then immediately presses `T l` | The model still holds the focused message ID from before the reload; `T l` operates on it correctly via `MessageIDsInConversation`. The user sees the toast "added thread to Reply Later (12 messages)" even though the thread is no longer visible in the list — the action succeeded server-side. The Reply Later sidebar count increments. Acceptable v1 quirk; the alternative (re-resolve focus on every reload) adds latency for no semantic gain. |
 | `:focus` while a stack message is being dispatched-but-not-yet-applied | The pre-fetched queue snapshot is from the local store at `:focus` invocation time; it includes the message even if its add-to-stack PATCH hasn't yet drained. Removing a message via the action queue between snapshot time and queue-advance does not break focus mode (the message is still in the snapshot; advance is by index, not predicate). |
-| User edits `[ui].focus_queue_limit` to 0 or negative | Config validation rejects at load time (range 1–1000). App refuses to start (CLAUDE.md §9). |
+| User edits `[ui].focus_queue_limit` to 0 or negative | Config validation rejects at load time (range 1–1000). App refuses to start (`docs/CONVENTIONS.md` §9). |
 
 ## 9. Logging
 
@@ -1008,7 +1008,7 @@ benchmark required for that path.
   `Inkwell/ReplyLater` / `Inkwell/SetAside` are not PII; the existing
   redaction layer (`internal/log/redact.go`) lets them through.
 - The toast-rendering path in `app.go` does **not** log subject lines
-  (UI-only; ARCH §12 / CLAUDE.md §7 rule 3).
+  (UI-only; ARCH §12 / `docs/CONVENTIONS.md` §7 rule 3).
 - Focus mode does not introduce a new log site. Each compose-reply
   open / close is logged by spec 15's existing path.
 - No new redaction tests required; the `add_category` / `remove_category`
@@ -1195,7 +1195,7 @@ indices, and the muted_conversations table are reused or unchanged.
       (default `L`); `[bindings].set_aside_toggle` (default `S`).
 - [ ] Validation for `focus_queue_limit` in
       `internal/config/validate.go` — bounds 1–1000; out-of-range
-      values fail config load (CLAUDE.md §9).
+      values fail config load (`docs/CONVENTIONS.md` §9).
 
 ### 10.10 Tests
 
@@ -1288,7 +1288,7 @@ indices, and the muted_conversations table are reused or unchanged.
       anyone with delegated access (executive assistants,
       compliance reviewers). The behavioural metadata exposure is
       acknowledged and intentional (cross-device sync).
-- [ ] PR checklist (CLAUDE.md §11) fully ticked.
+- [ ] PR checklist (`docs/CONVENTIONS.md` §11) fully ticked.
 
 ## 11. Cross-cutting checklist
 

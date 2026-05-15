@@ -789,7 +789,7 @@ configured and consume the `]` / `[` keys (§5.5).
 The verbs do NOT take an argument (e.g., `:focused on`, `:focused
 off`). The config key controls visibility; the verbs only navigate.
 Activating the strip with the config off would be inconsistent with
-the "config drives surface" rule (CLAUDE.md §9 / spec 28 §1
+the "config drives surface" rule (`docs/CONVENTIONS.md` §9 / spec 28 §1
 opt-in pattern).
 
 ### 5.9 Palette rows
@@ -837,7 +837,7 @@ shift the sidebar layout for users with the strip disabled.
 ### 6.1 First-time activation
 
 The user sets `[inbox].split = "focused_other"` and restarts (no hot
-reload — CLAUDE.md §9). On the next launch:
+reload — `docs/CONVENTIONS.md` §9). On the next launch:
 
 1. Folders pane loads as usual.
 2. List pane resolves the selected folder (defaulting to Inbox per
@@ -896,7 +896,7 @@ falsified).
 The hint does NOT auto-disable the config key — the user may still
 want the strip rendered for the few classified messages (e.g., a
 mixed-tenant setup) and we don't override their explicit config
-choice. Mute / suggestions overriding user config is a CLAUDE.md
+choice. Mute / suggestions overriding user config is a `docs/CONVENTIONS.md`
 §9 anti-pattern.
 
 ### 6.3 Reading messages, marking read, archiving
@@ -942,9 +942,9 @@ spec 31 doing any cross-feature work.
 | User opens a Calendar invite in Focused segment | Calendar invite renders normally (spec 12); no spec 31 interaction. Archiving the invite removes it from the segment. |
 | User marks a message muted (spec 19, `M`) while in a sub-tab | The conversation enters `muted_conversations`; the sub-tab list excludes muted threads on next refresh (spec 19 §5.3 default-folder behaviour applies — `excludeMuted=true` for sub-tab queries). The cursor moves to the next row. Reversible via `M` again. |
 | Sender is bundled (spec 26) and the bundle's underlying messages span both classifications | Bundling is a list-render collapsing pass that runs over the rows produced by the SQL. The Focused-segment SQL returns only `inference_class = 'focused'` rows; spec 26's bundling collapses the subset of those rows that come from designated bundle senders. The Other segment performs the symmetric collapse over `inference_class = 'other'` rows. A sender whose mail spans both classifications produces TWO bundle rows (one per segment), each summarising only that segment's subset. This is consistent with the bundle being a list-render artefact, not a logical entity, and matches the spec 26 §5 behaviour for any sub-set of rows produced by a different filter. |
-| User toggles `[inbox].split` between `"off"` and `"focused_other"` | Takes effect on next launch (CLAUDE.md §9: no hot reload). All sub-strip state, cmd-bar verb availability, and palette row availability flip on next launch. |
+| User toggles `[inbox].split` between `"off"` and `"focused_other"` | Takes effect on next launch (`docs/CONVENTIONS.md` §9: no hot reload). All sub-strip state, cmd-bar verb availability, and palette row availability flip on next launch. |
 | `inference_class` column is `''` (empty string) for some messages | Neither `~y focused` nor `~y other` matches the empty class. Those messages are invisible to both sub-tabs but still appear in the unsplit Inbox view. Documented in §3.1. |
-| User tries `[inbox].split = "complete"` (unknown value) | Validation rejects with `config <path>: inbox.split must be one of "off" or "focused_other"`. App refuses to start (CLAUDE.md §9). |
+| User tries `[inbox].split = "complete"` (unknown value) | Validation rejects with `config <path>: inbox.split must be one of "off" or "focused_other"`. App refuses to start (`docs/CONVENTIONS.md` §9). |
 | User tries `[inbox].split = ""` (empty) | Same — validation rejects empty explicitly to avoid silent default-fallback ambiguity (spec 30 §9.1 precedent). |
 | User opens compose / draft from sub-tab | Compose mode (spec 15) takes over; sub-tab state preserved on Model; restored on compose exit. The cmd-bar (`:`) is unavailable in compose-input mode, so `:focused` / `:other` cannot be invoked from inside compose — this state is unreachable, not a defensive dispatch path. |
 | Sub-tab badge query returns an error mid-render (DB closed, etc.) | Segment renders with `⚠` glyph in place of the count (§5.3). Error logged at DEBUG; no toast (matches spec 24 §10). |
@@ -1048,7 +1048,7 @@ Validation in `internal/config/validate.go`:
   inbox.split_default_segment must be one of "focused", "other",
   "none"`.
 
-App refuses to start on either invalid value (CLAUDE.md §9).
+App refuses to start on either invalid value (`docs/CONVENTIONS.md` §9).
 
 **No new keybinding key is added.** Spec 31 reuses
 `bindings.next_tab` / `bindings.prev_tab` (spec 24); the precedence
@@ -1304,14 +1304,14 @@ sender / body fields.
 - [ ] `docs/ROADMAP.md` §0 Bucket 4 row 1 status updated when
       shipped; §1.15 backlog heading updated likewise.
 - [ ] `README.md` status table row for spec 31 once shipped (per
-      CLAUDE.md §12.6).
+      `docs/CONVENTIONS.md` §12.6).
 - [ ] **`docs/plans/spec-31.md`** exists with `Status: done` at
       ship time, including the final iteration entry, measured perf
-      numbers, and any noted deviations. Per CLAUDE.md §13 the plan
+      numbers, and any noted deviations. Per `docs/CONVENTIONS.md` §13 the plan
       file is mandatory at ship time; an in-progress version may be
       maintained during the loop but the §13 obligation is the ship
       gate.
-- [ ] PR checklist (CLAUDE.md §11) fully ticked.
+- [ ] PR checklist (`docs/CONVENTIONS.md` §11) fully ticked.
 
 ## 13. Cross-cutting checklist
 

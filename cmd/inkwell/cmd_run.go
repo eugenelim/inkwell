@@ -824,7 +824,7 @@ func (c calendarAdapter) GetEvent(ctx context.Context, id string) (ui.CalendarEv
 // the eventMessage cast of a message id with its event navigation
 // property expanded, then converts the graph type to the
 // render-package projection so the UI does not need to import
-// internal/graph (CLAUDE.md §2 layering).
+// internal/graph (`docs/CONVENTIONS.md` §2 layering).
 //
 // The result is NOT persisted: events change server-side
 // (organizer reschedules, attendees RSVP) at a cadence the
@@ -865,7 +865,7 @@ func convertGraphEvents(accountID int64, events []graph.Event) []store.Event {
 // bindingsToOverrides translates config.BindingsConfig (TOML-typed)
 // into the UI's consumer-side BindingOverrides shape. The two
 // structs are deliberately the same shape; this adapter exists so
-// the UI doesn't import internal/config (CLAUDE.md §2).
+// the UI doesn't import internal/config (`docs/CONVENTIONS.md` §2).
 func bindingsToOverrides(b config.BindingsConfig) ui.BindingOverrides {
 	return ui.BindingOverrides{
 		Quit:             b.Quit,
@@ -1169,7 +1169,7 @@ func resultToAction(r *unsub.Result) ui.UnsubscribeAction {
 }
 
 // savedSearchAdapter bridges *savedsearch.Manager → ui.SavedSearchService.
-// Defined here so the UI doesn't import internal/savedsearch (CLAUDE.md §2).
+// Defined here so the UI doesn't import internal/savedsearch (`docs/CONVENTIONS.md` §2).
 type savedSearchAdapter struct {
 	mgr       *savedsearch.Manager
 	accountID int64

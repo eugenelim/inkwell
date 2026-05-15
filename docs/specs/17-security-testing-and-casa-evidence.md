@@ -64,7 +64,7 @@ The following are live on `main` as of v0.12.0:
 
 | Tool | Where | Notes |
 | --- | --- | --- |
-| **gosec** (Go SAST) | `.github/workflows/security.yml` job `gosec` + `make sec-gosec` | SARIF artefact uploaded; text-format gate fails the job on any finding. 9 baseline `#nosec` annotations with one-line WHY rationales (see CLAUDE.md §7). |
+| **gosec** (Go SAST) | `.github/workflows/security.yml` job `gosec` + `make sec-gosec` | SARIF artefact uploaded; text-format gate fails the job on any finding. 9 baseline `#nosec` annotations with one-line WHY rationales (see `docs/CONVENTIONS.md` §7). |
 | **Semgrep** (multi-language SAST) | `.github/workflows/security.yml` job `semgrep` + `make sec-semgrep` | Configs: `p/golang`, `p/security-audit`, `p/secrets`. SARIF artefact uploaded. |
 | **govulncheck** (Go SCA) | `.github/workflows/security.yml` job `govulncheck` + `make sec-vuln` | Reports stdlib + dependency CVEs that the code actually calls. v0.12.0 fix: workflows pin `go-version: 1.25.x` with `check-latest: true` so newer stdlib patches land automatically; go.mod floor `go 1.25.3` rejects older patches. |
 | **Schedule** | `cron: "0 6 * * 1"` weekly | Catches new CVEs against unchanged code. |

@@ -11,7 +11,7 @@ import (
 )
 
 // Invite is the render-package mirror of [graph.EventMessage]. The
-// UI cannot import internal/graph (CLAUDE.md §2 layering), so the
+// UI cannot import internal/graph (`docs/CONVENTIONS.md` §2 layering), so the
 // CalendarFetcher interface returns *Invite and cmd/inkwell's
 // calendarAdapter does the graph→render conversion (see
 // [InviteFromGraph]).

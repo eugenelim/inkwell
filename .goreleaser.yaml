@@ -15,7 +15,7 @@ builds:
     main: ./cmd/inkwell
     binary: inkwell
     env:
-      - CGO_ENABLED=0     # pure-Go stack (CLAUDE.md §1) — no CGO ever.
+      - CGO_ENABLED=0     # pure-Go stack (`docs/CONVENTIONS.md` §1) — no CGO ever.
     flags:
       - -trimpath
     ldflags:
@@ -40,6 +40,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - AGENTS.md
       - CLAUDE.md
 
 checksum:
@@ -91,7 +92,8 @@ release:
     > Anyway. Future v0.x releases will ship signed + notarized
     > binaries (PRD §7).
 
-    See `CLAUDE.md` for the contributor guide and `docs/PRD.md` for
+    See `AGENTS.md` (entry point) + `docs/CONVENTIONS.md` (long-form
+    rules) for the contributor guide, and `docs/PRD.md` for
     the product scope. Microsoft 365 tenant prerequisites are in
     `docs/specs/01-auth-device-code.md` §3.
   footer: |

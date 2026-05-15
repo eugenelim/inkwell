@@ -17,7 +17,7 @@
 # Why a per-feature report and not just `go test ./...`? Because when
 # the suite goes red on a release-prep run, "internal/store failed in
 # 0.2s" tells the reader far more than 300 lines of -v output. The
-# report groups packages under spec/feature labels (CLAUDE.md §14) so
+# report groups packages under spec/feature labels (`docs/CONVENTIONS.md` §14) so
 # a regression points at the right spec immediately.
 
 set -uo pipefail

@@ -42,13 +42,13 @@ test-budgets: ## Spec §7 budget gate (skipped under -race; this is the gating r
 
 test-all: test test-e2e ## Race + e2e
 
-regress: ## Full regression suite (CLAUDE.md §5.8). Run before tagging.
+regress: ## Full regression suite (`docs/CONVENTIONS.md` §5.8). Run before tagging.
 	@./scripts/regress.sh
 
 regress-report: ## Per-feature regression report → reports/ (gitignored)
 	@./scripts/regress-report.sh
 
-doc-sweep: ## CLAUDE.md §12.6 mechanical checks (plan files, shipped consistency)
+doc-sweep: ## `docs/CONVENTIONS.md` §12.6 mechanical checks (plan files, shipped consistency)
 	@./scripts/doc-sweep.sh
 
 sec: sec-gosec sec-semgrep sec-vuln ## Run gosec + semgrep + govulncheck

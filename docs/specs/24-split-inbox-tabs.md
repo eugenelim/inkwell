@@ -356,7 +356,7 @@ Notes:
   `golang.org/x/sync/errgroup` as a new direct import in
   `internal/savedsearch/` — `golang.org/x/sync` is already pulled
   transitively by Bubble Tea's deps (`go.sum` lists it), so no new
-  module is added; only a new direct import. No CLAUDE.md §1 stack
+  module is added; only a new direct import. No `docs/CONVENTIONS.md` §1 stack
   invariant is affected.
 - `CountTabs` does NOT apply `ExcludeMuted`. Muted threads are
   hidden in normal folder views (spec 19 §5.3) but the badge counts
@@ -674,7 +674,7 @@ Budget: tab cycle (`]` / `[`) MUST feel instantaneous. The cached path
 | Tab strip render | <2ms p95 | Lipgloss layout over ≤20 short strings. Bench: `BenchmarkRenderTabStrip`. |
 
 If `BenchmarkCountTabs5x100k` regresses >50% in CI, the benchmark
-fails and blocks merge (§5.6 of CLAUDE.md gates).
+fails and blocks merge (§5.6 of `docs/CONVENTIONS.md` gates).
 
 No new database query path is hot beyond what spec 11 already
 exercises. The new partial index `idx_saved_searches_tab_order` is
@@ -990,7 +990,7 @@ test `TestDemoteDoesNotLogName` covers the demote path.
       `docs/ROADMAP.md` §1.7 row updated to "shipped as spec 24"
       and the `Tab` / `Shift+Tab` claim in §1.7 prose corrected to
       `]` / `[` (matches what we shipped); this spec file written;
-      `docs/plans/spec-24.md` created at ship time (CLAUDE.md §13
+      `docs/plans/spec-24.md` created at ship time (`docs/CONVENTIONS.md` §13
       mandatory). Optional follow-up: spec 11's status line says
       "Stub" but the Manager API is shipped — flag in plan note,
       side-PR to fix.

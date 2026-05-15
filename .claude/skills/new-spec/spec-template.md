@@ -72,7 +72,7 @@ affordance only" with a reason.
 
 Every row here gets a `Benchmark*` in the corresponding package.
 Budgets are absolute (not "no worse than current"). Misses >50% over
-budget fail CI (CLAUDE.md §5.2).
+budget fail CI (`docs/CONVENTIONS.md` §5.2).
 
 | Surface | Budget | Notes |
 | --- | --- | --- |
@@ -96,7 +96,7 @@ If any row is non-none, this PR must also update
 
 List the new and changed files by path. Be specific — name the test
 stubs to update, the schema-version line to bump, the doc rows to
-add. CLAUDE.md §12.0 calls out that vague file lists are the #1
+add. `docs/CONVENTIONS.md` §12.0 calls out that vague file lists are the #1
 source of adversarial findings.
 
 **New:**
@@ -109,7 +109,7 @@ source of adversarial findings.
 
 ## 9. Definition of done
 
-Mirrors CLAUDE.md §11. Carried forward into the plan file's DoD
+Mirrors `docs/CONVENTIONS.md` §11. Carried forward into the plan file's DoD
 checklist; ticked there.
 
 **Spec content**
@@ -129,7 +129,7 @@ checklist; ticked there.
 - [ ] `docs/CONFIG.md` rows for every new config key
 - [ ] `docs/user/reference.md` lists every new binding / verb / config
 - [ ] `docs/user/how-to.md` recipe for any new task flow
-- [ ] `docs/plans/spec-<NN>.md` maintained per CLAUDE.md §13
+- [ ] `docs/plans/spec-<NN>.md` maintained per `docs/CONVENTIONS.md` §13
 
 ## 10. Open questions
 
@@ -141,4 +141,4 @@ a one-liner with a who-decides annotation.
 ---
 
 _When the spec ships, add `**Shipped:** vX.Y.Z (YYYY-MM-DD)` near the top
-of this file per CLAUDE.md §12.6._
+of this file per `docs/CONVENTIONS.md` §12.6._

@@ -2,8 +2,8 @@
 #
 # scripts/regress.sh — full local regression suite.
 #
-# Runs every gate from CLAUDE.md §5.6 in order. Exits non-zero on any
-# failure. CLAUDE.md §5.8 mandates running this after every substantial
+# Runs every gate from `docs/CONVENTIONS.md` §5.6 in order. Exits non-zero on any
+# failure. `docs/CONVENTIONS.md` §5.8 mandates running this after every substantial
 # change AND before tagging a release.
 #
 # Why a script and not just `make test test-e2e test-bench`? Because the
@@ -64,7 +64,7 @@ step "6/7 go test -bench=. -benchmem -run=^$ ./... (benches)"
 go test -bench=. -benchmem -run='^$' -timeout 600s ./... || fail "benchmarks"
 ok "benchmarks within budget"
 
-step "7/7 doc-sweep (CLAUDE.md §12.6 mechanical checks)"
+step "7/7 doc-sweep (`docs/CONVENTIONS.md` §12.6 mechanical checks)"
 bash "$(dirname "$0")/doc-sweep.sh" || fail "doc-sweep"
 ok "doc-sweep clean"
 

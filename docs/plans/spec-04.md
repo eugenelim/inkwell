@@ -17,7 +17,7 @@ config, flag/attachment indicators in list pane.
 - [x] `WindowSizeMsg` re-layouts; cramped widths shrink folders + list to fit.
 - [x] Confirm modal y/N flows route a `ConfirmResultMsg`.
 - [x] SignIn modal renders with code + URL placeholders; `Esc` cancels.
-- [x] Sub-models are value types (no pointer aliasing across Update cycles); CLAUDE.md §4 honoured.
+- [x] Sub-models are value types (no pointer aliasing across Update cycles); `docs/CONVENTIONS.md` §4 honoured.
 - [x] Default folder pick prefers `wellKnownName=inbox` over alphabetical first.
 - [x] Privacy: panes never render raw addresses other than the user's own UPN in the status bar; the rendering helpers route through theme styles only (no inline ANSI).
 - [x] **Deferred to spec 05:** viewer pane fills with rendered headers / body / attachments. *(spec 05 done)*
@@ -129,7 +129,7 @@ config, flag/attachment indicators in list pane.
   - `internal/config/defaults.go` — same drift fix.
   - `cmd/inkwell/cmd_run.go` — handles ui.New's new error;
     `bindingsToOverrides` translates config → ui types so the
-    UI doesn't import internal/config (CLAUDE.md §2).
+    UI doesn't import internal/config (`docs/CONVENTIONS.md` §2).
 - Tests:
   - `keys_test.go` (new): empty-overrides-keep-defaults,
     field-replacement, duplicate-rejection, pane-scoped-allowed.
@@ -166,7 +166,7 @@ config, flag/attachment indicators in list pane.
   - **Critique 2**: Default-folder picker selected alphabetically-first folder (Archive). For inbox-by-default UX, added wellKnownName=inbox preference + `FoldersModel.SelectByID` to keep the cursor in sync.
 - After fixes: all six e2e tests green. Whole-tree race + e2e sweep clean.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes: none directly — UI consumes data already cached by store.
 - [x] Store reads: `ListFolders`, `ListMessages` only. No writes from this spec (writes land in spec 07).
 - [x] Graph endpoints: none directly. SyncAll routes through the engine.
@@ -243,7 +243,7 @@ config, flag/attachment indicators in list pane.
     - `TestThemePresetsAreValid` — every preset resolves and renders.
     - `TestThemeUnknownNameFallsBack` — unknown name returns `(default, false)`.
   - The first overflow test caught an off-by-one (lipgloss padding leaves a trailing newline, JoinVertical inflates by 1). Fix: hard-cap in root View.
-- Discipline note: per CLAUDE.md §5.4 every new keymap entry needs a test; the j/k viewer-scroll bindings landed alongside `TestViewerScrollDownAdvancesOffset` in the same commit.
+- Discipline note: per `docs/CONVENTIONS.md` §5.4 every new keymap entry needs a test; the j/k viewer-scroll bindings landed alongside `TestViewerScrollDownAdvancesOffset` in the same commit.
 
 ### Iter 5 — 2026-04-28 (visible affordances + dispatch unit tests + per-control e2e)
 - Trigger: real-tenant smoke after v0.2.6 — user reports "1 to open folder doesn't work well, j/k doesn't work well, enter doesn't open message". v0.2.6's e2e tests were passing because they asserted strings appeared in the buffer (which they did — the model state was mutating correctly), but the user couldn't *see* the cursor move or the focus marker change. The bug was 100% visual feedback.
@@ -262,13 +262,13 @@ config, flag/attachment indicators in list pane.
     - Cursor tests: introduces `cursorOnLineWith(buf, text)` helper that splits the framebuffer on newlines AND ANSI cursor-position escapes, then asserts "▶" and the message text live on the same visual line.
     - Tab cycle: walks all three panes and asserts the marker moves at every step.
     - Open: viewer must transition from "(no message selected)" to "Subject: …" headers.
-- CLAUDE.md §5.4 updated: per-control e2e coverage is now mandatory. Tests must assert the visible delta a real user would notice, not just substring presence in the buffer. The v0.2.6 → v0.2.7 episode is cited as the reason.
+- `docs/CONVENTIONS.md` §5.4 updated: per-control e2e coverage is now mandatory. Tests must assert the visible delta a real user would notice, not just substring presence in the buffer. The v0.2.6 → v0.2.7 episode is cited as the reason.
 
 ### Iter 4 — 2026-04-28 (layout rebalance + e2e regression tests)
 - Triggers from real-tenant smoke after v0.2.5:
   1. "more text space allocated to see the email title" — at 120-col terminal, list pane was hard-coded to 40 cols. Format string (`%-10s %-18s %s`) consumed 30 chars on date+sender, leaving ~9 chars for subject. Subjects were unreadable: "Accepted:", "[External", "RE: Agent".
   2. "no folders, no navigation" — folders were rendering correctly (the e2e test added in this iter passes against unmodified code), but the visible regression masked itself behind the subject truncation: the user couldn't visually distinguish folder column from blank padding. Adding a regression test for the FoldersEnumeratedEvent → SetFolders flow proves the path is intact.
-  3. Methodology: per CLAUDE.md §5.4 the e2e build tag is mandatory for TUI work. Prior iterations had been skipping local TUI verification and relying on the user's smoke-test as the integration test — a discipline failure. This iter restored the loop: write teatest with mocked store + fakeEngine, drive keystrokes, assert rendered frames, fix until green, only THEN release.
+  3. Methodology: per `docs/CONVENTIONS.md` §5.4 the e2e build tag is mandatory for TUI work. Prior iterations had been skipping local TUI verification and relying on the user's smoke-test as the integration test — a discipline failure. This iter restored the loop: write teatest with mocked store + fakeEngine, drive keystrokes, assert rendered frames, fix until green, only THEN release.
 - Slice:
   - `internal/ui/app.go` `relayout`: list pane now gets 60% of (width − folders); viewer the remaining 40%. At 120 cols → folders=22, list=58, viewer=40. At <90 cols folders compresses to width/4 (min 14), list keeps a 40-col floor.
   - `internal/ui/panes.go` `ListModel.View`: sender column shrunk 18 → 14 chars. Saves 4 cols for subject.

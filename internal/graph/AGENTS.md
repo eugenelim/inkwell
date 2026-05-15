@@ -1,6 +1,6 @@
 # internal/graph — AGENTS.md
 
-Package-specific contract. Read the root `AGENTS.md` first for repo-wide
+Package-specific contract. Read the root `AGENTS.md` (entry point) and `docs/CONVENTIONS.md` (long-form rules, §-numbered) first for repo-wide
 conventions; this file only spells out what's different about `graph`.
 
 ## What this package is

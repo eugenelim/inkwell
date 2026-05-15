@@ -58,7 +58,7 @@ done (PR G-1 + G-1b: CLI surface complete; TUI UI polish committed alongside).
   - The `filter --apply` confirm prompt only fires for `delete`. `archive` is also one-way (in the sense that messages move out of view) but recoverable; the current behaviour is fine.
   - Removed a speculative `--to` flag during the same-day code review — better not to advertise unimplemented options.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: same as the TUI surface (Mail.Read, Mail.ReadWrite, MailboxSettings.Read).
 - [x] Store reads/writes: messages (read), folders (read), accounts (read), actions (Enqueue + UpdateActionStatus via the existing executor).
 - [x] Graph endpoints: same as the TUI surface, via the existing graph.Client.

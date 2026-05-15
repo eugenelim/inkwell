@@ -2,7 +2,7 @@
 
 Manual smoke tests run against the live tenant before each
 release. CI exercises every code path against fakes and recorded
-fixtures (CLAUDE.md §5); this checklist is the human-in-the-loop
+fixtures (`docs/CONVENTIONS.md` §5); this checklist is the human-in-the-loop
 guard for surfaces that require a real Microsoft Graph response.
 
 > Run from a signed-in shell (`inkwell signin` complete) on the

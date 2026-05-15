@@ -1,6 +1,6 @@
 # internal/store — AGENTS.md
 
-Package-specific contract. Read the root `AGENTS.md` first for repo-wide
+Package-specific contract. Read the root `AGENTS.md` (entry point) and `docs/CONVENTIONS.md` (long-form rules, §-numbered) first for repo-wide
 conventions; this file only spells out what's different about `store`.
 
 ## What this package is
@@ -36,7 +36,7 @@ repo opens that file. All other packages consume Store's typed API.
 - Unit + benchmarks against a **real** SQLite in `t.TempDir()`. No
   in-memory `:memory:` — WAL semantics differ, and we've shipped bugs
   before that mocked DB tests missed.
-- Race detector mandatory (per root §5.6).
+- Race detector mandatory (per `docs/CONVENTIONS.md` §5.6).
 - Budget gate: `TestBudgetsHonoured` runs without `-race` (race inflates
   per-op time). The CI step at `.github/workflows/ci.yml` runs it
   separately.

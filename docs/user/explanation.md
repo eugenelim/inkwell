@@ -126,7 +126,7 @@ just go to Deleted Items and move it back. The friction of a confirm
 modal would dominate the friction of the action.
 
 Bulk `;d` is closer to "rm -rf". A confirmation modal with a
-default-No answer is the right safety net. CLAUDE.md §7 #9 mandates
+default-No answer is the right safety net. `docs/CONVENTIONS.md` §7 #9 mandates
 this for any bulk or `D`-style permanent operation.
 
 ## Why these docs are split four ways

@@ -534,7 +534,7 @@ tailers.
   use SIGPIPE on non-stdout fds). Instead, every emit goes through
   one helper that, on write error, checks `errors.Is(err, syscall.EPIPE)`
   and exits 0 cleanly — never panic, never print `Error: write
-  stdout: broken pipe`. Windows is not in scope (CLAUDE.md §1
+  stdout: broken pipe`. Windows is not in scope (`docs/CONVENTIONS.md` §1
   pure-Go stack invariant; Linux build is roadmapped at §4.1, macOS
   is the first release target — both POSIX). When a Windows port
   lands, this section becomes a spec-29.x scope; until then watch
@@ -587,7 +587,7 @@ read-only so confirm/forbid never apply.
   persists subjects (and `bodyPreview` in JSONL mode) in plaintext
   on the filesystem. Inkwell's own log file at
   `~/Library/Logs/inkwell/` is created with mode `0600` per
-  CLAUDE.md §7 rule 1, but a user-supplied redirection is governed
+  `docs/CONVENTIONS.md` §7 rule 1, but a user-supplied redirection is governed
   by the user's umask (typically `022` → `0644`). The
   `docs/user/how-to.md` recipe added by §9 calls this out and
   recommends `umask 077` before launching long-running redirected
@@ -648,7 +648,7 @@ inkwell messages --filter '~U' --watch --no-sync      # explicit read-only
 | Worst-case end-to-end lag from message arriving on Graph → emitted on stdout | foreground sync interval (default 30 s) + delta fetch (≈50–200 ms) | Not benched (depends on Graph latency). Documented in §1 / §2.4 so users understand the delay envelope. |
 
 A regression of more than 50 % on any benched budget blocks merge,
-per CLAUDE.md §6.
+per `docs/CONVENTIONS.md` §6.
 
 ## 7. CLI surface — full grammar
 
@@ -828,7 +828,7 @@ fakes/seams watch tests need; we do not invent new test packages.
   `SyncCompletedEvent`; measure wall-clock from event emit → first
   byte on the captured stdout. ≤50 ms p95. Naming aligned with
   §6's "Dispatch latency" budget row.
-- `b.ReportAllocs()` on every benchmark per CLAUDE.md §5.2.
+- `b.ReportAllocs()` on every benchmark per `docs/CONVENTIONS.md` §5.2.
 
 ### 8.4 Integration (build-tag `integration`)
 
@@ -842,7 +842,7 @@ fakes/seams watch tests need; we do not invent new test packages.
 - `TestWatchEngineStartedAgainstRecordedGraph` — same shape, but
   with the engine started and the graph client wired to a
   `httptest.Server` replaying the existing
-  `internal/graph/testdata/` fixtures (consistent with CLAUDE.md
+  `internal/graph/testdata/` fixtures (consistent with `docs/CONVENTIONS.md`
   §5.3). Asserts at least one `SyncCompletedEvent` arrives and
   emits the expected matches.
 - `TestWatchSurvivesStoreReadFailureMidLoop` — close the store
@@ -853,7 +853,7 @@ fakes/seams watch tests need; we do not invent new test packages.
 ### 8.5 What we do NOT test
 
 - TUI e2e: watch is CLI-only; no `*_e2e_test.go`.
-- Live tenant: per CLAUDE.md §5.5, manual smoke only. Add a row
+- Live tenant: per `docs/CONVENTIONS.md` §5.5, manual smoke only. Add a row
   to `docs/qa-checklist.md` under "Release smoke" — see §9.
 
 ## 9. Definition of done
@@ -903,9 +903,9 @@ fakes/seams watch tests need; we do not invent new test packages.
 - [ ] `gofmt -s`, `go vet`, `go test -race`, `go test -tags=e2e`
       (no new e2e but the existing TUI e2e suite must remain
       green), `go test -tags=integration`,
-      `go test -bench=. -benchmem -run=^$` (CLAUDE.md §5.6) — all
+      `go test -bench=. -benchmem -run=^$` (`docs/CONVENTIONS.md` §5.6) — all
       green.
-- [ ] **Doc sweep (CLAUDE.md §12.6)**:
+- [ ] **Doc sweep (`docs/CONVENTIONS.md` §12.6)**:
   - [ ] `docs/specs/29-watch-mode.md` carries the
         `**Shipped:** vX.Y.Z` line at the top of the metadata
         block once shipped.
@@ -994,7 +994,7 @@ fakes/seams watch tests need; we do not invent new test packages.
       `docs/PRIVACY.md` (watch's stdout is user-controlled like
       every other CLI command). NO new `// #nosec` annotations
       expected. The PR description carries `spec 17 impact: none
-      (no new sensitive surface)` per CLAUDE.md §11.
+      (no new sensitive surface)` per `docs/CONVENTIONS.md` §11.
 - [ ] **Spec 17 CI gates green:** gosec, Semgrep, govulncheck —
       no anticipated findings; the JSON marshaller and the cobra
       flag plumbing are existing patterns.
@@ -1098,7 +1098,7 @@ fakes/seams watch tests need; we do not invent new test packages.
 - Microsoft Graph push subscriptions (§2.4 — no public HTTPS
   endpoint; deferred indefinitely).
 - IMAP IDLE — inkwell does not speak IMAP (stack invariant
-  CLAUDE.md §1).
+  `docs/CONVENTIONS.md` §1).
 - Acting on watched matches in-process (e.g. `--auto-archive`).
   Compose with `xargs inkwell message ...` instead — example in
   §5.10.

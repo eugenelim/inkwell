@@ -21,7 +21,7 @@ take a dependency on the Microsoft Graph SDK, and the use of MSAL's
 future-me) hitting one of these and reading the current code can see
 *what* is true, but not *why* it's true, and is likely to relitigate.
 
-CLAUDE.md §12.0 already requires that every concrete claim in a spec
+`docs/CONVENTIONS.md` §12.0 already requires that every concrete claim in a spec
 be backed by a tool call — but it doesn't give cross-cutting decisions
 a home of their own.
 
@@ -79,7 +79,7 @@ captures the essential fields without the bureaucracy.
 
 ## References
 
-- CLAUDE.md §11 (Definition of done) — ADR work doesn't change DoD;
+- `docs/CONVENTIONS.md` §11 (Definition of done) — ADR work doesn't change DoD;
   ADRs are written *with* the change that introduces the decision.
 - docs/PRD.md, docs/ARCH.md — the living docs that ADRs complement.
 - [MADR](https://adr.github.io/madr/) — the format this draws from.

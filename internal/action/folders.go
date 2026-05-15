@@ -92,7 +92,7 @@ func (e *Executor) RenameFolder(ctx context.Context, folderID, displayName strin
 // DeleteFolder removes a folder via Graph (cascading children +
 // messages to Deleted Items server-side) and drops the local row.
 // The store's FK cascade removes child folder rows + messages
-// automatically. 404 is treated as success per CLAUDE.md §3.
+// automatically. 404 is treated as success per `docs/CONVENTIONS.md` §3.
 func (e *Executor) DeleteFolder(ctx context.Context, folderID string) error {
 	if folderID == "" {
 		return fmt.Errorf("delete_folder: empty folder id")

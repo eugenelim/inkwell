@@ -17,7 +17,7 @@ import (
 // catalogue. If the file does not exist, returns an empty catalogue
 // with nil error (missing-file is not an error). Any validation
 // failure returns a multi-error with file:line context per offending
-// entry; the binary refuses to apply (CLAUDE.md §9: invalid config =
+// entry; the binary refuses to apply (`docs/CONVENTIONS.md` §9: invalid config =
 // hard fail).
 func LoadCatalogue(path string) (*Catalogue, error) {
 	// Missing file is benign.

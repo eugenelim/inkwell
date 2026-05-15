@@ -208,7 +208,7 @@ AddBundledSender(ctx context.Context, accountID int64, address string) error
 
 // RemoveBundledSender deletes a bundled_senders row. The store
 // lowercases the address before DELETE (same rationale as Add).
-// No-op if not present (idempotent per CLAUDE.md §3 invariant).
+// No-op if not present (idempotent per `docs/CONVENTIONS.md` §3 invariant).
 RemoveBundledSender(ctx context.Context, accountID int64, address string) error
 
 // ListBundledSenders returns all bundled sender rows for the account,
@@ -472,7 +472,7 @@ designation succeeded even when the visual change is delayed
 until the sender's next batch.
 
 The toast for designate uses the sender address only (no subject
-line). Per ARCH §12 / CLAUDE.md §7 rule 3, addresses are redacted
+line). Per ARCH §12 / `docs/CONVENTIONS.md` §7 rule 3, addresses are redacted
 in logs; the toast is terminal UI only and is not logged. Subject
 lines never appear in either toast.
 
@@ -1216,7 +1216,7 @@ lookup; no SQL query per row.
         and a callout that the `;d` confirm modal shows the true
         message count, not the rendered-row count.
 - [ ] `docs/plans/spec-26.md` created at start of implementation
-      per CLAUDE.md §13 and updated each iteration.
+      per `docs/CONVENTIONS.md` §13 and updated each iteration.
 - [ ] `docs/PRD.md` §10 spec inventory: row for 26 (bundle
       senders) added. Specs 22–25 already exist on main with
       their own inventory rows.

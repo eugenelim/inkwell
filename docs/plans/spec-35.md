@@ -7,7 +7,7 @@ not-started — spec ratified; implementation not yet begun.
 Copied from `docs/specs/35-body-regex-local-indexing.md` §16. Tick
 as each slice lands.
 
-**Spec content (CLAUDE.md §11)**
+**Spec content (`docs/CONVENTIONS.md` §11)**
 - [ ] Graph scopes confirmed unchanged: `Mail.Read` only (PRD §3.1).
 - [ ] State surfaces named: reads `bodies`; writes `body_text` +
       `body_fts` + `body_trigram`.
@@ -175,7 +175,7 @@ time. All warm-buffer-cache p95 on dev machine.
 ### Iter 1 — 2026-05-14 (spec + plan)
 - Slice: research, draft, two-agent adversarial review, multi-pass
   fix loop, plan file
-- Verifier: docs review (CLAUDE.md §12.0 spec-verification
+- Verifier: docs review (`docs/CONVENTIONS.md` §12.0 spec-verification
   discipline)
 - Commands run: codebase grep verification (`grep` over
   `internal/store`, `internal/pattern`, `internal/render`,

@@ -1,10 +1,10 @@
 # Ralph-loop implementation plan — Specs 01 → 05
 
 **Status:** Planned. Driven by the assistant in dynamic-pacing mode (`ScheduleWakeup`).
-**Owner:** AI assistant (per CLAUDE.md §12).
+**Owner:** AI assistant (per `docs/CONVENTIONS.md` §12).
 **Order is sequential.** 01 must reach Done before 02 starts. 02 before 03, etc. ARCH §2 layering forbids parallelism here — every later spec depends on the lower layer being solid.
 
-This file is the **outer loop**. Each spec gets its own tracking note at `docs/plans/spec-NN.md` (per CLAUDE.md §13) that the assistant maintains during that spec's loop.
+This file is the **outer loop**. Each spec gets its own tracking note at `docs/plans/spec-NN.md` (per `docs/CONVENTIONS.md` §13) that the assistant maintains during that spec's loop.
 
 ---
 
@@ -13,7 +13,7 @@ This file is the **outer loop**. Each spec gets its own tracking note at `docs/p
 Run once. Idempotent.
 
 - [ ] `go mod init github.com/<owner>/inkwell` (placeholder owner, fix at rename).
-- [ ] Add the locked dependencies from CLAUDE.md §1:
+- [ ] Add the locked dependencies from `docs/CONVENTIONS.md` §1:
   - `github.com/charmbracelet/bubbletea bubbles lipgloss`
   - `github.com/charmbracelet/x/exp/teatest`
   - `github.com/AzureAD/microsoft-authentication-library-for-go`
@@ -278,7 +278,7 @@ All DoD ticked. Integration scenarios above all green. No live-tenant calls in C
 7. **wire** — status line: account UPN, last sync timestamp, throttled banner when `ThrottledEvent` arrives.
 8. **wire** — sign-in modal consuming `PromptFn` per spec 01 §9. Submit when MSAL completes (Cmd returns success).
 9. **wire** — confirm modal for destructive action stub (used real in spec 07).
-10. **wire** — pane-scoped key dispatch. Add tests that `r` does different things in list vs viewer (per CLAUDE.md §4).
+10. **wire** — pane-scoped key dispatch. Add tests that `r` does different things in list vs viewer (per `docs/CONVENTIONS.md` §4).
 11. **wire** — `[bindings]` config layer overrides. `[ui]` widths layer.
 12. **test** — `teatest` e2e: scripted keystrokes (`j j j Enter`), assert rendered final frame contains expected line. Scenarios:
     - App boots → folders render → focus list with `2` → arrow down → status line shows selection count.
@@ -383,7 +383,7 @@ All DoD ticked. Golden HTML conversions stable across runs. Bench within budget.
 
 ## Cross-spec invariants the loop must re-check on every iteration
 
-These are the things that are easiest to drift on. The self-critique phase (CLAUDE.md §12.2 step 5) must explicitly answer each one:
+These are the things that are easiest to drift on. The self-critique phase (`docs/CONVENTIONS.md` §12.2 step 5) must explicitly answer each one:
 
 1. **Layering.** No `ui` import of `graph`. No package opens `mail.db` except `store`. No package talks to AAD/Keychain except `auth`.
 2. **Optimistic UI.** Writes apply locally first, dispatch to Graph second, reconcile on response. No write path that hits Graph synchronously from `Update`.
@@ -427,7 +427,7 @@ The assistant must stop and ask the user when:
 2. A perf budget is unattainable on the chosen approach (decide: relax budget or change approach).
 3. A required Graph endpoint behaves unexpectedly vs the spec.
 4. Anything would require a Graph scope outside PRD §3.1.
-5. **Eight consecutive iterations without DoD progress** on the current spec (CLAUDE.md §12.1).
+5. **Eight consecutive iterations without DoD progress** on the current spec (`docs/CONVENTIONS.md` §12.1).
 
 The pause is a regular text message to the user, not a `ScheduleWakeup`. The user resumes the loop manually.
 
@@ -436,7 +436,7 @@ The pause is a regular text message to the user, not a `ScheduleWakeup`. The use
 ## Sequence for the assistant
 
 1. Run **Pre-flight** (§0) once, commit, smoke-test `go build ./...` and `go test -race ./...`.
-2. Open `docs/plans/spec-01.md` (assistant creates from the template in CLAUDE.md §13). Begin spec-01 ralph loop until exit criteria fire.
+2. Open `docs/plans/spec-01.md` (assistant creates from the template in `docs/CONVENTIONS.md` §13). Begin spec-01 ralph loop until exit criteria fire.
 3. Open PR for spec 01. Wait for user merge if required.
 4. Repeat for specs 02, 03, 04, 05 in order.
 5. After spec 05 lands, this outer plan is complete. Subsequent specs (06–14) get their own plan documents.

@@ -54,7 +54,7 @@ done
       for v1.
 - [ ] `Model.inboxSplit` threaded once at `ui.New(deps, cfg)` from
       `cfg.Inbox.Split` (typed conversion); never mutated over the
-      session (no hot reload, CLAUDE.md §9).
+      session (no hot reload, `docs/CONVENTIONS.md` §9).
 
 ### UI render
 - [ ] New file `internal/ui/inbox_split.go` (parallel to spec
@@ -254,7 +254,7 @@ done
 - [ ] `docs/ROADMAP.md` §0 Bucket 4 row 1 status updated at ship
       time; §1.15 backlog heading updated likewise.
 - [ ] `README.md` status table row at ship time.
-- [ ] PR checklist (CLAUDE.md §11) ticked.
+- [ ] PR checklist (`docs/CONVENTIONS.md` §11) ticked.
 
 ## Perf budgets
 

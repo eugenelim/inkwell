@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: doc-sweep (CLAUDE.md §12.6 mechanical checks)
+      - name: doc-sweep (`docs/CONVENTIONS.md` §12.6 mechanical checks)
         run: bash scripts/doc-sweep.sh
 
   privacy-guard:

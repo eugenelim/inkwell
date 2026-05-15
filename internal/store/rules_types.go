@@ -82,7 +82,7 @@ type RuleSizeKB struct {
 }
 
 // RuleRecipient mirrors graph.Recipient. Duplicated minimally here
-// because per CLAUDE.md §2 layering `store` and `graph` are sibling
+// because per `docs/CONVENTIONS.md` §2 layering `store` and `graph` are sibling
 // lower-tier packages and cannot import each other; the typed values
 // flow up to `internal/rules` (a middle-tier consumer) which converts
 // between the two.

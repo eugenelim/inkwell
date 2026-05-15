@@ -1,7 +1,7 @@
 # Spec 01 — Authentication via Device Code Flow
 
 ## Status
-done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
+done (CI scope) — manual-tenant smoke deferred per `docs/CONVENTIONS.md` §5.5
 
 ## DoD checklist
 - [x] `internal/auth/` compiles, unit tests pass under `-race`.
@@ -56,7 +56,7 @@ done (CI scope) — manual-tenant smoke deferred per CLAUDE.md §5.5
 ### Iter 6 — 2026-04-28 (persist account on signin)
 - Trigger: real-tenant smoke after v0.1.3 surfaced the question "after signin works, what does it take to actually see my email?". The TUI's data-access path (`store.ListFolders(accountID)`, `store.ListMessages(accountID, …)`) needs an `accounts` row to scope every query against. Spec 02 §5 already exposes `PutAccount(ctx, a) (id, err)`; nothing was calling it.
 - Slice: at the end of `runSignin` after `auth.Token()` succeeds, open the local store, call `PutAccount(Account{TenantID: resolvedTenant, ClientID: cfg.ClientID, UPN: resolvedUPN, LastSignin: now})`, close. `whoami` still works without writes — it's a read-only path. The TUI default-action flow (spec 04 iter 3) reads the row before constructing `Deps.Account`.
-- Layering: this stays in `cmd/inkwell` rather than `internal/auth`; auth must not import store (CLAUDE.md §2). The cmd layer is the natural place for the auth → store handoff.
+- Layering: this stays in `cmd/inkwell` rather than `internal/auth`; auth must not import store (`docs/CONVENTIONS.md` §2). The cmd layer is the natural place for the auth → store handoff.
 - Tests: cmd-layer wiring is hard to unit-test because it builds a real store + real auth; covered by smoke instead.
 
 ### Iter 7 — 2026-04-28 (silent-only probe + offline_access opt-in)

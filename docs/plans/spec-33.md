@@ -66,5 +66,5 @@ Apple M5, single core; `go test -bench=. -benchmem -run=^$
 - Verifier: `make regress` (all gates) + new tests (`TestComposeMarkdownModeFooterIndicator`, `TestComposeMarkdownModePlainTextStillSendsHTML`, `TestComposeSnapshotPreservesMarkdownMode`, `TestRenderMarkdownRoundTripsThroughBodyView`, `BenchmarkRenderMarkdown10KB/100KB`, `TestPatchMessageBody_HTMLContentType`, `TestCreateNewDraft_HTMLContentType`, `TestConfigDecodeComposeBodyFormat`, `TestConfigValidateBodyFormatRejectsBadValue`)
 - Commands run: `go build ./...`, `go test -race ./internal/...`, `make regress`
 - Result: green across all five gates; benchmark numbers logged above
-- Critique: implementation followed the spec line-for-line; the per-spec `Verifier:` line discipline (CLAUDE.md §13 light GDE) made each slice concrete
+- Critique: implementation followed the spec line-for-line; the per-spec `Verifier:` line discipline (`docs/CONVENTIONS.md` §13 light GDE) made each slice concrete
 - Next: tag v0.62.0

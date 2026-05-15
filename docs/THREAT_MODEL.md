@@ -1,7 +1,7 @@
 # Inkwell threat model
 
 > **Status:** v0.13.0 first cut. Living document — every spec PR
-> reviews this file per CLAUDE.md §11 cross-cutting checklist and
+> reviews this file per `docs/CONVENTIONS.md` §11 cross-cutting checklist and
 > updates the threats-and-mitigations table when the work changes
 > what we defend against. Spec
 > [`docs/specs/17-security-testing-and-casa-evidence.md`](specs/17-security-testing-and-casa-evidence.md)
@@ -56,7 +56,7 @@ models maintained by their authors.
 
 | Threat | Mitigation | Verified by |
 | --- | --- | --- |
-| Token theft from disk | Keychain only; never written to filesystem in plaintext (CLAUDE.md §7 rule 2). | `internal/auth/privacy_test.go` |
+| Token theft from disk | Keychain only; never written to filesystem in plaintext (`docs/CONVENTIONS.md` §7 rule 2). | `internal/auth/privacy_test.go` |
 | Token theft from process memory | Out of scope (full memory access = game over). | n/a |
 | Token theft via swap | macOS encrypted swap (when FileVault on). | n/a — OS-level |
 | Cache exfiltration by another user on the same Mac | File mode 0600 on `mail.db` + Keychain ACL. | `internal/store/security_test.go::TestDatabaseFileMode`; `internal/auth/keychain_test.go` |

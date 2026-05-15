@@ -1,6 +1,6 @@
 # internal/ui — AGENTS.md
 
-Package-specific contract. Read the root `AGENTS.md` first for repo-wide
+Package-specific contract. Read the root `AGENTS.md` (entry point) and `docs/CONVENTIONS.md` (long-form rules, §-numbered) first for repo-wide
 conventions; this file only spells out what's different about `ui`.
 
 ## What this package is
@@ -26,8 +26,7 @@ bindings, panes, modes, theme, command palette, viewer renderer.
    change, cursor move, mode swap, pane swap needs a `*_e2e_test.go`
    that captures frames before/after and asserts the **user-visible
    glyph** moved (cursor `▶` row, focus marker `▌ <Pane>`, viewer
-   content swap). String-in-buffer assertions are not enough — root
-   §5 explains why (v0.2.6 lesson).
+   content swap). String-in-buffer assertions are not enough — `docs/CONVENTIONS.md` §5 explains why (v0.2.6 lesson).
 5. **No layering up.** `ui` does not import `internal/graph` or
    `internal/auth` directly. Graph access goes through
    `internal/sync` and `internal/action`; auth state is read through
@@ -40,12 +39,12 @@ bindings, panes, modes, theme, command palette, viewer renderer.
 
 - `BindingOverrides` (`keys.go`) is the consumer-site shape of
   `config.BindingsConfig` — defined here so `ui` doesn't need to
-  import `internal/config` (root §2 layering).
+  import `internal/config` (`docs/CONVENTIONS.md` §2 layering).
 - Window resize: every paint must respect `WindowSizeMsg`. Hard-coded
   widths only as defaults sourced from `[ui]` config.
 - New key binding? Update `internal/ui/keys.go` `DefaultKeyMap`,
   `BindingOverrides`, the help text, the visible-delta e2e test, and
-  `docs/user/reference.md` (CLAUDE.md §12.6 doc sweep).
+  `docs/user/reference.md` (`docs/CONVENTIONS.md` §12.6 doc sweep).
 - New palette command? Add to `palette_commands.go` with an
   `ID:` and `Title:` field; the doc-sweep advisory check (run with
   `--all`) verifies the ID appears in `docs/user/reference.md`.

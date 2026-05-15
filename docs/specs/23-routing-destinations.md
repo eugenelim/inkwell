@@ -1029,7 +1029,7 @@ parity with `ListMessagesByRouting` is expected but not assumed.
 (map[string]int, error)`** against a 100k-message store + 500
 routed senders (≈125 senders per bucket). v1 ships the batched
 form, not four serial calls — committing to it upfront avoids the
-"add the benchmark next week" anti-pattern (CLAUDE.md §12.4). The
+"add the benchmark next week" anti-pattern (`docs/CONVENTIONS.md` §12.4). The
 single `GROUP BY destination` query is the only sidebar refresh
 path; the per-bucket `CountMessagesByRouting` (single destination)
 remains for CLI `inkwell route show` and other one-off lookups.
@@ -1042,7 +1042,7 @@ Budget ≤20ms p95 over the 100k+500 fixture.
 - **Address handling.** `email_address` is already in `messages.from_address`
   and `messages.from_name`; no new PII category. The redaction handler
   (`internal/log/redact.go`) already scrubs email addresses → `<email-N>`
-  (CLAUDE.md §7 rule 3); routing-related log lines must use the same
+  (`docs/CONVENTIONS.md` §7 rule 3); routing-related log lines must use the same
   scrub. Specifically, log sites in `dispatchList` / `dispatchViewer`
   for routing must NOT log `from_address` directly — log the
   destination + scrubbed address marker only.
@@ -1342,7 +1342,7 @@ preferences. A future spec for the Screener (§1.16) will own
     `BenchmarkPatternRoutingOperator`,
     `BenchmarkSidebarBucketRefresh`.
 
-## 13. Cross-cutting checklist (CLAUDE.md §11)
+## 13. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [ ] **Scopes:** none new (`Mail.Read`, `Mail.ReadWrite` already in
       PRD §3.1; routing is local-only and makes no Graph calls).

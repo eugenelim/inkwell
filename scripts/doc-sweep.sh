@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/doc-sweep.sh — automate the mechanical checks from
-# CLAUDE.md §12.6 ("Doc sweep at ship time") and §13 ("Per-spec
+# `docs/CONVENTIONS.md` §12.6 ("Doc sweep at ship time") and §13 ("Per-spec
 # tracking notes").
 #
 # The §12.6 table is the source of truth; this script only covers
@@ -20,7 +20,7 @@
 #
 # Always-on checks:
 #   1. Plan-file existence  — every docs/specs/NN-*.md has a
-#      docs/plans/spec-NN.md (CLAUDE.md §13, the v0.12.0 lesson).
+#      docs/plans/spec-NN.md (`docs/CONVENTIONS.md` §13, the v0.12.0 lesson).
 #   2. Shipped consistency  — every spec with a `**Shipped:** vX.Y.Z`
 #      line has its plan's `## Status` block start with `done`.
 #

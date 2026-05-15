@@ -109,7 +109,7 @@ type BodyOpts struct {
 
 // BodyFetcher is the seam to [internal/graph.Client.GetMessageBody].
 // Defined at the consumer site so render does not import graph
-// (CLAUDE.md §2: small consumer-side interfaces).
+// (`docs/CONVENTIONS.md` §2: small consumer-side interfaces).
 type BodyFetcher interface {
 	FetchBody(ctx context.Context, messageID string) (FetchedBody, error)
 }

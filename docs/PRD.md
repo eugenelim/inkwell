@@ -275,7 +275,7 @@ Spec 17 (security testing + CASA evidence) is a hardening pass over
 the v1 specs — additive, no architectural change. Fully shipped across
 v0.39.0 and v0.45.0: CI gates (gosec, Semgrep, govulncheck), security
 tests, SECURITY_TESTS.md, THREAT_MODEL.md, PRIVACY.md, and path
-traversal guard for attachment save. CLAUDE.md §11 makes "did this PR
+traversal guard for attachment save. `docs/CONVENTIONS.md` §11 makes "did this PR
 change anything spec 17 cares about?" a required cross-cutting
 checklist item so future specs surface threat-model deltas as they land.
 

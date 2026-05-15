@@ -209,7 +209,7 @@ done (E-1 shipped 2026-05-04) — all audit-drain bullets now resolved.
 - Spec 06 (search) does not interact with the engine; it reads the local store directly.
 - The graph client's `OnThrottle` callback is wired into the engine in spec 04 (status-line consumer) — for spec 03 the engine emits `ThrottledEvent` itself only on cycle-level errors. Per-request throttle notifications go through the graph option.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: `Mail.Read` (delta + folders) — already in PRD §3.1.
 - [x] Store reads/writes: folders (UpsertFolder/DeleteFolder), messages (UpsertMessagesBatch/DeleteMessage), delta_tokens (Get/Put/Clear).
 - [x] Graph endpoints: `/me/mailFolders`, `/me/mailFolders/{id}/messages/delta`, `/me/mailFolders/{id}/messages` (backfill), `/me/messages/{id}` (body fetch via existing helper).

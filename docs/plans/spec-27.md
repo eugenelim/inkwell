@@ -115,13 +115,13 @@ Mirrors `docs/specs/27-custom-actions.md` §9. Tick as work lands.
       `prompt_value`, thread to Reply Later); `explanation.md`
       (one paragraph on invocation-driven design — no inbound
       hooks).
-- [ ] **Project docs** (CLAUDE.md §13): `docs/PRD.md` §10 row
+- [ ] **Project docs** (`docs/CONVENTIONS.md` §13): `docs/PRD.md` §10 row
       for spec 27 (post-v1, ROADMAP §0 bucket 3); `docs/ROADMAP.md`
       bucket-3 row 1 status + §2 backlog heading;
       `docs/specs/27-custom-actions.md` `**Shipped:** vX.Y.Z` line;
       `docs/plans/spec-27.md` final iteration entry;
       `README.md` status table row + version bump.
-- [ ] All five mandatory commands (CLAUDE.md §5.6) green;
+- [ ] All five mandatory commands (`docs/CONVENTIONS.md` §5.6) green;
       `make regress` clean before tag.
 
 ## Perf budgets
@@ -222,7 +222,7 @@ Mirrors `docs/specs/27-custom-actions.md` §9. Tick as work lands.
   UserInput, resolves the next batch, and dispatches. flag/unflag
   read FlagStatus from the resolve-phase fixture and skip when already
   applied (errAlreadyApplied → StepSkipped). Logs invocations at INFO
-  with no From/Subject/MessageID (PII per CLAUDE.md §7.3).
+  with no From/Subject/MessageID (PII per `docs/CONVENTIONS.md` §7.3).
 - UI: Model gains customActions / customActionDeps /
   customActionContinuation / customActionPromptBuf / customActionRunning;
   CustomActionPromptMode added to internal/ui/messages.go;
@@ -271,7 +271,7 @@ Mirrors `docs/specs/27-custom-actions.md` §9. Tick as work lands.
     Major fixes: (a) `set_sender_routing` and `set_thread_muted`
     flagged as not undoable by `u`; result toast carries
     `[non-undoable]` marker. (b) `:actions reload` dropped from
-    v1.1 (CLAUDE.md §9 hot-reload rule). (c) chord-key bindings
+    v1.1 (`docs/CONVENTIONS.md` §9 hot-reload rule). (c) chord-key bindings
     deferred — single-key only in v1.1. (d) `flag` / `unflag`
     ops read message state in resolve phase to avoid the
     "always-toggle" footgun on already-flagged messages.

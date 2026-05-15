@@ -181,8 +181,8 @@ func TestIndicatorURLNormalisesEachAction(t *testing.T) {
 
 // TestPrivacyParseLogsNothing is the redaction guard — parse is pure;
 // it never logs. We assert by reading the source and confirming no
-// import of log/slog (CLAUDE.md §7 mandate).
+// import of log/slog (`docs/CONVENTIONS.md` §7 mandate).
 func TestPrivacyParseLogsNothing(t *testing.T) {
 	require.NotContains(t, mustReadParseSource(t), "log/slog",
-		"parse must not import log/slog (CLAUDE.md §7)")
+		"parse must not import log/slog (`docs/CONVENTIONS.md` §7)")
 }

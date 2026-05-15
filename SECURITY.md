@@ -82,7 +82,7 @@ under `sec-reports/` (gitignored).
 - [`docs/specs/17-security-testing-and-casa-evidence.md`](docs/specs/17-security-testing-and-casa-evidence.md)
   — the canonical spec covering the security testing scaffold,
   CASA Tier 2 evidence, and the per-PR security checklist
-  (CLAUDE.md §11).
+  (`docs/CONVENTIONS.md` §11).
 
 ## Recognition
 

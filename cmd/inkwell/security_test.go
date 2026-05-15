@@ -86,5 +86,5 @@ func TestLogFileMode(t *testing.T) {
 	info, err := os.Stat(filepath.Join(dir, "inkwell.log"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-		"log file must be 0600 — CLAUDE.md §7 rule 1: log content may include subject lines at DEBUG level")
+		"log file must be 0600 — `docs/CONVENTIONS.md` §7 rule 1: log content may include subject lines at DEBUG level")
 }

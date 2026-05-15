@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-05-13)
 - **Deciders:** eugenelim
 - **Supersedes:** —
-- **Related:** ARCH §1, CLAUDE.md §1
+- **Related:** ARCH §1, `docs/CONVENTIONS.md` §1
 
 ## Context
 
@@ -89,5 +89,5 @@ project.
 ## References
 
 - ARCH.md §1 (Tech stack, locked).
-- CLAUDE.md §1 (Stack invariants, do not negotiate).
+- `docs/CONVENTIONS.md` §1 (Stack invariants, do not negotiate).
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — upstream.

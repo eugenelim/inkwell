@@ -9,7 +9,7 @@ written for this repository and are covered by inkwell's own license.
 
 **Modifications.** Brand-placeholder domains the upstream templates ship with
 (`postable.com`, `yourskincare.com`, `yourreviewlink.com`) were replaced with
-`example.invalid` to comply with CLAUDE.md §7's privacy rule that test fixtures
+`example.invalid` to comply with `docs/CONVENTIONS.md` §7's privacy rule that test fixtures
 use only the synthetic IANA-reserved domain. Public CDN references in `href`
 attributes (Google Fonts, image hosts, social-media profile URLs) are
 technical infrastructure pointers, not PII, and were left intact.

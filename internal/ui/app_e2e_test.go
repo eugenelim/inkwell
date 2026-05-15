@@ -562,7 +562,7 @@ func TestFolderEnterAutoFocusesList(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
-// TestNewFolderE2E is the spec 18 visible-delta test (CLAUDE.md
+// TestNewFolderE2E is the spec 18 visible-delta test (`docs/CONVENTIONS.md`
 // §5.4): pressing N in the folders pane paints the name modal;
 // typing + Enter dispatches; status bar shows the create result.
 func TestNewFolderE2E(t *testing.T) {
@@ -642,7 +642,7 @@ func TestPermanentDeleteOpensConfirmModalWithIrreversibleWarning(t *testing.T) {
 }
 
 // TestHelpOverlayShowsAllSections is the spec-04-§12 e2e visible-
-// delta test (CLAUDE.md §5.4): pressing `?` paints a modal that
+// delta test (`docs/CONVENTIONS.md` §5.4): pressing `?` paints a modal that
 // includes every section header from buildHelpSections, plus the
 // Esc-to-close hint. Without this the user could press `?` and
 // see nothing — exactly the v0.2.6 regression class.
@@ -722,7 +722,7 @@ func (s *e2eTriageStub) Undo(_ context.Context, _ int64) (UndoneAction, error) {
 }
 
 // TestUndoKeyShowsStatusBarMessage is the spec-07-§11 e2e visible-
-// delta test (CLAUDE.md §5.4): pressing `u` after a triage action
+// delta test (`docs/CONVENTIONS.md` §5.4): pressing `u` after a triage action
 // must paint a "↶ undid: <label>" message in the status bar. Without
 // the visible-delta requirement, dispatch tests can pass while the
 // user sees nothing change — exactly the v0.2.6 regression class.
@@ -778,7 +778,7 @@ func (s *e2eUnsubStub) OneClickPOST(_ context.Context, _ string) error {
 func atomicAdd(p *int32, n int32) { *p += n }
 
 // TestUnsubscribeUKeyOpensConfirmModalAndExecutes is the spec 16 e2e
-// visible-delta test (CLAUDE.md §5.4): U on the focused message must
+// visible-delta test (`docs/CONVENTIONS.md` §5.4): U on the focused message must
 // (a) make the confirm modal visible with the URL the user is about
 // to act on, (b) on y the modal disappears and the status bar shows
 // the success message. Without this, dispatch tests can pass while
@@ -985,7 +985,7 @@ func TestFullscreenBodyDeleteExitsAndTriages(t *testing.T) {
 }
 
 // TestCalendarJKEnterE2E is the spec 12 §6.2 / §7 visible-delta
-// test (CLAUDE.md §5.4): :cal opens the list modal; j moves the
+// test (`docs/CONVENTIONS.md` §5.4): :cal opens the list modal; j moves the
 // ▶ cursor to the second event row; Enter loads the detail modal
 // with attendees + body preview painted; Esc returns to the list.
 // Without this, the dispatch test could pass while the rendered

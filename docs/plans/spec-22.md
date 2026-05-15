@@ -43,7 +43,7 @@ done — **Shipped v0.50.0** (2026-05-07)
       section; `docs/user/how-to.md` "Discover bindings" recipe.
 - [ ] **Project docs**: `docs/PRD.md` §10 row 22; `docs/ROADMAP.md`
       §0 Bucket 2 row 1 + §1.6 narrative cite spec 22; this plan
-      file maintained per CLAUDE.md §13.
+      file maintained per `docs/CONVENTIONS.md` §13.
 
 ## Perf budgets
 | Surface | Budget | Measured | Bench | Status |
@@ -90,7 +90,7 @@ done — **Shipped v0.50.0** (2026-05-07)
   - **Tests**: 18 e2e tests cover every binding (Ctrl+K, Esc,
     Enter, ↑/↓, Ctrl+P/N, Tab, Backspace at empty + past sigil)
     and every sigil (`#`, `@`, `>`, no-sigil) with visible-delta
-    assertions per CLAUDE.md §5.4. Bench gates 22ms p95 over
+    assertions per `docs/CONVENTIONS.md` §5.4. Bench gates 22ms p95 over
     5000 rows.
 - Implementation not yet started.
 

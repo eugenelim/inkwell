@@ -303,7 +303,7 @@ func TestExtractLinksAreNumberedAndDeduped(t *testing.T) {
 // `https://host/digest?msg_id=(V_<hash>)&c=tenant&...`. The earlier
 // regex stopped at the first `)` and the click-through landed on a
 // truncated URL the analytics endpoint rejected. Real-tenant report
-// 2026-05-01 — URL scrubbed to example.invalid per CLAUDE.md §7.4.
+// 2026-05-01 — URL scrubbed to example.invalid per `docs/CONVENTIONS.md` §7.4.
 func TestExtractLinksKeepsBalancedParensInQuery(t *testing.T) {
 	url := "https://digest01.example.invalid:10020/euweb/digest?ts=1775967978&cmd=gendigest&locale=enus&msg_id=(V_26c657f93c406d393e4a37482ce3)&c=tenant_hosted&recipient=user%40example.invalid&sig=ba37352fcb9d3742b8fc8b91fcc51937bc4e5e26f5630b39daec3de5533767f1"
 	links := extractLinks("Click " + url + " for digest.")
@@ -338,7 +338,7 @@ func TestExtractLinksStripsUnbalancedTrailingWrappers(t *testing.T) {
 // test for the corporate-tracker URL form where the sender's MUA
 // hard-wraps the URL at column 78 and the second-line `&tranId=…`
 // fragment was dropped by the per-line regex. Real-tenant report
-// 2026-05-01 — URL scrubbed to example.invalid per CLAUDE.md §7.4.
+// 2026-05-01 — URL scrubbed to example.invalid per `docs/CONVENTIONS.md` §7.4.
 func TestUnwrapBrokenURLsJoinsHardWrappedTrackerURL(t *testing.T) {
 	full := "https://mailertracker.example.invalid/Log/Log?link=%5Bhttps%253a%252f%252fintranet.example.invalid%252fpolicies%252fexample%252f%253freferrer%253dmailer%5D&tranId=100290381&Subject=&userPk=%2523_%252f452K0dyJAa23GsE5C7mgw%253d%253d&email=P0LQyzNu4pveakW5hjS4JKLMCQm7X%252b5%252b%252fxrHIwxEVvs%253d"
 	wrapped := "Visit https://mailertracker.example.invalid/Log/Log?link=%5Bhttps%253a%252f%252fintranet.example.invalid%252fpolicies%252fexample%252f%253freferrer%253dmailer%5D\n&tranId=100290381&Subject=&userPk=%2523_%252f452K0dyJAa23GsE5C7mgw%253d%253d&email=P0LQyzNu4pveakW5hjS4JKLMCQm7X%252b5%252b%252fxrHIwxEVvs%253d to track."
@@ -466,8 +466,8 @@ func TestPrivacyNoBodyContentLoggedDuringRender(t *testing.T) {
 	// are for error/string literal messages only.
 	src := mustReadAll("render")
 	// Must not log the Content field or body/text variables as slog values.
-	require.NotContains(t, src, `slog.String("body"`, "render must not log body content (CLAUDE.md §7)")
-	require.NotContains(t, src, `slog.String("content"`, "render must not log content (CLAUDE.md §7)")
+	require.NotContains(t, src, `slog.String("body"`, "render must not log body content (`docs/CONVENTIONS.md` §7)")
+	require.NotContains(t, src, `slog.String("content"`, "render must not log content (`docs/CONVENTIONS.md` §7)")
 	require.NotContains(t, src, `.Info("`, "render must not emit Info-level logs (only Warn/Debug for errors)")
 	require.NotContains(t, src, `.Error("`, "render must not emit Error-level logs directly (return errors instead)")
 }

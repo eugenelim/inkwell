@@ -234,7 +234,7 @@ action and is rejected: there is no separate action.
 Lives in `[ui]`. Owner spec 30. Validation in
 `internal/config/validate.go`: reject any value other than the two
 literals; emit `config <path>: ui.archive_label must be one of
-"archive" or "done"` on load. App refuses to start (CLAUDE.md §9).
+"archive" or "done"` on load. App refuses to start (`docs/CONVENTIONS.md` §9).
 
 ### 4.2 Branding helper
 
@@ -347,7 +347,7 @@ mutation through every binding.
 
 `Model.archiveLabel` is set once at `ui.New` from
 `cfg.UI.ArchiveLabel`; it is a value, not a pointer, and never
-mutates over a session (CLAUDE.md §9: no hot reload). All sites in
+mutates over a session (`docs/CONVENTIONS.md` §9: no hot reload). All sites in
 §4.3 read `m.archiveLabel` and call `archiveVerbLower(...)` /
 `archiveVerbTitle(...)` at format time.
 
@@ -614,7 +614,7 @@ the inbox folder anymore. Spec 30 adds none.
 | `:done` on a focused message inside a multi-message thread | `:done` is **single-message scoped**. Only the focused message moves to Archive; the rest of the thread stays where it is. Users wanting whole-thread archive use `T e` / `T a`. The cmd-bar verb does not implicitly look up thread context. The HEY framing ("the thread is done with you") is not adopted at the cmd-bar level — that would require a separate `:thread done` verb, which is out of scope. |
 | User runs `:done` while the cursor is on an empty folder | `done: no message focused`. Status-bar transient (5s default per `[ui].transient_status_ttl`). |
 | User runs `:done` while focused message is already in Archive folder | The action queue still dispatches a `Move` with destination = archive. Graph treats move-to-current-folder as a no-op (HTTP 200, message unchanged). Spec 07's idempotent-move precedent. The toast still emits "✓ Done" — user perception of the action's success is unchanged. |
-| User flips `[ui].archive_label` between sessions | Takes effect on next `inkwell` start (CLAUDE.md §9: no hot reload). All toasts, hints, palette titles, and help text rebrand on next launch. |
+| User flips `[ui].archive_label` between sessions | Takes effect on next `inkwell` start (`docs/CONVENTIONS.md` §9: no hot reload). All toasts, hints, palette titles, and help text rebrand on next launch. |
 | User has a saved `:filter ...` and presses `;e` | Bulk archive on the filter set, identical to `;a`. Confirm modal text branded per `archive_label`. |
 | Cross-folder bulk archive (`;e` after `:filter --all`) | Spec 21 suffix preserved: `Archive 247 messages across 3 folders?` (or `Mark 247 messages across 3 folders done?`). |
 | User invokes `inkwell thread done` against an unknown conversation-id | Inherits `inkwell thread archive`'s existing error path: prints the same error to stderr, non-zero exit. The alias does not change error semantics. |
@@ -640,7 +640,7 @@ batch") is unchanged and uncovered by this spec's tests.
   logs the action type as `move` and the destination as `archive`
   (well-known name). The branding helper is UI-only; logs do not
   consult `archive_label`.
-- Toast text is UI-only (ARCH §12 / CLAUDE.md §7 rule 3): not logged.
+- Toast text is UI-only (ARCH §12 / `docs/CONVENTIONS.md` §7 rule 3): not logged.
 - `:done` / `:archive` cmd-bar verbs do not introduce a new log site.
   The cmd-bar dispatcher already logs `cmd: <verb>` at DEBUG.
 - No subject-line, body, or PII exposure introduced.
@@ -846,7 +846,7 @@ with a call to `archiveVerbLower(m.archiveLabel)` /
 - [ ] `internal/config/validate.go` rejects any `[ui].archive_label`
       value other than `"archive"` or `"done"` with the message
       `config <path>: ui.archive_label must be one of "archive" or
-      "done"`. App refuses to start (CLAUDE.md §9 invariant).
+      "done"`. App refuses to start (`docs/CONVENTIONS.md` §9 invariant).
 
 ### 9.9 Tests
 
@@ -948,9 +948,9 @@ with a call to `archiveVerbLower(m.archiveLabel)` /
       vocabulary, not behaviour.
 - [ ] `docs/CONFIG.md`: per §9.8.
 - [ ] `README.md`: status table row for spec 30 once shipped (per
-      CLAUDE.md §12.6). PR sets it during the ship-time doc sweep.
+      `docs/CONVENTIONS.md` §12.6). PR sets it during the ship-time doc sweep.
 - [ ] **`docs/plans/spec-30.md`** exists with `Status: done` and
-      a final iteration entry per CLAUDE.md §13. The plan file is
+      a final iteration entry per `docs/CONVENTIONS.md` §13. The plan file is
       a mandatory ship-time artefact; missing it is a CLAUDE.md
       compliance failure (the inventory check in PRD §10 vs.
       `git ls-files docs/plans/` must return non-empty for every
@@ -958,7 +958,7 @@ with a call to `archiveVerbLower(m.archiveLabel)` /
 - [ ] **`docs/PRD.md` §10** spec inventory adds a row for spec 30.
 - [ ] **`docs/ROADMAP.md`** §0 Bucket 3 row 4 status updated when
       shipped; §1.23 backlog heading updated likewise.
-- [ ] PR checklist (CLAUDE.md §11) fully ticked.
+- [ ] PR checklist (`docs/CONVENTIONS.md` §11) fully ticked.
 
 ## 10. Cross-cutting checklist
 

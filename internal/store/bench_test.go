@@ -587,7 +587,7 @@ func TestBudgetsHonoured(t *testing.T) {
 		// partial-index follow-up.
 	}
 	// Allow up to 1.5x the spec budget before failing — CI hardware
-	// varies, and CLAUDE.md §6 says ">50% regression" is the gate.
+	// varies, and `docs/CONVENTIONS.md` §6 says ">50% regression" is the gate.
 	const slack = 3.0 / 2.0
 
 	for _, tc := range cases {

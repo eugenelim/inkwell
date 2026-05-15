@@ -525,7 +525,7 @@ scan, the migration 010 index is required before shipping.
       external HTTP surface). `MessageIDsInConversation` is a pure
       parameterised store read (no SQL injection risk — no dynamic
       column or table name construction). `T D` (permanent delete) is
-      irreversible — confirmation gate is mandatory per CLAUDE.md §7
+      irreversible — confirmation gate is mandatory per `docs/CONVENTIONS.md` §7
       rule 9. No new token handling, subprocess, or cryptographic
       primitive. Threat model: no new row needed beyond spec 09's $batch
       coverage. Privacy: `conversation_id` values appear transiently in

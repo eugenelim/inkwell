@@ -108,7 +108,7 @@ workflow.
   route through Graph `$search`. The store does not persist raw
   headers.
 - **Custom FTS5 tokenizers, `sqlite-regex` loadable extensions, or
-  any CGO dependency.** The pure-Go invariant (CLAUDE.md §1) holds.
+  any CGO dependency.** The pure-Go invariant (`docs/CONVENTIONS.md` §1) holds.
   We use `modernc.org/sqlite v1.50.0`, which ships SQLite 3.53.0 and
   built-in `unicode61`, `porter`, `ascii`, **and `trigram`**
   tokenizers — verified by the probe in §3.6 (the trigram tokenizer
@@ -230,7 +230,7 @@ never log indexed text or message IDs at INFO+; the only level
 allowed for per-message diagnostics is DEBUG, and even there a new
 `redact.HashMessageID` helper (introduced by this spec — §8.5) hashes
 the ID. Redaction tests cover both the indexer and CLI sites per
-CLAUDE.md §11.
+`docs/CONVENTIONS.md` §11.
 
 ### 3.6 modernc.org/sqlite probe
 
@@ -324,7 +324,7 @@ docs/
 ├── specs/06-search-hybrid.md         # §11 bullet struck through; back-ref to spec 35
 ├── user/reference.md                 # new pattern operands + /regex: prefix + :index verbs
 ├── user/how-to.md                    # new recipe: "Search inside bodies with regex"
-└── plans/spec-35.md                  # tracking note (CLAUDE.md §13)
+└── plans/spec-35.md                  # tracking note (`docs/CONVENTIONS.md` §13)
 ```
 
 Per-package `AGENTS.md` files exist for `auth`, `graph`, `store`,
@@ -428,7 +428,7 @@ runner refuses to re-execute a completed migration.
 
 ### 5.2 Schema-version regression tests
 
-Two existing sites assert the schema version (per CLAUDE.md §16
+Two existing sites assert the schema version (per `docs/CONVENTIONS.md` §16
 "new table or column added but the schema-version test still
 asserts the old version number"):
 
@@ -848,7 +848,7 @@ body-cache description:
 
 The body indexer **only reads `bodies`**; it never calls Graph.
 `Mail.Read` (granted) covered fetching the body initially; this spec
-re-uses what's already on disk. CI lint guard from CLAUDE.md §7
+re-uses what's already on disk. CI lint guard from `docs/CONVENTIONS.md` §7
 invariant 4 (`Mail.Send` denial) remains green by construction.
 
 ### 8.4 Destructive-action gate
@@ -896,7 +896,7 @@ by the CLI.
 Redaction tests live at
 `internal/store/body_index_redact_test.go` and
 `cmd/inkwell/cmd_index_redact_test.go` and cover both sites per
-CLAUDE.md §11 ("redaction tests cover every new log site that
+`docs/CONVENTIONS.md` §11 ("redaction tests cover every new log site that
 could see secrets").
 
 ### 8.6 `// #nosec` budget
@@ -1186,7 +1186,7 @@ Tests:
 - `internal/savedsearch/manager_test.go` gains
   `TestManager_SaveAcceptsRegexWhenBodyIndexEnabled` and
   `TestManager_SaveRejectsRegexWhenBodyIndexDisabled`.
-- `internal/ui/app_e2e_test.go` (TUI visible-delta per CLAUDE.md
+- `internal/ui/app_e2e_test.go` (TUI visible-delta per `docs/CONVENTIONS.md`
   §5) gains `TestSidebar_GreysOutRegexSavedSearchWhenIndexDisabled`
   asserting the row's render frame contains the `!` indicator and
   the help-line text.
@@ -1261,7 +1261,7 @@ The command palette (spec 22) gains four rows:
 - `Index — Disable` (`:index disable`)
 
 Cmd-bar verbs mirror the CLI in §11. `:index` with no subverb
-prints status. CLAUDE.md §12.6 mechanical reference-doc check
+prints status. `docs/CONVENTIONS.md` §12.6 mechanical reference-doc check
 requires `docs/user/reference.md` to gain rows for these.
 
 ### 10.4 No new pane and no new mode
@@ -1329,7 +1329,7 @@ it to false to stop future indexing on body fetches.
 object on stdout, for scripting (spec 14 convention).
 
 All four verbs are exposed at the cmd-bar (`:index <verb>`) and the
-command palette (§10.3) per CLAUDE.md §12.6 mechanical-reference
+command palette (§10.3) per `docs/CONVENTIONS.md` §12.6 mechanical-reference
 trigger list.
 
 ---
@@ -1357,7 +1357,7 @@ trigger list.
 
 ## 13. Test plan
 
-All four layers of the CLAUDE.md §5 test pyramid must land before
+All four layers of the `docs/CONVENTIONS.md` §5 test pyramid must land before
 this spec is done. Test file paths are absolute relative to repo
 root.
 
@@ -1448,7 +1448,7 @@ any upstream regression in the sqlite driver fails CI immediately.
 ### 13.6 TUI e2e — build-tag `e2e`,
 `internal/ui/regex_search_e2e_test.go`
 
-Per CLAUDE.md §5 visible-delta rule:
+Per `docs/CONVENTIONS.md` §5 visible-delta rule:
 
 - `/regex:auth.*` types into search-mode; assert the status bar
   visibly transitions to `[regex local-only]` and the first row
@@ -1482,7 +1482,7 @@ prose at controlled lengths plus a sprinkle of HTML-like markup so
 ## 14. Performance budgets
 
 Non-negotiable; verified by benchmark. >50 % over budget fails CI
-per CLAUDE.md §5.2. All numbers are warm-buffer-cache p95 on the
+per `docs/CONVENTIONS.md` §5.2. All numbers are warm-buffer-cache p95 on the
 dev machine baseline (M2 macOS, modernc.org/sqlite v1.50.0, Go
 1.23+). Cold-start regex search latency is out of scope (mmap
 warmup dominates; not a steady-state concern).
@@ -1499,7 +1499,7 @@ warmup dominates; not a steady-state concern).
 | `EvictBodyIndex` reducing 5 000 → 4 500 rows | <500ms p95 |
 | `PurgeBodyIndex` from 5 000 rows | <1 s p95 |
 | `inkwell index rebuild` rebuilding 500 cached bodies from `bodies` | <5 s end-to-end (matches the default `[cache].body_cache_max_count`) |
-| Cold-start overhead of `[body_index].enabled = true` | <50 ms added to TUI cold start (CLAUDE.md §6: 500 ms total) |
+| Cold-start overhead of `[body_index].enabled = true` | <50 ms added to TUI cold start (`docs/CONVENTIONS.md` §6: 500 ms total) |
 
 Sanity check: on the **default config**
 (`max_count = 5 000`, `max_bytes = 500 MB`), 5 000 bodies × 4 KB
@@ -1529,11 +1529,11 @@ that range.
 | `docs/user/how-to.md` | New recipe: "Search inside bodies (and with regex)." |
 | `docs/user/tutorial.md` | **Skip** — first-30-minutes path unchanged. |
 | `docs/user/explanation.md` | **Skip** — design invariant unchanged. |
-| `docs/plans/spec-35.md` | Tracking note (CLAUDE.md §13) created at draft time; finalised at ship. |
+| `docs/plans/spec-35.md` | Tracking note (`docs/CONVENTIONS.md` §13) created at draft time; finalised at ship. |
 | `README.md` | Status table — new row for body index at ship. |
 | `internal/store/AGENTS.md` | Invariant 1 amended per §6.2. |
 
-### 15.2 Mechanical reference-check (CLAUDE.md §12.6)
+### 15.2 Mechanical reference-check (`docs/CONVENTIONS.md` §12.6)
 
 This spec introduces:
 - A new pattern AST shape (`/.../` regex form) — `reference.md`
@@ -1552,7 +1552,7 @@ bindings are unaffected.
 
 ## 16. Definition of done
 
-**Spec content (CLAUDE.md §11)**
+**Spec content (`docs/CONVENTIONS.md` §11)**
 - [ ] Which Graph scope(s)? `Mail.Read` only (existing). In PRD §3.1.
 - [ ] What state does it read from / write to in `store`? Reads
       `bodies` for backfill; writes `body_text` + FTS5 companions.
@@ -1577,7 +1577,7 @@ bindings are unaffected.
 - [ ] `go test -tags=integration ./...`
 - [ ] `go test -tags=e2e ./...`
 - [ ] Every perf budget in §14 has a benchmark; passes within
-      budget on dev machine (>50 % over fails per CLAUDE.md §5.2).
+      budget on dev machine (>50 % over fails per `docs/CONVENTIONS.md` §5.2).
 - [ ] Redaction tests cover the indexer and CLI sites (§13.4),
       plus `HashMessageID` (§8.5).
 - [ ] Schema-version regression test sites updated
@@ -1592,7 +1592,7 @@ bindings are unaffected.
       annotations.
 
 **Docs**
-- [ ] CLAUDE.md §12.6 doc-sweep table run in full. Every file in
+- [ ] `docs/CONVENTIONS.md` §12.6 doc-sweep table run in full. Every file in
       §15.1 updated in the same PR (or the immediately-following
       commit if the tag went out first).
 - [ ] `internal/store/AGENTS.md` invariant 1 amended (§6.2).
@@ -1602,7 +1602,7 @@ bindings are unaffected.
 ## 17. Out of scope
 
 - Custom FTS5 tokenizers, `sqlite-regex` loadable extension, any
-  CGO dependency. Pure-Go invariant (CLAUDE.md §1) holds.
+  CGO dependency. Pure-Go invariant (`docs/CONVENTIONS.md` §1) holds.
 - Indexing the raw RFC 5322 header block locally. `~h` continues
   to route through Graph `$search`.
 - Backfilling bodies that have never been fetched (would require

@@ -263,8 +263,13 @@ so this is only useful where Conditional Access is permissive.
 
 Jumping into the codebase? Read these in order:
 
-- [`CLAUDE.md`](CLAUDE.md) — non-negotiable conventions, layering
-  rules, the ralph loop discipline, mandatory test commands.
+- [`AGENTS.md`](AGENTS.md) — agent / contributor entry point; source-
+  of-truth table; workflow summary; quick-reference commands.
+  (`CLAUDE.md` is a symlink to this file.)
+- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — long-form repo
+  conventions with stable `§N` anchors: stack invariants, layering,
+  test architecture, perf budgets, privacy, the ralph loop,
+  definition-of-done, common review findings.
 - [`docs/PRD.md`](docs/PRD.md) — product scope, granted vs denied
   Graph permissions, success criteria.
 - [`docs/ARCH.md`](docs/ARCH.md) — system architecture, layering,

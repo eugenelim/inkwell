@@ -448,11 +448,11 @@ For `m` (post-MVP): the existing keymap binds `m` to `move` in the list pane. We
 | Local optimistic insert                                | <10ms          |
 | Graph round-trip (createReply → PATCH body)            | <2s p95        |
 
-Benchmarks: `BenchmarkSkeletonReplyLargeQuote`, `BenchmarkParseLargeDraft`. Both live in `internal/compose/` and are gated per CLAUDE.md §5.2 (fail at >50% over budget).
+Benchmarks: `BenchmarkSkeletonReplyLargeQuote`, `BenchmarkParseLargeDraft`. Both live in `internal/compose/` and are gated per `docs/CONVENTIONS.md` §5.2 (fail at >50% over budget).
 
 ---
 
-## 13. Cross-cutting checklist (CLAUDE.md §11)
+## 13. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [x] Scopes used: `Mail.ReadWrite` only. No `Mail.Send`. Lint guard added.
 - [x] Store reads/writes: `messages` (insert local draft), `actions` (enqueue create_draft_*), `compose_sessions` (new table).

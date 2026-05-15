@@ -122,7 +122,7 @@ implementation iterations.
 - Next: schedule iter 1 as the first implementation slice — the
   `012_tab_order.sql` migration plus `store.ListTabs` /
   `SetTabOrder` / `ReindexTabs` / `ApplyTabOrder` with unit tests
-  (CLAUDE.md §12.2 phase 2: smallest runnable slice). No UI yet.
+  (`docs/CONVENTIONS.md` §12.2 phase 2: smallest runnable slice). No UI yet.
 
 ### Iter 1 — 2026-05-07 (implementation + ship)
 - Slice: full implementation — all DoD bullets delivered.

@@ -796,7 +796,7 @@ the user starts admitting senders. Spec 28 therefore wraps the
 flip with a confirmation gate so the surprise can never happen
 silently.
 
-**Mechanism — first-launch detection** (CLAUDE.md §9: "No hot
+**Mechanism — first-launch detection** (`docs/CONVENTIONS.md` §9: "No hot
 reload. Config changes require restart"). The TUI does not
 implement runtime config reload, so the modal fires at *launch
 time* immediately after `ui.New(deps)` materialises the model,
@@ -942,7 +942,7 @@ is unbound).
 - Defaults: `ScreenerAccept: key.NewBinding(key.WithKeys("Y"))`,
   `ScreenerReject: key.NewBinding(key.WithKeys("N"))`.
 
-**`config.BindingsConfig` plumbing.** Per CLAUDE.md §9, every
+**`config.BindingsConfig` plumbing.** Per `docs/CONVENTIONS.md` §9, every
 new binding key has an entry in `internal/config/config.go`
 (`BindingsConfig` struct field with TOML tag) and a default in
 `internal/config/defaults.go`. Add:
@@ -1016,7 +1016,7 @@ When `[screener].enabled = true`, the TUI's normal folder views
 with `ApplyScreenerFilter: true`. This hides Pending and
 Screened mail from the default Inbox view — the gate fires.
 
-**Materialisation in `Model`** (load-time only — CLAUDE.md §9
+**Materialisation in `Model`** (load-time only — `docs/CONVENTIONS.md` §9
 mandates no hot reload; config changes require restart). The
 Model carries `screenerEnabled bool`, `screenerGrouping string`,
 `screenerExcludeMuted bool`, and `screenerMaxCountPerSender int`
@@ -1047,7 +1047,7 @@ filter, and CLI paths are NOT affected, per §4.2):
 The TUI never reads the config flag at dispatch time. The filter
 value is materialised into the `Model` once at boot — same
 pattern as `[ui].show_routing_indicator` and other UI flags
-(CLAUDE.md §9: config changes require restart).
+(`docs/CONVENTIONS.md` §9: config changes require restart).
 
 **Counts on Inbox / Sent / Archive entries** in the sidebar
 remain Graph's authoritative counts (spec 19 §5.6 precedent).
@@ -1123,7 +1123,7 @@ verbatim — see `internal/ui/palette_commands.go::Available`
 combinator that ANDs `hasFrom` and `storeAvail`. The focused
 sender's routing state is **not** checked at palette-open time
 — doing so would require a synchronous SQLite probe inside the
-UI goroutine, violating CLAUDE.md §3 invariant 2 ("UI never
+UI goroutine, violating `docs/CONVENTIONS.md` §3 invariant 2 ("UI never
 blocks on I/O"). The palette therefore surfaces the verb
 whenever a message is focused; `routeCmd` itself is the no-op-
 friendly path (an already-Imbox sender short-circuits to an
@@ -1417,7 +1417,7 @@ spec 23 sidebar refresh path is one query; spec 28 adds one more
   `messages` and `sender_routing`; the Screener queue surfaces
   the latest subject (already in `messages.subject`). The
   redaction handler at `internal/log/redact.go` already scrubs
-  email addresses → `<email-N>` (CLAUDE.md §7 rule 3) and
+  email addresses → `<email-N>` (`docs/CONVENTIONS.md` §7 rule 3) and
   subject lines outside DEBUG; new log sites must opt into both.
 - **Toast vs. log boundary.** Toasts show literal addresses (UI-
   only path, not logged — matches spec 23 §5.6). Error toasts
@@ -1489,7 +1489,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       `ui.New(deps)`: `screenerEnabled bool`,
       `screenerGrouping string`, `screenerExcludeMuted bool`,
       `screenerMaxCountPerSender int`. The TUI never reads
-      `cfg.Screener` outside this site (CLAUDE.md §9: no hot
+      `cfg.Screener` outside this site (`docs/CONVENTIONS.md` §9: no hot
       reload). The §5.3.1 confirmation modal may override
       `m.screenerEnabled` to `false` for the session before the
       first list-pane render. `TestScreenerConfigBootMaterialisesModelFields`
@@ -1558,7 +1558,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       `MetaData` round-trip or, simpler, a `[ui]`-section
       append-or-replace), and writes atomically (temp file +
       rename, mode `0600` matching the rest of inkwell's
-      privacy posture per CLAUDE.md §7). Cover with
+      privacy posture per `docs/CONVENTIONS.md` §7). Cover with
       `TestWriteUIFlagAtomicReplaceExistingKey`,
       `TestWriteUIFlagAtomicAppendNewKey`,
       `TestWriteUIFlagPreservesOtherSections`, and
@@ -1792,7 +1792,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
     `BenchmarkCountScreenedOutMessages`,
     `BenchmarkSidebarStreamsRefreshWithScreener`.
 
-## 11. Cross-cutting checklist (CLAUDE.md §11)
+## 11. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [ ] **Scopes:** none new (`Mail.Read`, `Mail.ReadWrite` already
       in PRD §3.1; spec 28 is local-only and makes no Graph
@@ -1826,7 +1826,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
 - [ ] **Logs:** new log sites at DEBUG with destination
       decisions and **scrubbed** address markers (`<email-N>`).
       Never log raw `from_address` or subject lines outside
-      DEBUG (spec 17 / CLAUDE.md §7 rule 3). Spec 17 redaction
+      DEBUG (spec 17 / `docs/CONVENTIONS.md` §7 rule 3). Spec 17 redaction
       regex already catches these; verify by adding a redaction
       test for `routeCmd` log output emitted from the screener-
       pane dispatch.
@@ -1835,7 +1835,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
 - [ ] **Tests:** §10 test list. All four layers (unit, race-
       enabled `go test ./...`, `go test -tags=integration`,
       `go test -tags=e2e`, plus `go test -bench=. -benchmem
-      -run=^$ ./...`) green per CLAUDE.md §5.6.
+      -run=^$ ./...`) green per `docs/CONVENTIONS.md` §5.6.
 - [ ] **Spec 11 consistency:** Screener virtual folder is a
       sentinel sidebar item (spec 23 pattern), not a saved
       search row. `dd` in the saved-search row deletes a saved

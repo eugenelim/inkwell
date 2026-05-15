@@ -39,7 +39,7 @@ sequence = [{ op = "mark_read" }, { op = "archive" }]
 	require.NotEmpty(t, logs)
 	for _, leak := range []string{"alice@news.example", "URGENT MEETING", "m-2026-test-001"} {
 		require.False(t, strings.Contains(logs, leak),
-			"log output must not contain %q (PII per CLAUDE.md §7.3)\n--- log ---\n%s\n", leak, logs)
+			"log output must not contain %q (PII per `docs/CONVENTIONS.md` §7.3)\n--- log ---\n%s\n", leak, logs)
 	}
 }
 

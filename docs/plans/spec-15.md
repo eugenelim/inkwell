@@ -567,7 +567,7 @@ reply-all/forward/new (PR 7-iii), crash-recovery `compose_sessions`
   - Press `s` to open in Outlook via the OS handler (`open` on macOS, `xdg-open` on Linux). Best-effort; failure is silent because the user has the URL on the status bar and can copy it.
   - `r` in the viewer maps to KeyMap.MarkRead binding (which is `r`). The pane-scoped resolution per CLAUDE.md handles this: list-pane `r` = mark-read, viewer-pane `r` = reply. Both code paths consult `m.deps.Drafts` to decide; nil-Drafts means we surface a friendly error rather than crashing.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: `Mail.ReadWrite` (already in PRD §3.1). `Mail.Send` REMAINS DENIED — inkwell never sends.
 - [x] Store reads/writes: messages (read for skeleton). The created draft is NOT inserted locally; the next sync cycle pulls it back via the Drafts folder's delta.
 - [x] Graph endpoints: `POST /me/messages/{id}/createReply`, `PATCH /me/messages/{id}`.

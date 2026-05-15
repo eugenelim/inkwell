@@ -93,7 +93,7 @@ govulncheck wired; `make sec` chain; SECURITY.md placeholder;
 Govulncheck went red on `main` after the v0.12.0 tag — go.mod said
 `go 1.25.0`; setup-go honoured that exact version; Go 1.25.0 had 17
 stdlib CVEs. Fix: bumped to `go 1.25.3` + workflows pin
-`go-version: 1.25.x` with `check-latest: true`. CLAUDE.md §10
+`go-version: 1.25.x` with `check-latest: true`. `docs/CONVENTIONS.md` §10
 gained a new "always check CI" bullet so future shipping habits
 include `gh run list` + `gh run view --log-failed`.
 
@@ -196,7 +196,7 @@ include `gh run list` + `gh run view --log-failed`.
   `filepath.Base` guarantees but gives a belt-and-suspenders for any
   future caller that passes a pre-cleaned name.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: none new. This spec is hardening; no Graph
       surface change.
 - [x] Store reads/writes: `SetUnsubscribe` from spec 16 is the
@@ -216,4 +216,4 @@ include `gh run list` + `gh run view --log-failed`.
       tracked in DoD checklist.
 - [x] **Spec 17 self-review:** this spec IS the cross-cutting
       requirement. Every future spec must review THREAT_MODEL.md
-      and PRIVACY.md per CLAUDE.md §11.
+      and PRIVACY.md per `docs/CONVENTIONS.md` §11.

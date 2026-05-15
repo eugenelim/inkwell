@@ -7,7 +7,7 @@ description: Use this skill when the user wants to start a new feature with a sp
 
 Create a new feature spec under `docs/specs/NN-<title>.md` AND the
 corresponding tracking note at `docs/plans/spec-NN.md` together. Both
-files are mandatory per CLAUDE.md §13 — the plan must exist *with*
+files are mandatory per `docs/CONVENTIONS.md` §13 — the plan must exist *with*
 the spec, not added later.
 
 ## When to invoke
@@ -23,7 +23,7 @@ Don't use for:
 - **Cross-cutting design decisions** with alternatives — use ADRs:
   add a file under `docs/adr/` based on `docs/adr/_template.md`.
 - **Documentation-only updates** — those don't need a spec.
-- **Bug fixes** — open a PR with a regression test; CLAUDE.md §5.7
+- **Bug fixes** — open a PR with a regression test; `docs/CONVENTIONS.md` §5.7
   says "write the regression test BEFORE the fix lands in the same
   commit."
 
@@ -82,7 +82,7 @@ Don't use for:
      under 1KB" is.
    - Non-goals are mandatory — at least two. Specs without
      explicit non-goals get scope-crept.
-   - Each perf budget row needs a benchmark (CLAUDE.md §5.6).
+   - Each perf budget row needs a benchmark (`docs/CONVENTIONS.md` §5.6).
    - Spec 17 impact line: token handling? file I/O? subprocess?
      HTTP? SQL? cryptographic primitive? If yes, update
      `docs/THREAT_MODEL.md` / `docs/PRIVACY.md` *in the same PR*.
@@ -107,6 +107,6 @@ Don't use for:
 ## After the skill runs
 
 Open the new `docs/specs/NN-<title>.md` and walk the user through
-filling it in. The spec is the input to the ralph loop (CLAUDE.md
+filling it in. The spec is the input to the ralph loop (`docs/CONVENTIONS.md`
 §12) — once it's coherent, you can hand it to the loop and let it
 drive the implementation iteration by iteration.

@@ -231,7 +231,7 @@ TwoStage (PR 9, v0.18.x).
   - `~m folder/path` accepts the path string but the local evaluator currently matches against `folder_id` directly (since messages don't carry the path). Bulk-ops UX (spec 10) will resolve the path → folder ID at compile time before running this evaluator.
   - `~G category` emits `categories LIKE %name%` against the JSON-serialised array. Cheap and correct for short category names; falls down for category names that share substrings (e.g. "Work" vs "Workshop"). Acceptable for v0.5.0; revisit when categories become a hot path.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: none in this spec — pattern is pure compute.
 - [x] Store reads/writes: none directly. The evaluator emits SQL fragments the caller embeds in their own query.
 - [x] Graph endpoints: none in this iter. Server-side evaluators land later.

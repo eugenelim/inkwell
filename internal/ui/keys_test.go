@@ -91,7 +91,7 @@ func TestApplyBindingOverridesRejectsDuplicates(t *testing.T) {
 }
 
 // TestApplyBindingOverridesAllowsPaneScopedDuplicates is the
-// CLAUDE.md §4 invariant: pane-scoped meanings legitimately share
+// `docs/CONVENTIONS.md` §4 invariant: pane-scoped meanings legitimately share
 // a key (e.g. `r` is reply in viewer + mark-read in list — same
 // MarkRead binding, different runtime dispatch). The duplicate-
 // detector must NOT flag these.

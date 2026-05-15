@@ -8,7 +8,7 @@ import (
 // graphPredicatesFromStore converts the store-layer typed predicates
 // (no graph import) into the graph-package types for serialisation.
 // Predicates and actions are duplicated between packages because per
-// CLAUDE.md §2 layering store and graph are sibling lower-tier
+// `docs/CONVENTIONS.md` §2 layering store and graph are sibling lower-tier
 // packages and cannot import each other; this package, as a mid-tier
 // consumer, owns the conversion.
 func graphPredicatesFromStore(p store.MessagePredicates) *graph.MessageRulePredicates {

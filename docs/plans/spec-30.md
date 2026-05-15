@@ -159,7 +159,7 @@ done
 - [ ] `docs/ROADMAP.md` §0 Bucket 3 / §1.23 status updated at
       ship time.
 - [ ] `README.md` status table row at ship time.
-- [ ] PR checklist (CLAUDE.md §11) ticked.
+- [ ] PR checklist (`docs/CONVENTIONS.md` §11) ticked.
 
 ## Perf budgets
 

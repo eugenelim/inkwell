@@ -8,7 +8,7 @@ import (
 
 // graphBodyFetcher is the production [BodyFetcher] adapter that calls
 // graph.Client.GetMessageBody. The render package is the consumer side
-// of the dependency (CLAUDE.md §2: render → graph is allowed; the
+// of the dependency (`docs/CONVENTIONS.md` §2: render → graph is allowed; the
 // reverse would be a violation).
 type graphBodyFetcher struct {
 	gc *graph.Client

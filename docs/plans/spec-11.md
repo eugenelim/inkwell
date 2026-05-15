@@ -91,7 +91,7 @@ done (B-1: Manager API + sidebar counts + :rule CRUD + seed defaults; B-2: edit 
   - ctrl+t chosen over `t` to avoid conflict with text field typing.
 - Next: done.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: Mail.Read (existing).
 - [x] Store reads/writes: messages (read via SearchByPredicate from the existing :filter path); saved_searches table (CRUD via Manager).
 - [x] Graph endpoints: none directly. Pattern eval is local-only.

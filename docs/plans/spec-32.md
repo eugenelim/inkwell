@@ -337,7 +337,7 @@ surface for v1.
     in this iteration.
   - The §13 redaction tests for rule display-name scrubbing are
     deferred — `display_name` is structured-logged via `slog`
-    attributes, so the existing email-regex redactor (CLAUDE.md
+    attributes, so the existing email-regex redactor (`docs/CONVENTIONS.md`
     §7 rule 3) applies, but explicit assertion tests for the
     rule path are a follow-up.
 - Result: spec shipped at v0.61.0.

@@ -1,6 +1,6 @@
 # internal/auth — AGENTS.md
 
-Package-specific contract. Read the root `AGENTS.md` first for repo-wide
+Package-specific contract. Read the root `AGENTS.md` (entry point) and `docs/CONVENTIONS.md` (long-form rules, §-numbered) first for repo-wide
 conventions; this file only spells out what's different about `auth`.
 
 ## What this package is
@@ -38,7 +38,7 @@ OAuth 2.0 device-code flow and silent token refresh.
 - `Source` returns a refreshing token source for the `*http.Client`
   in `internal/graph`.
 - Sign-out clears Keychain entries AND invalidates the in-memory
-  cache; partial sign-out is a known failure mode (root §7).
+  cache; partial sign-out is a known failure mode (`docs/CONVENTIONS.md` §7).
 
 ## Testing
 
@@ -48,7 +48,7 @@ OAuth 2.0 device-code flow and silent token refresh.
 - Device-code flow is exercised against a fake MSAL endpoint
   (`httptest.Server` in `auth_test.go`).
 - Privacy guard: `privacy_test.go` enforces that no real domain or
-  tenant ID appears in test fixtures (root §7 invariant 1).
+  tenant ID appears in test fixtures (`docs/CONVENTIONS.md` §7 invariant 1).
 - Redaction tests cover every log site in this package — adding a
   log call without a matching redaction test fails CI.
 

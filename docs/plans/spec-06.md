@@ -226,7 +226,7 @@ streaming hybrid search + graph $search + field-prefix + UI streaming (Iter 2).
   - No highlighting — the matched terms aren't visibly bold in the list. Cosmetic, defer.
   - The list pane reuses ListModel which has the load-more pre-fetch logic — pagination is suppressed during search (correct: the FTS limit is fixed at 200).
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: Mail.Read (already in PRD §3.1).
 - [x] Store reads/writes: messages_fts (read), no writes.
 - [x] Graph endpoints: none in v0.4.0 (local-only). Server $search lands later.

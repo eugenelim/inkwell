@@ -137,7 +137,7 @@ Mirrors `docs/specs/28-screener.md` §10. Tick as work lands.
 - [ ] `README.md` status table row.
 - [ ] Tests per §10 (store, pattern, UI dispatch / e2e, CLI,
       redaction, benchmarks). All four layers green per
-      CLAUDE.md §5.6.
+      `docs/CONVENTIONS.md` §5.6.
 
 ## Perf budgets
 
@@ -277,7 +277,7 @@ Mirrors `docs/specs/28-screener.md` §8.
   (`ApplyScreenerFilter` field + the four new store methods +
   their tests), then the pattern-parser alias, then the UI
   / palette wiring, then the CLI. Each landing in a separate
-  commit per CLAUDE.md §10.
+  commit per `docs/CONVENTIONS.md` §10.
 
 ### Iter 1 — 2026-05-08 — additional adversarial review
 
@@ -316,7 +316,7 @@ Mirrors `docs/specs/28-screener.md` §8.
     palette gate-off title). All applied.
   - Pass D (post-fix verification): found 1 CRITICAL — §5.3.1
     wired the modal to a fictional `:reload-config` /
-    `configReloadedMsg` that violates CLAUDE.md §9 ("no hot
+    `configReloadedMsg` that violates `docs/CONVENTIONS.md` §9 ("no hot
     reload"). Reframed as first-launch detection using a new
     `[ui].screener_last_seen_enabled` marker; §5.5
     materialisation reduced to load-time only; tests

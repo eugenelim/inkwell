@@ -12,8 +12,9 @@ Four sections, each answering a different kind of question:
 | [`reference.md`](reference.md)     | "What does this key do?"      | Quick lookup. Exhaustive tables.         |
 | [`explanation.md`](explanation.md) | "Why does it work like this?" | Curious about design, privacy, scope.    |
 
-If you're contributing to inkwell, read the repo `README.md` and
-`CLAUDE.md` first.
+If you're contributing to inkwell, read the repo `README.md`,
+`AGENTS.md` (agent/contributor entry point), and
+`docs/CONVENTIONS.md` (long-form rules) first.
 
 ---
 

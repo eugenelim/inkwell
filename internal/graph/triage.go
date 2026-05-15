@@ -37,7 +37,7 @@ func (c *Client) PatchMessage(ctx context.Context, id string, payload map[string
 //
 // Returns nil on 204 No Content (the canonical success). 404 is
 // also treated as success: the message is already gone, which is
-// the user's intent (CLAUDE.md §3 idempotency invariant).
+// the user's intent (`docs/CONVENTIONS.md` §3 idempotency invariant).
 func (c *Client) PermanentDelete(ctx context.Context, id string) error {
 	url := "/me/messages/" + id + "/permanentDelete"
 	resp, err := c.Do(ctx, http.MethodPost, url, nil, nil)

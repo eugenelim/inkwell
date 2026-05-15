@@ -186,7 +186,7 @@ func (c *Client) UpdateMessageRule(ctx context.Context, ruleID string, body json
 }
 
 // DeleteMessageRule deletes a rule by ID. 404 is treated as success
-// (idempotent per CLAUDE.md §3).
+// (idempotent per `docs/CONVENTIONS.md` §3).
 func (c *Client) DeleteMessageRule(ctx context.Context, ruleID string) error {
 	resp, err := c.Do(ctx, http.MethodDelete, messageRulesPath+"/"+ruleID, nil, nil)
 	if err != nil {

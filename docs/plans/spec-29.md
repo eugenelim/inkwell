@@ -60,12 +60,12 @@ Mirrors `docs/specs/29-watch-mode.md` §9. Tick as work lands.
         (`TestWatchNoSyncAgainstRealStore`,
         `TestWatchEngineStartedAgainstRecordedGraph`,
         `TestWatchSurvivesStoreReadFailureMidLoop`).
-- [ ] All five mandatory commands (CLAUDE.md §5.6) green:
+- [ ] All five mandatory commands (`docs/CONVENTIONS.md` §5.6) green:
       `gofmt -s`, `go vet`, `go test -race`, `go test -tags=e2e`
       (existing TUI suite must remain green; spec 29 adds no e2e),
       `go test -tags=integration`,
       `go test -bench=. -benchmem -run=^$`.
-- [ ] **Doc sweep (CLAUDE.md §12.6)**:
+- [ ] **Doc sweep (`docs/CONVENTIONS.md` §12.6)**:
   - [ ] `docs/specs/29-watch-mode.md` carries a
         `**Shipped:** vX.Y.Z` line at the top once shipped.
   - [ ] `docs/plans/spec-29.md` (this file) has `Status: done`
@@ -246,7 +246,7 @@ Mirrors `docs/specs/29-watch-mode.md` §9. Tick as work lands.
     syncer (TUI or daemon) plus N watches with `--no-sync`.
   - **Privacy:** stdout is the user's terminal/pipe, like every
     other CLI command. Redirection to disk is documented with a
-    `umask 077` recommendation; CLAUDE.md §7 rule 1's "no mail
+    `umask 077` recommendation; `docs/CONVENTIONS.md` §7 rule 1's "no mail
     content leaves `~/`" is preserved (a redirected file inside
     `~/` complies).
 - Result: `docs/specs/29-watch-mode.md` ready for implementation.

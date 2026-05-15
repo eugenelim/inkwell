@@ -1,7 +1,7 @@
 # Spec 05 — Message Rendering
 
 ## Status
-done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
+done. All DoD bullets shipped. Manual viewer smoke deferred per `docs/CONVENTIONS.md` §5.5.
 
 ## DoD checklist
 - [x] Headers render with proper truncation (3 visible recipients + "(N more)").
@@ -66,7 +66,7 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
   and waits for `hello world` in the output.
 - Whole-tree race + e2e green.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes: `Mail.Read` (already in PRD §3.1) for the body fetch,
       via `graph.Client.GetMessageBody`.
 - [x] Store reads/writes: `GetBody` / `PutBody` / `TouchBody` for tier-2
@@ -383,7 +383,7 @@ done. All DoD bullets shipped. Manual viewer smoke deferred per CLAUDE.md §5.5.
   - `golang.org/x/net v0.53.0` is already in `go.mod` as an indirect
     dep, so importing `golang.org/x/net/html` only promotes it to
     direct (no new module, no `go.sum` line drift). Still warrants
-    its own `go mod tidy` commit per CLAUDE.md §10.
+    its own `go mod tidy` commit per `docs/CONVENTIONS.md` §10.
 - Commands run: none (no code changes this iter; spec + fixtures only).
 - Next: implementation iter — `internal/render/htmltable.go` with the
   classifier + width estimator + rewrite, `htmltable_test.go` driving

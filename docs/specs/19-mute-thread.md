@@ -119,7 +119,7 @@ CREATE INDEX idx_muted_conv_account ON muted_conversations(account_id);
 MuteConversation(ctx context.Context, accountID int64, conversationID string) error
 
 // UnmuteConversation removes the muted_conversations row.
-// No-op if not muted (idempotent per CLAUDE.md §3 invariant).
+// No-op if not muted (idempotent per `docs/CONVENTIONS.md` §3 invariant).
 UnmuteConversation(ctx context.Context, accountID int64, conversationID string) error
 
 // IsConversationMuted returns true if the conversation is muted
@@ -281,7 +281,7 @@ then `received_at DESC` within each conversation group.
 | DB error  | `mute failed: <error>`                         |
 
 The subject in the toast is the `subject` field of the focused
-message. Per ARCH §12 / CLAUDE.md §7 rule 3, subject lines must
+message. Per ARCH §12 / `docs/CONVENTIONS.md` §7 rule 3, subject lines must
 **not** appear in log output outside DEBUG level. The toast is
 terminal UI only and is not logged.
 

@@ -2,7 +2,7 @@
 // redaction handler that scrubs secrets, message bodies, and PII before
 // any log line is emitted.
 //
-// Redaction is mandatory (CLAUDE.md §7, ARCH §12). Construct loggers via
+// Redaction is mandatory (`docs/CONVENTIONS.md` §7, ARCH §12). Construct loggers via
 // [New]; do not configure slog directly elsewhere in the codebase.
 package log
 
@@ -92,7 +92,7 @@ type Options struct {
 }
 
 // New returns a slog.Logger that writes to w, scrubbing secrets, bodies,
-// and PII per CLAUDE.md §7.
+// and PII per `docs/CONVENTIONS.md` §7.
 func New(w io.Writer, opts Options) *slog.Logger {
 	base := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: opts.Level})
 	return slog.New(&redactor{

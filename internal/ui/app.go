@@ -25,7 +25,7 @@ import (
 )
 
 // Authenticator is the auth surface the UI consumes. Defined here so
-// the UI does not import internal/auth's full surface (CLAUDE.md §2).
+// the UI does not import internal/auth's full surface (`docs/CONVENTIONS.md` §2).
 type Authenticator interface {
 	Account() (upn, tenantID string, signedIn bool)
 }
@@ -54,7 +54,7 @@ type Engine interface {
 
 // TriageExecutor is the action surface the UI consumes for single-
 // message triage operations. Defined here at the consumer site so the
-// UI does not import internal/action's full surface (CLAUDE.md §2).
+// UI does not import internal/action's full surface (`docs/CONVENTIONS.md` §2).
 type TriageExecutor interface {
 	MarkRead(ctx context.Context, accountID int64, messageID string) error
 	MarkUnread(ctx context.Context, accountID int64, messageID string) error
@@ -420,7 +420,7 @@ type SavedSearch struct {
 }
 
 // SavedSearchService is the CRUD + count-refresh surface the UI consumes.
-// Defined here at the consumer site (CLAUDE.md §2 layering).
+// Defined here at the consumer site (`docs/CONVENTIONS.md` §2 layering).
 type SavedSearchService interface {
 	// Save creates or updates a saved search by name. Pattern is validated.
 	Save(ctx context.Context, name, pattern string, pinned bool) error
@@ -467,7 +467,7 @@ type CalendarFetcher interface {
 	// with its event navigation property expanded (spec 34). Returns
 	// nil when the message is not an invite or when the event field
 	// is elided by Graph. Returns *render.Invite (not *graph.EventMessage)
-	// so the UI keeps its no-graph-import discipline (CLAUDE.md §2):
+	// so the UI keeps its no-graph-import discipline (`docs/CONVENTIONS.md` §2):
 	// the calendarAdapter does the graph→render conversion via
 	// render.InviteFromGraph.
 	GetEventMessage(ctx context.Context, messageID string) (*render.Invite, error)
@@ -499,7 +499,7 @@ type MailboxClient interface {
 
 // DraftAttachmentRef is the UI-layer view of an attachment staged for
 // upload. Mirrors action.AttachmentRef; defined here so the UI
-// doesn't import internal/action (CLAUDE.md §2 layering).
+// doesn't import internal/action (`docs/CONVENTIONS.md` §2 layering).
 type DraftAttachmentRef struct {
 	LocalPath string
 	Name      string
@@ -550,7 +550,7 @@ type UnsubscribeAction struct {
 // UnsubscribeService is the surface the UI consumes for spec 16. The
 // wiring layer (cmd/inkwell) composes this from the store + graph
 // client + unsub.Executor; the UI never imports graph directly
-// (CLAUDE.md §2).
+// (`docs/CONVENTIONS.md` §2).
 type UnsubscribeService interface {
 	// Resolve returns the cached or freshly-fetched unsubscribe action
 	// for a message. The first call may make a Graph round-trip; the
@@ -600,7 +600,7 @@ type CalendarEventDetail struct {
 }
 
 // CalendarAttendee mirrors graph.EventAttendee at the consumer site
-// so the UI doesn't import internal/graph (CLAUDE.md §2).
+// so the UI doesn't import internal/graph (`docs/CONVENTIONS.md` §2).
 type CalendarAttendee struct {
 	Name    string
 	Address string
@@ -627,7 +627,7 @@ type PaneWidths struct {
 func DefaultPaneWidths() PaneWidths { return PaneWidths{Folders: 22, List: 56} }
 
 // Model is the root Bubble Tea model. Sub-models are value types
-// (CLAUDE.md §4); the entire tree round-trips through Update.
+// (`docs/CONVENTIONS.md` §4); the entire tree round-trips through Update.
 type Model struct {
 	deps Deps
 
@@ -895,12 +895,12 @@ type Model struct {
 
 	// Spec 30 — archive verb label. Set once at ui.New from
 	// cfg.UI.ArchiveLabel; never mutates over a session
-	// (CLAUDE.md §9: no hot reload). All format-time helpers in
+	// (`docs/CONVENTIONS.md` §9: no hot reload). All format-time helpers in
 	// internal/ui/labels.go consume this field.
 	archiveLabel ArchiveLabel
 
 	// Spec 28 — Screener mirror fields, materialised at boot from
-	// cfg.Screener (CLAUDE.md §9: no hot reload — config changes
+	// cfg.Screener (`docs/CONVENTIONS.md` §9: no hot reload — config changes
 	// require restart). The TUI never reads cfg.Screener outside
 	// ui.New; the §5.3.1 confirmation modal may override
 	// screenerEnabled to false for the session if the user picks N.
@@ -926,7 +926,7 @@ func New(deps Deps) (Model, error) {
 	if deps.Logger == nil {
 		// Required for redaction discipline; fail loudly rather than
 		// silently using slog.Default.
-		panic("ui.New: Logger is required (CLAUDE.md §7)")
+		panic("ui.New: Logger is required (`docs/CONVENTIONS.md` §7)")
 	}
 	upn := ""
 	tenant := ""
@@ -6232,7 +6232,7 @@ func (m Model) deleteStaleLocalRow(id string) tea.Cmd {
 
 // convertLinks translates render.ExtractedLink → ui.BodyLink. The
 // UI defines its own link type so messages.go doesn't import
-// internal/render (CLAUDE.md §2 layering).
+// internal/render (`docs/CONVENTIONS.md` §2 layering).
 func convertLinks(in []render.ExtractedLink) []BodyLink {
 	out := make([]BodyLink, len(in))
 	for i, l := range in {
@@ -6678,7 +6678,7 @@ func (m Model) saveAttachmentCmd(att store.Attachment) tea.Cmd {
 		}
 		// #nosec G306 — 0o600 is intentionally restrictive: attachment
 		// data is private mail content; world-readable would be a privacy
-		// leak (CLAUDE.md §7 rule 1). G304 suppressed by the safeAttachmentPath
+		// leak (`docs/CONVENTIONS.md` §7 rule 1). G304 suppressed by the safeAttachmentPath
 		// call above which verifies the path stays within saveDir.
 		if err := os.WriteFile(savePath, data, 0o600); err != nil {
 			return SaveAttachmentDoneMsg{Name: att.Name, Err: fmt.Errorf("write: %w", err)}

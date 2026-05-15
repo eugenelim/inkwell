@@ -113,7 +113,7 @@ func (c *Client) RenameFolder(ctx context.Context, folderID, displayName string)
 
 // DeleteFolder removes a folder server-side. Children + messages
 // cascade into Deleted Items recursively (Graph contract). Spec 18
-// §4. 404 is treated as success per the CLAUDE.md §3 idempotency
+// §4. 404 is treated as success per the `docs/CONVENTIONS.md` §3 idempotency
 // invariant: the user wanted the folder gone; Graph confirms it's
 // gone.
 func (c *Client) DeleteFolder(ctx context.Context, folderID string) error {

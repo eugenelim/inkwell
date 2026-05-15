@@ -1,7 +1,7 @@
 # inkwell testing standards
 
 The single source of truth for how tests are written, named, organised,
-and run in this repo. CLAUDE.md §5 references this document; if the
+and run in this repo. `docs/CONVENTIONS.md` §5 references this document; if the
 two ever conflict, this one wins (the spirit of §5 stays — the
 mechanics live here).
 
@@ -36,7 +36,7 @@ signal. Mixing the two in one test is fine.
 | TUI end-to-end       | `*_e2e_test.go`           | `e2e`           | Bubble Tea program driven via teatest. Visible-delta assertions only.                         |
 | Benchmark            | `*_test.go` (`Benchmark`) | none, `-run=^$` | Per-budget gates from PRD §7 / per-spec §"Performance budgets".                               |
 
-Run them with `make regress`. Adding a new layer is a CLAUDE.md change.
+Run them with `make regress`. Adding a new layer is a `docs/CONVENTIONS.md` §5 change.
 
 ---
 
@@ -202,7 +202,7 @@ Two tiers:
    assert on the rendered framebuffer. Use this for "does pressing X
    make Y visible".
 
-Per CLAUDE.md §5.4: every keymap binding gets at least one dispatch
+Per `docs/CONVENTIONS.md` §5.4: every keymap binding gets at least one dispatch
 test; every visible state transition gets at least one visible-delta
 test.
 
@@ -234,7 +234,7 @@ go test -race -coverpkg=./internal/... -coverprofile=cover.out ./internal/...
 go tool cover -func=cover.out
 ```
 
-CLAUDE.md §5.1 sets the floor at 80% for `store`, `graph`, `pattern`,
+`docs/CONVENTIONS.md` §5.1 sets the floor at 80% for `store`, `graph`, `pattern`,
 `auth`, `sync`. UI/CLI coverage is measured but not gated — the e2e
 suite covers UI behaviour in a way line coverage doesn't capture.
 
@@ -268,7 +268,7 @@ func TestSomethingThatTakes30s(t *testing.T) {
 
 ---
 
-## 6. The regression-test discipline (CLAUDE.md §5.7)
+## 6. The regression-test discipline (`docs/CONVENTIONS.md` §5.7)
 
 Every user-reported bug ships with its regression test in the same
 commit, written **before** the fix. If you can't write the test, you
@@ -287,6 +287,6 @@ This is how the bug stays fixed.
 | `make test-e2e`        | `go test -tags=e2e ./...` — TUI visible-delta.                              |
 | `make test-bench`      | Benchmarks without race.                                                    |
 | `make test-short`      | Race tests with `-short` (skips long ones).                                 |
-| `make regress`         | Every gate from CLAUDE.md §5.6 in order. **Mandatory before any tag.**      |
+| `make regress`         | Every gate from `docs/CONVENTIONS.md` §5.6 in order. **Mandatory before any tag.**      |
 
 `make regress` is the contract. If it's red, nothing ships.

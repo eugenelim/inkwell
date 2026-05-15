@@ -262,7 +262,7 @@ permanent_delete (PR 4a), categories (PR 4b), move-with-picker (PR 4c).
   - Test execution time of 32s is dominated by graph client retry-backoff in the rollback test (403 with mocked retry). Acceptable for this iter; consider injecting a no-retry option for tests in a follow-up.
   - Categorize / move-with-picker / permanent-delete intentionally deferred — they each need a modal/picker UI surface that's out of scope for v0.3.0.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: `Mail.ReadWrite` (already in PRD §3.1; no new scope).
 - [x] Store reads/writes: messages (UpdateMessageFields), actions (Enqueue/Update/PendingActions).
 - [x] Graph endpoints: `PATCH /me/messages/{id}`, `POST /me/messages/{id}/move`.

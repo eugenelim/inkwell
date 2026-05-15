@@ -339,7 +339,7 @@ func copyMap(m map[string]any) map[string]any {
 }
 
 // logStart / logResolveFailed / logDone emit the §7 INFO/WARN lines.
-// All of them avoid From / Subject / MessageID (PII per CLAUDE.md §7.3).
+// All of them avoid From / Subject / MessageID (PII per `docs/CONVENTIONS.md` §7.3).
 func logStart(deps ExecDeps, a *Action, msg *Context) {
 	if deps.Logger == nil {
 		return

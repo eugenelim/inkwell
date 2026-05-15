@@ -38,7 +38,7 @@ palette wiring are small.
 > the reasoning: (1) chord-key bindings (multi-key like `<C-x> n`) are
 > deferred — v1.1 supports single-key bindings only because spec 20's
 > chord state is per-feature bools, not a generalised mode (§4.6,
-> §12); (2) `:actions reload` is deferred — CLAUDE.md §9 forbids hot
+> §12); (2) `:actions reload` is deferred — `docs/CONVENTIONS.md` §9 forbids hot
 > reload, and only an explicit CLAUDE.md amendment can grant the
 > exception (§4.10, §12); (3) the confirm-modal pre-flight count for
 > `*_filtered` ops is deferred until `BulkExecutor` grows an
@@ -126,7 +126,7 @@ files, ROADMAP §2.6).
   action enqueues the same `store.Action` record a single key would
   enqueue today. There is no new action type, no new store column,
   no new Graph endpoint. The optimistic-write / reconcile semantics
-  (CLAUDE.md §3.3, ARCH §6) hold per-step.
+  (`docs/CONVENTIONS.md` §3.3, ARCH §6) hold per-step.
 - **Undo stack (spec 07) is unchanged.** A custom action that
   invokes N **action-queue-routed** steps pushes N undo records, in
   dispatch order. A single `u` reverses the **last** queued step.
@@ -281,7 +281,7 @@ Concretely:
 - **TOML config in `~/.config/inkwell/actions.toml`.** Co-resident
   with `saved_searches.toml` (spec 11 §11). `[[custom_action]]`
   array of tables; the file is reloaded at startup only (no hot
-  reload — CLAUDE.md §9). The path is overridable via
+  reload — `docs/CONVENTIONS.md` §9). The path is overridable via
   `[custom_actions].file` for users who want it co-located with the
   main config or under their dotfiles repo (config docs, §11).
 - **A single fixed catalogue of 22 ops** (§3.5) covering every
@@ -316,7 +316,7 @@ Concretely:
   reconciles independently; failures surface as a multi-line
   toast naming each failed step (§5.2) but do not roll back
   successful prior steps (the action queue is append-only, see
-  CLAUDE.md §3.3 — rollback is the user's `u` keypress).
+  `docs/CONVENTIONS.md` §3.3 — rollback is the user's `u` keypress).
 - **Per-action confirmation gate.** `confirm = "auto" | "always" |
   "never"`. `auto` is the default and prompts for sequences that
   contain a destructive op (`permanent_delete`,
@@ -508,7 +508,7 @@ source of truth; the typed projection is a per-call convenience.
 // the file does not exist, returns an empty catalogue with nil err.
 // Any validation failure returns a multi-error with file:line for
 // each colliding / invalid entry; the binary refuses to start
-// (CLAUDE.md §9 — invalid config = no start).
+// (`docs/CONVENTIONS.md` §9 — invalid config = no start).
 func LoadCatalogue(ctx context.Context, path string, deps Deps) (*Catalogue, error)
 
 // Deps is the subset of the executor surface the loader needs at
@@ -546,7 +546,7 @@ surfaces a "folder not found" toast (existing spec 07 path).
 
 The Y/N prompt is the existing `ConfirmMode` modal (spec 04
 §6.3) with a multi-line body listing each step. Default focus is
-**No** (CLAUDE.md §7.9). Pressing `Esc` is "No". The prompt body is
+**No** (`docs/CONVENTIONS.md` §7.9). Pressing `Esc` is "No". The prompt body is
 the same string format used by `:actions show <name>` (§5.6).
 
 ### 3.5 Op catalogue (v1.1)
@@ -607,7 +607,7 @@ so a future spec can add them without churning loaded files.
 | Op | Why deferred | What lands first |
 |----|--------------|------------------|
 | `block_sender` | Microsoft Graph supports server-side mailbox rules via `/me/mailFolders('inbox')/messageRules` — a separate CRUD surface (`Mail.ReadWrite` is enough; no new scope) but a non-trivial spec on its own (idempotency, rule-name collision, listing existing rules in the UI). Out of scope here. | Spec 28+ rules-engine. |
-| `shell` | Sandboxing review (Spec 17 §4 threat-model surface), env-var redaction, and a kill-switch belong in their own spec. The op is also one of two that breaches the "no subprocess" line in CLAUDE.md §7. | Future spec; flagged research. |
+| `shell` | Sandboxing review (Spec 17 §4 threat-model surface), env-var redaction, and a kill-switch belong in their own spec. The op is also one of two that breaches the "no subprocess" line in `docs/CONVENTIONS.md` §7. | Future spec; flagged research. |
 | `forward` | Forwarding touches `Mail.Send`-adjacent territory which PRD §3.1 hard-scopes out (drafts only, never send). A constrained "create-forward-as-draft" op is plausible but needs spec 15 review. | Spec extending compose-reply. |
 
 The loader rejects these op strings at load time with a friendly
@@ -707,7 +707,7 @@ internal/action/executor.go (existing) — every step delegates here
 ```
 
 The catalogue is a value on the model, not a pointer, per
-CLAUDE.md §4 (sub-models are values). The map fields (`ByName`,
+`docs/CONVENTIONS.md` §4 (sub-models are values). The map fields (`ByName`,
 `ByKey`) are immutable post-load; nothing mutates them at
 runtime.
 
@@ -882,7 +882,7 @@ The contract, restated:
 - **Pre-prompt resolve is atomic.** If batch 0 fails to resolve,
   zero side effects. Batches after the first prompt CAN partially
   apply if a later batch fails to resolve.
-- **Dispatch is per-step optimistic** (CLAUDE.md §3.3). A
+- **Dispatch is per-step optimistic** (`docs/CONVENTIONS.md` §3.3). A
   successful queued step writes locally and enqueues a Graph
   reconciliation. Synchronous ops (`set_sender_routing`,
   `set_thread_muted`) commit immediately and are not undoable
@@ -911,7 +911,7 @@ type opSpec struct {
 // ExecDeps is the dispatch surface. To avoid an import cycle with
 // internal/ui (which imports this package via Model.customActions),
 // the executor / triage / unsubscribe interfaces are declared
-// **here**, at the consumer site (Go convention; CLAUDE.md §8).
+// **here**, at the consumer site (Go convention; `docs/CONVENTIONS.md` §8).
 // internal/ui's existing TriageExecutor / BulkExecutor /
 // ThreadExecutor / UnsubscribeService satisfy these; cmd_run.go
 // passes the same concrete values into both ui.Deps and
@@ -990,7 +990,7 @@ type FolderResolver interface {
 
 The dispatch table is a **package-level `var ops = map[OpKind]opSpec{
 ... }` literal** in `ops.go`. No `init()` function is used —
-CLAUDE.md §8 limits `init()` to "registering test fixtures", and
+`docs/CONVENTIONS.md` §8 limits `init()` to "registering test fixtures", and
 a static lookup map literal does not need `init()`. The table is
 read-only post-load (Go's compile-time map literal). Adding a new
 op = adding a key/value pair to the literal + a test.
@@ -1120,7 +1120,7 @@ empty group (consistent with spec 22's saved-searches section).
 | `:actions show <name>` | Renders the action's sequence in the status-bar overlay. When a focused message exists, templates render in their **resolved** form (matching the confirm modal). When invoked from a context without a focused message (e.g. the folders pane), templates render literally (`{{.From}}` etc.). The two cases are flagged by a header line. |
 | `:actions run <name>` | Runs the action against the focused message — alias for the action's bound key, same continuation model (§4.4). |
 
-**`:actions reload` is NOT in v1.1.** CLAUDE.md §9 forbids hot
+**`:actions reload` is NOT in v1.1.** `docs/CONVENTIONS.md` §9 forbids hot
 reload; a spec cannot grant itself an exception. Editing
 `actions.toml` requires a binary restart, same as `config.toml`.
 The recipe-iteration ergonomic concern is addressed by the
@@ -1128,7 +1128,7 @@ The recipe-iteration ergonomic concern is addressed by the
 loader against the on-disk file and prints the resolved sequence
 without launching the TUI — recipes are iteratively tested via
 `validate` and reloaded by re-launching. A future spec may revisit
-hot-reload alongside an explicit CLAUDE.md §9 amendment; that is
+hot-reload alongside an explicit `docs/CONVENTIONS.md` §9 amendment; that is
 out of scope here (§12).
 
 ### 4.11 CLI subcommand
@@ -1366,7 +1366,7 @@ The empty case is **not** an error; new users start here.
 | Action's `unsubscribe` step on a message with no `List-Unsubscribe` header | The step fails with the existing spec 16 toast ("no unsubscribe header"); subsequent steps obey `stop_on_error`. |
 | Action invoked from CLI (`inkwell action run`) when binary is offline | Steps enqueue locally; reconciliation happens on next sync. The CLI exits 0 because resolve + enqueue both succeeded. |
 | Action invoked from CLI without a `--message` and without a `--filter` and the action's first step needs a focused message | CLI exits 1 with "this action needs --message <id> or --filter <pattern>". |
-| User edits `actions.toml` while the binary is running | The change does NOT take effect until restart (CLAUDE.md §9). Running the action via its old binding dispatches the OLD definition. The user iterates with `inkwell action validate` (no TUI) and restarts the binary to pick up changes. Documented in §4.10 (no `:actions reload` in v1.1). |
+| User edits `actions.toml` while the binary is running | The change does NOT take effect until restart (`docs/CONVENTIONS.md` §9). Running the action via its old binding dispatches the OLD definition. The user iterates with `inkwell action validate` (no TUI) and restarts the binary to pick up changes. Documented in §4.10 (no `:actions reload` in v1.1). |
 | `inkwell action validate` finds an error in `actions.toml` while the binary is running with the prior (good) version | `validate` exits non-zero and prints the error; the running binary is unaffected. |
 | `actions.toml` is a symlink to outside the user's `$HOME` | Loaded as-is. The path-traversal guard in spec 17 §4 is irrelevant — this is a config file the user explicitly named, not user-supplied content. |
 | `flag` op against an already-flagged message | No-op (logged at DEBUG, NOT counted as a failure in the result toast — appears as `– flag: already flagged`). Same shape for `unflag` against an unflagged message. (§3.5) |
@@ -1398,7 +1398,7 @@ level with redaction. The custom-action layer adds:
   `custom_action_run name=<name> steps=<N> destructive=<bool>
   selection_kind=<single|thread|filtered> selection_size=<n>`.
   No `From`, no `Subject`, no `MessageID` (the user's name is
-  not PII per CLAUDE.md §7.3, but `From` is — and the action
+  not PII per `docs/CONVENTIONS.md` §7.3, but `From` is — and the action
   name is sufficient to correlate with the user's intent).
 - One WARN line per invocation that aborts at resolve:
   `custom_action_resolve_failed name=<name> step=<i> op=<op>
@@ -1420,7 +1420,7 @@ output; it is no different in this respect from the viewer pane
 showing a raw `From:` line. Test fixtures stay redacted: the e2e
 golden frames committed to `internal/ui/testdata/` /
 `internal/customaction/testdata/` use the synthetic domain
-`example.invalid` (CLAUDE.md §7.4).
+`example.invalid` (`docs/CONVENTIONS.md` §7.4).
 
 A new redaction test (`internal/customaction/customaction_test.go
 TestCustomActionLogsRedactPII`) asserts that running every op in
@@ -1445,7 +1445,7 @@ Benches in `internal/customaction/bench_test.go`:
 
 - `BenchmarkLoadCatalogue50Actions` — generates a 50-action,
   200-step catalogue via `testfixtures.go`; loads it through
-  `LoadCatalogue`. ≤ 45ms p95 (50% headroom rule, CLAUDE.md §6).
+  `LoadCatalogue`. ≤ 45ms p95 (50% headroom rule, `docs/CONVENTIONS.md` §6).
 - `BenchmarkLoadCatalogueAtCap` — 256 actions × 32 steps =
   8192 steps. Asserts <750ms p95 (50% headroom on the 500ms
   worst-case budget). Bounds the cap; if the bench fails the
@@ -1455,7 +1455,7 @@ Benches in `internal/customaction/bench_test.go`:
 - `BenchmarkDispatchAction` — dispatches a 4-step action against
   a tmpdir SQLite store with stubbed Graph. ≤ 30ms p95.
 
-The benches use synthesised fixtures (CLAUDE.md §5.2 — no
+The benches use synthesised fixtures (`docs/CONVENTIONS.md` §5.2 — no
 binary blobs). The `dispatchAction` bench shares the
 `internal/store/bench_test.go` SQLite-tmpdir harness via a
 test-only helper.
@@ -1516,12 +1516,12 @@ test-only helper.
 - [ ] **`:actions` cmd-bar verb**: `list`, `show <name>`,
       `run <name>` per §4.10. `:actions` alone aliases
       `:actions list`. **No `reload` subcommand in v1.1**
-      (CLAUDE.md §9 forbids hot reload).
+      (`docs/CONVENTIONS.md` §9 forbids hot reload).
 - [ ] **CLI**: `cmd/inkwell/cmd_action.go` registers `action list`,
       `action show`, `action run`, `action validate` per §4.11.
       Exit codes per §4.11.
 - [ ] **Logs**: per §7. Redaction test asserts no PII leaks.
-- [ ] **Tests** (CLAUDE.md §5):
+- [ ] **Tests** (`docs/CONVENTIONS.md` §5):
   - [ ] **Unit** (`internal/customaction/`):
         - `TestLoadCatalogueEmpty` — missing file → empty
           catalogue, no error.
@@ -1720,7 +1720,7 @@ test-only helper.
         path is unchanged; custom actions are an advanced feature
         the new user reaches via the how-to recipes.
 - [ ] **Project docs** (must land in the same commit that ships
-      the feature, per CLAUDE.md §13):
+      the feature, per `docs/CONVENTIONS.md` §13):
   - [ ] `docs/PRD.md` §10: row for spec 27 added under post-v1 /
         ROADMAP §0 bucket 3.
   - [ ] `docs/ROADMAP.md`: §0 Bucket 3 row 1 (Custom actions
@@ -1730,15 +1730,15 @@ test-only helper.
   - [ ] `docs/specs/27-custom-actions.md`: `**Shipped:** vX.Y.Z`
         line added at the top.
   - [ ] `docs/plans/spec-27.md` exists from spec start, updated
-        each iteration (CLAUDE.md §13 mandatory tracking note).
+        each iteration (`docs/CONVENTIONS.md` §13 mandatory tracking note).
   - [ ] `README.md` Status table: row for "Custom actions
         framework" with `✅ vX.Y.Z`. Download example version
         bumped if this is the latest release.
-- [ ] All five mandatory commands (CLAUDE.md §5.6) green:
+- [ ] All five mandatory commands (`docs/CONVENTIONS.md` §5.6) green:
       `gofmt -s`, `go vet`, `go test -race`,
       `go test -tags=integration`, `go test -tags=e2e`,
       `go test -bench=. -benchmem -run=^$`. The full
-      `make regress` is run before tag (CLAUDE.md §5.7).
+      `make regress` is run before tag (`docs/CONVENTIONS.md` §5.7).
 
 ## 10. Cross-cutting checklist
 
@@ -1946,7 +1946,7 @@ No new `[bindings]` rows — custom-action keys live in
 `actions.toml` itself is not part of `config.toml`'s schema; it is
 a sibling file with its own validation pipeline (§3.7). Documenting
 it lives in `docs/user/reference.md` (the canonical user-facing
-surface) and `docs/user/how-to.md` (recipes), per CLAUDE.md §12.6.
+surface) and `docs/user/how-to.md` (recipes), per `docs/CONVENTIONS.md` §12.6.
 
 ## 12. Future work (post-spec-27)
 
@@ -1958,9 +1958,9 @@ up spec without breaking the v1.1 loaded-file format.
   spec 20's per-feature `threadChordPending` bool into a
   `chordPending map[string]chordState` and a real
   `PendingChordMode` constant. Out of scope here per the
-  scope-discipline rule (CLAUDE.md §12.4). v1.1 accepts only
+  scope-discipline rule (`docs/CONVENTIONS.md` §12.4). v1.1 accepts only
   single-key bindings (review #10).
-- **`:actions reload` hot-reload** — CLAUDE.md §9 forbids hot
+- **`:actions reload` hot-reload** — `docs/CONVENTIONS.md` §9 forbids hot
   reload. A future spec wanting it must land alongside a CLAUDE.md
   amendment explicitly granting the exception. v1.1 ergonomic
   concern is addressed by `inkwell action validate` + binary

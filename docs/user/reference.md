@@ -857,7 +857,7 @@ Actions (under `[rule.then]`):
 
 Deferred in v1 (rejected by the loader; preserved on round-trip for read-only display):
 - Predicates: `is_voicemail`, `is_meeting_request`, `is_meeting_response`, `is_approval_request`, `is_non_delivery_report`, `is_permission_controlled`, `is_read_receipt`, `is_signed`, `is_encrypted`.
-- Actions: `forward_to`, `forward_as_attachment_to`, `redirect_to` (Mail.Send-adjacent; out of scope per PRD §3.2), `permanent_delete` (irreversible; requires per-message intent per CLAUDE.md §7 rule 9).
+- Actions: `forward_to`, `forward_as_attachment_to`, `redirect_to` (Mail.Send-adjacent; out of scope per PRD §3.2), `permanent_delete` (irreversible; requires per-message intent per `docs/CONVENTIONS.md` §7 rule 9).
 
 ### Safety gates
 

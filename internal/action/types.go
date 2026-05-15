@@ -293,7 +293,7 @@ func (e *Executor) dispatch(ctx context.Context, a store.Action) (string, error)
 		}
 		newID, err := e.gc.MoveMessage(ctx, id, dest)
 		// Graph 404 means the message is already where we wanted it
-		// (or removed entirely). Treat as success per CLAUDE.md §3.
+		// (or removed entirely). Treat as success per `docs/CONVENTIONS.md` §3.
 		if graph.IsNotFound(err) {
 			return "", nil
 		}

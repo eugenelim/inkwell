@@ -9,7 +9,7 @@ path-resolution helpers.
 ## DoD checklist (mirrored from spec)
 - [x] `internal/graph/folders.go` adds CreateFolder /
       RenameFolder / DeleteFolder. 404 on delete = success
-      (CLAUDE.md §3 idempotency).
+      (`docs/CONVENTIONS.md` §3 idempotency).
 - [x] `action.Executor` extends with the three folder methods.
       Synchronous (not queued) — folder ops are user-initiated
       with quick round-trips, no optimistic-apply value at scale.
@@ -117,7 +117,7 @@ path-resolution helpers.
 - Result: all packages green under -race + -tags=e2e; gosec
   10 nosec, 0 issues; govulncheck 0 vulnerabilities.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: `Mail.ReadWrite` (already in PRD §3.1).
 - [x] Store reads/writes: folders (UpsertFolder for create,
       UpdateFolderDisplayName for rename, DeleteFolder for

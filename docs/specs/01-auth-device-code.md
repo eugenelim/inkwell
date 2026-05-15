@@ -1,6 +1,6 @@
 # Spec 01 — Authentication (interactive browser by default; device code as fallback)
 
-**Status:** Shipped (CI scope, v0.2.x). Sign-in / sign-out / whoami flows + Keychain token storage all wired against the first-party Microsoft Graph CLI Tools client (PRD §4 / memory). Manual real-tenant smoke deferred per CLAUDE.md §5.5; AADSTS code classification + clock-skew detection + a CLI-mode device-code PromptFn remain on the audit-drain queue.
+**Status:** Shipped (CI scope, v0.2.x). Sign-in / sign-out / whoami flows + Keychain token storage all wired against the first-party Microsoft Graph CLI Tools client (PRD §4 / memory). Manual real-tenant smoke deferred per `docs/CONVENTIONS.md` §5.5; AADSTS code classification + clock-skew detection + a CLI-mode device-code PromptFn remain on the audit-drain queue.
 **Depends on:** PRD §4, ARCH §1, §2, §5.1.
 **Blocks:** All other feature specs.
 **Estimated effort:** 1–2 days.
@@ -211,7 +211,7 @@ Failure modes added by this design:
 - **Disk file deleted but Keychain key still present** — `Replace` returns nil empty cache; next sign-in re-creates the file and rotates the key.
 - **Disk file present but Keychain key missing or rotated** — decryption fails; we treat it as empty cache and the user signs in again. We do **not** error here because that would brick the app on key rotation.
 
-Use `github.com/zalando/go-keyring` for the Keychain side (storing a 32-byte key is well under its limit). The encryption is `crypto/aes` + `crypto/cipher.NewGCM` from the Go standard library — pure Go, no CGO, satisfies CLAUDE.md §1.
+Use `github.com/zalando/go-keyring` for the Keychain side (storing a 32-byte key is well under its limit). The encryption is `crypto/aes` + `crypto/cipher.NewGCM` from the Go standard library — pure Go, no CGO, satisfies `docs/CONVENTIONS.md` §1.
 
 The earlier all-in-Keychain approach is rejected: macOS Keychain Services *can* technically hold larger items via direct `SecItemAdd` calls, but `zalando/go-keyring`'s `security` CLI shellout caps the command-line at 4096 bytes. Switching to a different keychain library (e.g. `99designs/keyring`) would pull in CGO via `keybase/go-keychain`, violating our pure-Go constraint.
 

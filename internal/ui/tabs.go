@@ -25,7 +25,7 @@ type listSnapshot struct {
 }
 
 // TabsConfig is the consumer-side mirror of [config.TabsConfig]. The
-// UI doesn't import internal/config (CLAUDE.md §2 layering); cmd_run
+// UI doesn't import internal/config (`docs/CONVENTIONS.md` §2 layering); cmd_run
 // converts the typed config into this shape and threads it through
 // Deps.
 type TabsConfig struct {

@@ -8,7 +8,7 @@ import (
 )
 
 // BindingOverrides is the consumer-site shape of config.BindingsConfig.
-// Defined here so the UI doesn't import internal/config (CLAUDE.md
+// Defined here so the UI doesn't import internal/config (`docs/CONVENTIONS.md`
 // §2). Each field is the override key string ("d", "ctrl+d", etc.);
 // empty means "leave default".
 type BindingOverrides struct {

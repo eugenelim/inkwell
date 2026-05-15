@@ -358,7 +358,7 @@ to the engine is needed for full end-to-end delta sync).
   - No caching — every `:cal` re-hits Graph. Acceptable while it's a manual command (user opens it explicitly). When the sidebar pane lands and updates passively, we'll need the sync engine extension.
   - The modal is uniform-style (no week view) which the spec calls for. The ":cal" line is actively documented in user/reference.md and user/how-to.md.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: Calendars.Read (already in PRD §3.1).
 - [x] Store reads/writes: none — events fetched live, not cached locally.
 - [x] Graph endpoints: GET /me/calendarView with $select.

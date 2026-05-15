@@ -164,7 +164,7 @@ func (s *store) UpsertMessageRulesBatch(ctx context.Context, accountID int64, ru
 }
 
 // DeleteMessageRule removes one row by ID. 404-on-delete is success
-// (idempotent — matches the CLAUDE.md §3 mutation invariant).
+// (idempotent — matches the `docs/CONVENTIONS.md` §3 mutation invariant).
 func (s *store) DeleteMessageRule(ctx context.Context, accountID int64, ruleID string) error {
 	if ruleID == "" {
 		return ErrInvalidRuleID

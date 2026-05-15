@@ -140,7 +140,7 @@ quit = "q"
 }
 
 // TestWriteUIFlagMode0600 verifies the file is created with 0600
-// (privacy posture per CLAUDE.md §7).
+// (privacy posture per `docs/CONVENTIONS.md` §7).
 func TestWriteUIFlagMode0600(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix file mode")

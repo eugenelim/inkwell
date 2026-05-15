@@ -22,7 +22,7 @@ func TestDraftTempfileMode(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-		"draft tempfile must be 0600 — CLAUDE.md §7 rule 1 + spec 15 §6 invariant")
+		"draft tempfile must be 0600 — `docs/CONVENTIONS.md` §7 rule 1 + spec 15 §6 invariant")
 }
 
 // SECURITY-MAP: V12.1.1 V12.3.1

@@ -7,7 +7,7 @@ done — **Shipped v0.63.0** (2026-05-14)
 - [x] `internal/graph/event_message.go`: `EventMessage`, `EventMessageEvent`, `Client.GetEventMessage` with the §6.2 fetch shape + recurrence-summary reduction (six pattern types + missing-`daysOfWeek` fallthrough)
 - [x] `internal/graph/event_message_test.go`: meetingRequest happy path, meetingCancelled with no online meeting, response-type non-panic (all three values), 404 → typed `*GraphError`, recurrence summary table coverage, ordinal helper coverage
 - [x] `internal/graph/event_message.go`: `EventMessage` + `EventMessageEvent` decode types added; **no field added to existing `graph.Message`**
-- [x] `internal/ui/app.go::CalendarFetcher`: gains `GetEventMessage(ctx, msgID) (*render.Invite, error)`. **Deviation from spec text:** returns `*render.Invite` (render-package mirror) not `*graph.EventMessage` to keep ui → graph layering clean (CLAUDE.md §2). Documented in spec §11 "Layering note".
+- [x] `internal/ui/app.go::CalendarFetcher`: gains `GetEventMessage(ctx, msgID) (*render.Invite, error)`. **Deviation from spec text:** returns `*render.Invite` (render-package mirror) not `*graph.EventMessage` to keep ui → graph layering clean (`docs/CONVENTIONS.md` §2). Documented in spec §11 "Layering note".
 - [x] `cmd/inkwell/cmd_run.go::calendarAdapter.GetEventMessage`: wired
 - [x] `internal/render/invite.go`: `Invite` / `InviteEvent` / `InviteAttendee` mirror types + `InviteFromGraph` + `HasExpandableEvent` helper + `RenderInviteCard(em *Invite, sentAt time.Time, tz *time.Location, width int) string`
 - [x] `internal/render/invite_test.go`: empty-location omits line, online-only renders `💻 join`, all-day renders `· all day`, mixed required+optional breakdown, hand-off hint omitted for response cards, width<40 collapse, ⚪ pip for `notResponded` (not 🟡), typo `meetingTenativelyAccepted` matched
@@ -40,7 +40,7 @@ done — **Shipped v0.63.0** (2026-05-14)
 
 ### Iter 1 — 2026-05-13 (spec + plan)
 - Slice: research, draft, three-agent adversarial review, fix loop, plan
-- Verifier: docs review (CLAUDE.md §12.0 spec-verification discipline)
+- Verifier: docs review (`docs/CONVENTIONS.md` §12.0 spec-verification discipline)
 - Commands run: codebase grep verification, web research on Graph API
 - Result: spec converged after one fix-pass cycle
 - Critique: three parallel review agents found 14 findings across CRITICAL/MAJOR/MINOR. CRITICAL set was largely about codebase claims I had not personally verified (EventMessage layer mismatch — render takes `*store.Message` not `*graph.Message`; `o` is already bound to message.webLink not URL picker; `Deps.CalendarTZ` doesn't exist; `BodyView` is in render.go not types.go; `meetingMessageType` enum values were wrong — `meetingResponse` / `meetingForwardNotification` don't exist; actual values are `meetingAccepted` / `meetingTenativelyAccepted` (with Microsoft's typo) / `meetingDeclined`). A second convergence pass caught a chicken-and-egg in §6.1 (errgroup fetches EventMessage but Body() would also read it from opts in same step) — resolved by keeping `Body()` unchanged and having the UI call `RenderInviteCard` directly post-errgroup.

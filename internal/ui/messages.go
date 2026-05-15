@@ -150,7 +150,7 @@ type BodyRenderedMsg struct {
 
 // InviteSnapshot is the UI-side projection of a fetched + rendered
 // spec-34 invite. Defined here so messages.go does not import
-// internal/render (CLAUDE.md §2 mirror pattern).
+// internal/render (`docs/CONVENTIONS.md` §2 mirror pattern).
 type InviteSnapshot struct {
 	MeetingMessageType string
 	EventWebLink       string
@@ -159,7 +159,7 @@ type InviteSnapshot struct {
 
 // RawHeader is a single RFC 822 header name/value pair. Defined here
 // so messages.go doesn't import internal/render (consumer-site interface
-// per CLAUDE.md §2).
+// per `docs/CONVENTIONS.md` §2).
 type RawHeader struct {
 	Name  string
 	Value string

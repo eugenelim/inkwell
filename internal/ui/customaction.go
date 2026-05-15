@@ -355,7 +355,7 @@ func renderCustomActionPromptModal(theme Theme, header, buf string) string {
 
 // dispatchActions handles the `:actions` cmd-bar verb (spec 27 §4.10).
 // Forms: `:actions` / `:actions list`, `:actions show <name>`,
-// `:actions run <name>`. v1.1 deliberately omits `reload` (CLAUDE.md
+// `:actions run <name>`. v1.1 deliberately omits `reload` (`docs/CONVENTIONS.md`
 // §9 — no hot reload).
 func (m Model) dispatchActions(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 || args[0] == "list" {

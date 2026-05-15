@@ -42,7 +42,7 @@ func TestWriteTempfileExtMD(t *testing.T) {
 }
 
 // TestWriteTempfileExtMode0600 asserts privacy invariant from
-// CLAUDE.md §7: drafts live at mode 0600.
+// `docs/CONVENTIONS.md` §7: drafts live at mode 0600.
 func TestWriteTempfileExtMode0600(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	path, err := WriteTempfileExt("secret body", ".md")

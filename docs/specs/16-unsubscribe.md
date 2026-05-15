@@ -278,7 +278,7 @@ v0.13.x follow-up.
   bench in spec 03.
 - One-click POST: 5s timeout. Not gated; network-bound.
 
-## 13. Cross-cutting checklist (CLAUDE.md §11)
+## 13. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [ ] Scopes used: `Mail.Read` (header read), `Mail.ReadWrite` (mailto
       draft via spec 15).

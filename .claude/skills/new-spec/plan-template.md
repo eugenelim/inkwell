@@ -8,7 +8,7 @@ Status lifecycle:
   not-started → in-progress → (blocked | done)
 
 Set "done — **Shipped vX.Y.Z** (YYYY-MM-DD)" when the spec ships
-(CLAUDE.md §12.6). The shipped-consistency check in
+(`docs/CONVENTIONS.md` §12.6). The shipped-consistency check in
 scripts/doc-sweep.sh enforces that this line starts with `done`
 once the spec carries a `**Shipped:**` marker.
 -->
@@ -32,12 +32,12 @@ each iteration produces them.
 
 ## Iteration log
 
-The ralph-loop journal (CLAUDE.md §12.2). One entry per iteration.
+The ralph-loop journal (`docs/CONVENTIONS.md` §12.2). One entry per iteration.
 
 ### Iter 1 — YYYY-MM-DD
 - **Slice:** <one-line description of what this iteration did>
 - **Verifier:** <test name, bench name, or "docs review" that flips red→green>
-- **Commands run:** `<the relevant subset of CLAUDE.md §5.6>`
+- **Commands run:** `<the relevant subset of `docs/CONVENTIONS.md` §5.6>`
 - **Result:** <pass/fail, key counts>
 - **Critique:** <self-critique from §12.2 step 5>
 - **Next:** <the slice for iter 2, or "exit — DoD complete">

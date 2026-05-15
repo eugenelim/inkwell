@@ -111,7 +111,7 @@ func (m Model) loadScreenedOutMessagesCmd() tea.Cmd {
 // refreshScreenerSidebarCmd queries CountPendingSenders +
 // CountScreenedOutMessages and emits a screenerSidebarUpdatedMsg so
 // the sidebar's __screener__ and __screened_out__ badges stay
-// accurate. Called only when the gate is on (CLAUDE.md §3 invariant
+// accurate. Called only when the gate is on (`docs/CONVENTIONS.md` §3 invariant
 // 2: UI never blocks on I/O, so the gate-on count source replaces
 // the spec 23 path; gate-off path keeps the spec 23 behaviour).
 func (m Model) refreshScreenerSidebarCmd() tea.Cmd {

@@ -10,7 +10,7 @@ spec's §11 DoD; documented in spec §11.5 and tracked below.
       Mailchimp, Substack, plus quoted/lowercase/whitespace
       shapes). 18 tests across `parse_test.go` + `execute_test.go`,
       including garbage-input fuzz guard and a redaction
-      source-grep guard (CLAUDE.md §7 — render package style).
+      source-grep guard (`docs/CONVENTIONS.md` §7 — render package style).
 - [x] Migration `003_unsubscribe.sql` lands cleanly; schema bumped
       to v3. Adds `unsubscribe_url TEXT`, `unsubscribe_one_click
       INTEGER NOT NULL DEFAULT 0`, partial index
@@ -90,7 +90,7 @@ spec's §11 DoD; documented in spec §11.5 and tracked below.
   - `cmd/inkwell/cmd_run.go`: `unsubAdapter` (~80 LOC) bridges
     store + graph headers + executor → `ui.UnsubscribeService`
     interface (defined at the UI consumer site so `internal/ui`
-    doesn't import `internal/graph`, CLAUDE.md §2).
+    doesn't import `internal/graph`, `docs/CONVENTIONS.md` §2).
   - `internal/ui/app.go`: `UnsubscribeService` interface,
     `UnsubscribeAction` value type, `UnsubscribeKind` enum,
     `Deps.Unsubscribe`, `pendingUnsub` model state,
@@ -144,7 +144,7 @@ spec's §11 DoD; documented in spec §11.5 and tracked below.
   1 (folder management → mute → conversation ops → cross-folder
   bulk) follow.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: `Mail.Read` for header fetch, `Mail.ReadWrite`
       for the (deferred) mailto/draft path. Both already in
       PRD §3.1. No new scopes.

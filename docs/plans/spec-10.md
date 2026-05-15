@@ -12,7 +12,7 @@ explicitly deferred.
 - [x] `:unfilter` clears the active filter.
 - [x] Cmd-bar reminder while filter active: "filter: <pattern> · matched N · ;d delete · ;a archive · :unfilter".
 - [x] `;` chord arms the bulk-pending state (only when a filter is active).
-- [x] `;d` opens confirm modal "Delete N messages? [y/N]" — destructive default-No (CLAUDE.md §7 #9).
+- [x] `;d` opens confirm modal "Delete N messages? [y/N]" — destructive default-No (`docs/CONVENTIONS.md` §7 #9).
 - [x] `;D` opens confirm modal "Permanently delete N messages?" (always confirms).
 - [x] `;a` opens confirm modal "Archive N messages?".
 - [x] `;r` / `;R` — mark all filtered read / unread.
@@ -69,7 +69,7 @@ explicitly deferred.
 ### Iter 1 — 2026-04-29 (filter + ;d/;a chord + confirm modal)
 - Slice: UI + store wiring. Pattern + batch were in place from specs 08 + 09.
 - Files:
-  - internal/ui/app.go: Model gains filterActive/filterPattern/filterIDs + bulkPending/pendingBulk. dispatchCommand handles `:filter` and `:unfilter`. dispatchList intercepts `;` then routes the next d/a to confirmBulk. ConfirmResultMsg handler fires runBulkCmd on yes. New BulkExecutor interface defined at the consumer site (CLAUDE.md §2 layering).
+  - internal/ui/app.go: Model gains filterActive/filterPattern/filterIDs + bulkPending/pendingBulk. dispatchCommand handles `:filter` and `:unfilter`. dispatchList intercepts `;` then routes the next d/a to confirmBulk. ConfirmResultMsg handler fires runBulkCmd on yes. New BulkExecutor interface defined at the consumer site (`docs/CONVENTIONS.md` §2 layering).
   - internal/store/messages.go: SearchByPredicate(accountID, where, args, limit) — runs caller-supplied SQL fragment from spec 08's evaluator.
   - cmd/inkwell/cmd_run.go: bulkAdapter wires action.Executor into ui.BulkExecutor (struct-shape conversion only; types are intentionally identical).
   - 5 dispatch tests in internal/ui/dispatch_test.go.
@@ -79,7 +79,7 @@ explicitly deferred.
   - The confirm modal title reads "Delete N messages?" not the spec's exact wording — close enough; a future polish iter can match the spec text byte-for-byte.
   - `:unfilter` is a separate command rather than esc-clears like search. Acceptable; esc inside a filtered list pane goes to the list cursor in vim style.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: Mail.ReadWrite via spec 09.
 - [x] Store reads/writes: messages (SearchByPredicate read; UpdateMessageFields per item via the bulk path).
 - [x] Graph endpoints: /$batch via spec 09.

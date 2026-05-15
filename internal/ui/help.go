@@ -16,7 +16,7 @@ import (
 // Pane-scoped meanings (e.g. `r` = reply in viewer, mark-read in
 // list) are surfaced as a single row with both labels — the
 // rendering reflects the actual dispatch resolution rule from
-// CLAUDE.md §4.
+// `docs/CONVENTIONS.md` §4.
 type HelpModel struct{}
 
 // NewHelp returns the empty help overlay.

@@ -62,7 +62,7 @@ done (D-1 shipped 2026-05-04) — all deferred bullets from v0.9.0 now implement
   OOO message bodies not logged; no context.Background() in request paths.
 - Next: D-1 done. Next PR is E-1 (spec-03 goroutine + tombstone + priority queue).
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: MailboxSettings.Read + MailboxSettings.ReadWrite (already in PRD §3.1).
 - [x] Store reads/writes: none — mailbox settings are not cached. Refetch on every `:ooo` invocation.
 - [x] Graph endpoints: GET /me/mailboxSettings, PATCH /me/mailboxSettings.

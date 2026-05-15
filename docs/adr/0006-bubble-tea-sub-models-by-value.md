@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-05-13)
 - **Deciders:** eugenelim
 - **Supersedes:** —
-- **Related:** ARCH §10, CLAUDE.md §4
+- **Related:** ARCH §10, `docs/CONVENTIONS.md` §4
 
 ## Context
 
@@ -72,7 +72,7 @@ changed).
   root Model on a 2024 M2.
 - Some Bubble Tea community examples use pointer sub-models; a
   contributor copy-pasting may produce non-idiomatic code. Mitigated
-  by the convention being called out in CLAUDE.md §4 and ARCH §10
+  by the convention being called out in `docs/CONVENTIONS.md` §4 and ARCH §10
   and tested.
 
 ### Neutral
@@ -97,5 +97,5 @@ exhaustive-switch checks and complicates testing.
 ## References
 
 - ARCH.md §10 (UI architecture, Bubble Tea).
-- CLAUDE.md §4 (Bubble Tea conventions).
+- `docs/CONVENTIONS.md` §4 (Bubble Tea conventions).
 - [Charm Bubble Tea — Composing models](https://github.com/charmbracelet/bubbletea) — framework conventions.

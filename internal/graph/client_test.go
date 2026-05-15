@@ -375,7 +375,7 @@ func TestRenameFolderRejectedOnWellKnown(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestDeleteFolderTreatsNotFoundAsSuccess covers the CLAUDE.md §3
+// TestDeleteFolderTreatsNotFoundAsSuccess covers the `docs/CONVENTIONS.md` §3
 // idempotency invariant: 404 on delete is success (folder already
 // gone matches the user's intent).
 func TestDeleteFolderTreatsNotFoundAsSuccess(t *testing.T) {

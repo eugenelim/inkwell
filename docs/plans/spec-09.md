@@ -57,7 +57,7 @@ Throughput bench explicitly deferred (no 100k+ match UI flow yet).
   - Throughput bench deferred: no UI flow yet to drive 100k+ scenario.
   - Next: commit + push, update audit-drain plan.
 
-## Cross-cutting checklist (CLAUDE.md §11)
+## Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 - [x] Scopes used: Mail.ReadWrite (already in PRD §3.1).
 - [x] Store reads/writes: messages (optimistic apply + rollback per item), actions (Enqueue + UpdateActionStatus per item), undo stack (PushUndo for bulk composite).
 - [x] Graph endpoints: POST /$batch (with retry and concurrent fan-out).

@@ -12,7 +12,7 @@ Vacuum) shipped v0.13.x (PR 11 of audit-drain).
 ## DoD checklist
 - [x] All tables, indexes, FTS triggers from §3 created by `001_initial.sql`.
 - [x] Public API in §5 implemented and tested.
-- [x] Every perf budget in §7 verified by `TestBudgetsHonoured` with 1.5× slack per CLAUDE.md §6.
+- [x] Every perf budget in §7 verified by `TestBudgetsHonoured` with 1.5× slack per `docs/CONVENTIONS.md` §6.
 - [x] Test coverage on `internal/store` covers schema, CRUD, FTS triggers, body LRU, action lifecycle, undo monotonicity, undo-cleared-on-reopen, delta tokens, migrations idempotency, concurrent stress (4w + 4r × 2s).
 - [x] DB file mode 0600 verified by integration test on macOS.
 - [x] Concurrent-access test passes (replaced 60s spec target with 2s for CI; same shape, smaller dataset; can be extended on demand).

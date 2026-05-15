@@ -512,7 +512,7 @@ Default (`internal/config/defaults.go`): `BodyFormat: "plain"`.
 
 Validation (`internal/config/validate.go`): if `BodyFormat` is
 neither `"plain"` nor `"markdown"`, the app hard-fails with a
-line-numbered error (CLAUDE.md §9).
+line-numbered error (`docs/CONVENTIONS.md` §9).
 
 `docs/CONFIG.md` entry:
 
@@ -660,12 +660,12 @@ unwrapped HTML as a JSON string, no client-side wrapping needed.
 goldmark's throughput at typical email body sizes (5–50 KB) is
 approximately 20–30 MB/s, placing a 10 KB body at ≈0.3–0.5ms.
 The 2ms budget is ≈4–6× headroom against measured performance.
-A regression of >50% over the budget (CLAUDE.md §5.2) fails the
+A regression of >50% over the budget (`docs/CONVENTIONS.md` §5.2) fails the
 benchmark test.
 
 ---
 
-## 11. Cross-cutting checklist (CLAUDE.md §11)
+## 11. Cross-cutting checklist (`docs/CONVENTIONS.md` §11)
 
 - [ ] Which Graph scope(s)? `Mail.ReadWrite` only — already requested. No new scopes.
 - [ ] State in store? None — no schema change.
@@ -673,7 +673,7 @@ benchmark test.
 - [ ] Offline behaviour? `saveComposeCmd` runs when connected; no change to the offline path.
 - [ ] Undo behaviour? No change; `DiscardDraft` is still the inverse.
 - [ ] Error states? goldmark render failure surfaces a status-bar error; compose form stays open with source intact. Graph errors unchanged.
-- [ ] Latency budget? §10 above; benchmarks gated per CLAUDE.md §5.2.
+- [ ] Latency budget? §10 above; benchmarks gated per `docs/CONVENTIONS.md` §5.2.
 - [ ] Logs? No new log sites. Body content never logged (spec 15 redaction invariant unchanged).
 - [ ] CLI-mode equivalent? None — CLI compose is post-v1.
 - [ ] Tests? Unit (markdown converter + WriteTempfileExt), config tests, updated graph/action/ui unit tests, new e2e indicator tests, benchmarks.

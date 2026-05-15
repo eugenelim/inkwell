@@ -8,7 +8,7 @@ import (
 )
 
 // Theme groups the lipgloss styles used by every pane. All styling
-// flows through here; no inline ANSI escapes anywhere else (CLAUDE.md
+// flows through here; no inline ANSI escapes anywhere else (`docs/CONVENTIONS.md`
 // §4).
 type Theme struct {
 	Status     lipgloss.Style

@@ -10,7 +10,7 @@ import (
 // across the standard 200-row mailbox shape and the 5000-row
 // extreme. Spec 22 §6 budget: <2ms p95 at 200 rows; <15ms p95 at
 // 5000 rows; the test fails if a single iteration exceeds 22ms
-// (50% headroom per CLAUDE.md §6).
+// (50% headroom per `docs/CONVENTIONS.md` §6).
 func BenchmarkPaletteFilter(b *testing.B) {
 	for _, size := range []int{200, 5000} {
 		b.Run(fmt.Sprintf("rows=%d", size), func(b *testing.B) {

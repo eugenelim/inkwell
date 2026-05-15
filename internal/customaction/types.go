@@ -8,7 +8,7 @@
 // (ops.go), and the runtime executor (executor.go). Consumer-defined
 // interfaces (Triage, Bulk, Thread, Muter, RoutingWriter,
 // Unsubscriber, FolderResolver) keep this package free of
-// internal/ui imports — see CLAUDE.md §2 layering.
+// internal/ui imports — see `docs/CONVENTIONS.md` §2 layering.
 package customaction
 
 import (
@@ -150,7 +150,7 @@ type Context struct {
 }
 
 // ExecDeps is the dispatch surface. Consumer-defined here so this
-// package does not import internal/ui (CLAUDE.md §2 layering).
+// package does not import internal/ui (`docs/CONVENTIONS.md` §2 layering).
 type ExecDeps struct {
 	Triage      Triage
 	Bulk        Bulk

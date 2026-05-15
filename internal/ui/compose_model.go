@@ -65,7 +65,7 @@ type ComposeSnapshot struct {
 
 // AttachmentSnapshotRef is the UI-layer mirror of action.AttachmentRef.
 // Defined here so compose_model.go doesn't import internal/action
-// (CLAUDE.md §2 layering).
+// (`docs/CONVENTIONS.md` §2 layering).
 type AttachmentSnapshotRef struct {
 	LocalPath string `json:"local_path"`
 	Name      string `json:"name"`
