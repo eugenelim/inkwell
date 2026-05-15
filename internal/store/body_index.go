@@ -115,6 +115,7 @@ func (s *store) EvictBodyIndex(ctx context.Context, opts EvictBodyIndexOpts) (in
 			args = append(args, opts.OlderThan.Unix())
 		}
 		// #nosec G202 — `where` is built from two fixed string literals above (`folder_id = ?` and `last_accessed_at < ?`); user-supplied values bind via `?` placeholders, never concatenated.
+		// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query — same as the #nosec above; the concatenated portion is a closed set of column-name literals, not user input.
 		q := `DELETE FROM body_text WHERE ` + strings.Join(where, " AND ")
 		res, err := s.db.ExecContext(ctx, q, args...) //nolint:gosec
 		if err != nil {

@@ -52,17 +52,17 @@ rebuild' to backfill from the locally-cached LRU.`,
 // status --json` (or when [cli].default_output = "json"). Fields
 // match the human-readable layout for consistency.
 type indexStatusReport struct {
-	Enabled         bool   `json:"enabled"`
-	Rows            int64  `json:"rows"`
-	Bytes           int64  `json:"bytes"`
-	MaxCount        int    `json:"max_count"`
-	MaxBytes        int64  `json:"max_bytes"`
-	BodyLRURows     int64  `json:"body_lru_rows"`
-	BodyLRUBytes    int64  `json:"body_lru_bytes"`
-	TruncatedRows   int64  `json:"truncated_rows"`
-	MaxBodyBytes    int64  `json:"max_body_bytes"`
-	OldestIndexedAt string `json:"oldest_indexed_at,omitempty"`
-	NewestIndexedAt string `json:"newest_indexed_at,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	Rows            int64    `json:"rows"`
+	Bytes           int64    `json:"bytes"`
+	MaxCount        int      `json:"max_count"`
+	MaxBytes        int64    `json:"max_bytes"`
+	BodyLRURows     int64    `json:"body_lru_rows"`
+	BodyLRUBytes    int64    `json:"body_lru_bytes"`
+	TruncatedRows   int64    `json:"truncated_rows"`
+	MaxBodyBytes    int64    `json:"max_body_bytes"`
+	OldestIndexedAt string   `json:"oldest_indexed_at,omitempty"`
+	NewestIndexedAt string   `json:"newest_indexed_at,omitempty"`
 	FolderAllowlist []string `json:"folder_allowlist,omitempty"`
 }
 
