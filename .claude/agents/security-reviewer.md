@@ -85,10 +85,10 @@ reviewer for spelling fixes.
 3. `docs/PRIVACY.md` — "Where data is stored", "What data inkwell
    accesses", "What data leaves the user's device". Any net-new
    on-disk surface or new outbound HTTP needs a new row.
-4. `docs/specs/17-security-testing-and-casa-evidence.md` — the
+4. `docs/specs/17-security-testing-and-casa-evidence/spec.md` — the
    canonical security spec. §4 is the test catalogue, §3 is the CI
    gate set, §5 is the CASA evidence checklist.
-5. The targeted feature spec (`docs/specs/NN-*.md`) — particularly
+5. The targeted feature spec (`docs/specs/NN-<title>/spec.md`) — particularly
    its "Scopes used", "Privacy & security", "Out of scope", and any
    "spec 17 impact:" PR-description claim.
 6. The diff (`git diff origin/main..HEAD` if not enumerated).

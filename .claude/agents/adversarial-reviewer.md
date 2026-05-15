@@ -36,8 +36,8 @@ Always read, in this order. Skipping this step makes you guess.
 2. The package-specific contract at `internal/<pkg>/AGENTS.md` if the
    diff touches a package that has one (`store`, `graph`, `ui`, `auth`
    today). Each adds package-specific invariants on top of the root.
-3. The spec at `docs/specs/NN-*.md` (the standard) and the tracking
-   note at `docs/plans/spec-NN.md` (the journal).
+3. The spec at `docs/specs/NN-<title>/spec.md` (the standard) and the tracking
+   note at `docs/specs/NN-<title>/plan.md` (the journal).
 4. Any ADRs the spec or the diff relies on — `docs/adr/000N-*.md`.
    ADRs constrain decisions; relitigating one without superseding the
    ADR is a finding.
@@ -113,7 +113,7 @@ checklists.
 7. **Missing perf benchmark.** Spec budget row → corresponding
    `Benchmark*` somewhere. Cite the budget and the benchmark; if the
    benchmark is missing, Blocker. If the benchmark exists but the
-   measured number is missing from `docs/plans/spec-NN.md`, Concern.
+   measured number is missing from `docs/specs/NN-<title>/plan.md`, Concern.
 8. **`// #nosec` without WHY.** Every new `#nosec` annotation needs
    a one-line WHY comment (§11). Blanket suppression is a Blocker.
 9. **Spec drift.** If the implementation diverges from the spec,
@@ -124,7 +124,7 @@ checklists.
 11. **Doc-sweep incomplete** (§12.6). New key binding / `:command` /
     CLI verb / pattern operator / mode / chord / config key — is
     `docs/user/reference.md` updated? `docs/CONFIG.md`? Is there a
-    `docs/plans/spec-NN.md` entry? `make doc-sweep` should pass.
+    `docs/specs/NN-<title>/plan.md` entry? `make doc-sweep` should pass.
 12. **Idempotency** (§3). Mutations must be idempotent — apply twice
     yields same state; 404-on-delete is success. A new action whose
     second apply blows up is a Blocker.

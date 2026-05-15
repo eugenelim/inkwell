@@ -1,12 +1,12 @@
 ---
 name: new-spec
-description: Use this skill when the user wants to start a new feature with a spec, or wants to write a spec for something they're about to build in inkwell. Triggers on "new spec", "write a spec for X", "let's spec this out", "scaffold spec NN", "start a feature for…". Creates both docs/specs/NN-<title>.md AND docs/plans/spec-NN.md so the two artefacts land together — the v0.12.0 missing-plan-file class of bug can't recur because the plan file is created up front.
+description: Use this skill when the user wants to start a new feature with a spec, or wants to write a spec for something they're about to build in inkwell. Triggers on "new spec", "write a spec for X", "let's spec this out", "scaffold spec NN", "start a feature for…". Creates both docs/specs/NN-<title>/spec.md AND docs/specs/NN-<title>/plan.md so the two artefacts land together — the v0.12.0 missing-plan-file class of bug can't recur because the plan file is created up front.
 ---
 
 # Skill: new-spec
 
-Create a new feature spec under `docs/specs/NN-<title>.md` AND the
-corresponding tracking note at `docs/plans/spec-NN.md` together. Both
+Create a new feature spec under `docs/specs/NN-<title>/spec.md` AND the
+corresponding tracking note at `docs/specs/NN-<title>/plan.md` together. Both
 files are mandatory per `docs/CONVENTIONS.md` §13 — the plan must exist *with*
 the spec, not added later.
 
@@ -44,11 +44,12 @@ Don't use for:
    `34`, etc.). If the result would be three digits (`100+`), keep
    three.
 
-3. **Create the spec from `spec-template.md`** in this skill's
-   directory:
+3. **Create the spec directory + spec from `spec-template.md`** in
+   this skill's directory:
 
    ```bash
-   cp .claude/skills/new-spec/spec-template.md docs/specs/NN-<title>.md
+   mkdir -p docs/specs/NN-<title>
+   cp .claude/skills/new-spec/spec-template.md docs/specs/NN-<title>/spec.md
    ```
 
    Then replace `<NN>` and `<TITLE>` placeholders. Leave the body
@@ -56,10 +57,10 @@ Don't use for:
    because §16 finds that skipping them is the #1 source of vague
    specs.
 
-4. **Create the plan from `plan-template.md`** at the same time:
+4. **Create the plan from `plan-template.md`** in the same directory:
 
    ```bash
-   cp .claude/skills/new-spec/plan-template.md docs/plans/spec-NN.md
+   cp .claude/skills/new-spec/plan-template.md docs/specs/NN-<title>/plan.md
    ```
 
    Replace `<NN>` and `<TITLE>`. The plan begins life with
@@ -106,7 +107,7 @@ Don't use for:
 
 ## After the skill runs
 
-Open the new `docs/specs/NN-<title>.md` and walk the user through
+Open the new `docs/specs/NN-<title>/spec.md` and walk the user through
 filling it in. The spec is the input to the ralph loop (`docs/CONVENTIONS.md`
 §12) — once it's coherent, you can hand it to the loop and let it
 drive the implementation iteration by iteration.

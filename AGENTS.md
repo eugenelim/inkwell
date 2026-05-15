@@ -26,7 +26,7 @@ not a full Outlook replacement (composition stays in native Outlook).
 2. [`docs/ARCH.md`](docs/ARCH.md) — module layout, layering, data flow, invariants.
 3. [`docs/CONFIG.md`](docs/CONFIG.md) — config keys (skim, reference on demand).
 4. [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — repo conventions; §-numbered surfaces are stable contracts.
-5. [`docs/specs/NN-*.md`](docs/specs/) — the spec you're implementing.
+5. [`docs/specs/NN-<title>/spec.md`](docs/specs/) — the spec you're implementing.
 6. [`internal/<pkg>/AGENTS.md`](internal/) — package-specific invariants (`store`, `graph`, `ui`, `auth`).
 7. [`docs/adr/`](docs/adr/) — cross-cutting decisions, when you're about to relitigate one.
 
@@ -39,8 +39,8 @@ If a spec contradicts ARCH/PRD, the spec is wrong. Fix the spec first.
 | What is this project, in/out of scope? | `docs/PRD.md` |
 | Why did we choose X over Y? | `docs/adr/` |
 | How is the code organized today? | `docs/ARCH.md` |
-| What does this spec/feature do? | `docs/specs/NN-*.md` |
-| How will it be built, step by step? | `docs/plans/spec-NN.md` |
+| What does this spec/feature do? | `docs/specs/NN-<title>/spec.md` |
+| How will it be built, step by step? | `docs/specs/NN-<title>/plan.md` |
 | How do we work (DoD, ralph loop, style)? | `docs/CONVENTIONS.md` |
 | Config keys + defaults? | `docs/CONFIG.md` |
 | Threat model? | `docs/THREAT_MODEL.md` |
@@ -130,8 +130,8 @@ must return `Clean — ready to commit.` before the PR ships.
 `.claude/skills/` contains workflows that have been used enough to deserve
 a name:
 
-- `new-spec` — scaffold `docs/specs/NN-<title>.md` +
-  `docs/plans/spec-NN.md` together (the v0.12.0 missing-plan-file
+- `new-spec` — scaffold `docs/specs/NN-<title>/spec.md` +
+  `docs/specs/NN-<title>/plan.md` together (the v0.12.0 missing-plan-file
   regression made this rule).
 - `bug-fix` — fix a defect with root-cause discipline: reproduce →
   failing test (same commit as fix per `docs/CONVENTIONS.md §5.7`) →

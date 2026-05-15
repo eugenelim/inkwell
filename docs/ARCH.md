@@ -234,7 +234,7 @@ States the engine cycles through:
           └────────────────────┘
 ```
 
-Detailed behavior is in `specs/03-sync-engine.md`. Summary:
+Detailed behavior is in `specs/03-sync-engine/spec.md`. Summary:
 
 - **Foregrounded (terminal active):** tick every 30s. On tick: drain action queue → run delta on all subscribed folders → idle.
 - **Backgrounded:** tick every 5min.
@@ -297,7 +297,7 @@ Rationale: envelope sync is fast (<1KB per message). Body fetch is heavy (often 
 
 ## 7. Local store schema (high level)
 
-Detailed schema in `specs/02-local-cache-schema.md`. Tables:
+Detailed schema in `specs/02-local-cache-schema/spec.md`. Tables:
 
 | Table          | Purpose                                                        |
 | -------------- | -------------------------------------------------------------- |

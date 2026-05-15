@@ -1,7 +1,7 @@
 # inkwell — user documentation
 
 User-facing docs, separate from the contributor docs in `docs/PRD.md`,
-`docs/ARCH.md`, `docs/specs/`, `docs/plans/`, etc.
+`docs/ARCH.md`, `docs/specs/` (per-feature `spec.md` + `plan.md`), etc.
 
 Four sections, each answering a different kind of question:
 

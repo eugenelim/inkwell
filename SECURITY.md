@@ -4,7 +4,7 @@
 > (currently v0.12.x). The dedicated security mailbox + PGP key, the
 > coordinated-disclosure SLA, and the supported-versions matrix will
 > all be defined and published as part of the **v1.0 release**.
-> Spec [`17-security-testing-and-casa-evidence.md`](docs/specs/17-security-testing-and-casa-evidence.md)
+> Spec [`17-security-testing-and-casa-evidence.md`](docs/specs/17-security-testing-and-casa-evidence/spec.md)
 > tracks the work.
 
 ## Reporting a vulnerability — pre-1.0
@@ -79,7 +79,7 @@ under `sec-reports/` (gitignored).
 - [`docs/PRIVACY.md`](docs/PRIVACY.md) — what data inkwell accesses,
   what leaves the device (nothing, except API calls to Microsoft
   Graph), where data is stored, and how users delete it.
-- [`docs/specs/17-security-testing-and-casa-evidence.md`](docs/specs/17-security-testing-and-casa-evidence.md)
+- [`docs/specs/17-security-testing-and-casa-evidence/spec.md`](docs/specs/17-security-testing-and-casa-evidence/spec.md)
   — the canonical spec covering the security testing scaffold,
   CASA Tier 2 evidence, and the per-PR security checklist
   (`docs/CONVENTIONS.md` §11).

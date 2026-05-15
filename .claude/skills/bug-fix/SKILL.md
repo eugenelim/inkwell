@@ -67,8 +67,8 @@ restructuring.
    - **When did it start?** `git log -p -- <path>` and `git blame`
      on the affected code. For regression-shaped bugs the commit
      that broke it often tells you why. For bugs that go back
-     before recorded history, the surrounding `spec-NN.md` and any
-     `docs/adr/` files surface the original intent.
+     before recorded history, the surrounding `docs/specs/NN-<title>/spec.md`
+     and any `docs/adr/` files surface the original intent.
    - **Could the same class of bug exist elsewhere?** Grep for
      similar patterns — same function called from other sites, same
      assumption made elsewhere. Common inkwell-shaped repeats:
@@ -134,7 +134,7 @@ restructuring.
    (CONVENTIONS §10).
 
 9. **Update the plan file** if this fix relates to a shipped spec.
-   `docs/plans/spec-NN.md` is the journal; add an iteration entry
+   `docs/specs/NN-<title>/plan.md` is the journal; add an iteration entry
    noting "Bug X reported on YYYY-MM-DD; regression test
    `TestFooHandlesBar` added in commit `<sha>`."
 

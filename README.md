@@ -277,10 +277,10 @@ Jumping into the codebase? Read these in order:
 - [`docs/CONFIG.md`](docs/CONFIG.md) — every config key.
 - [`docs/TESTING.md`](docs/TESTING.md) — test conventions, fuzz,
   goleak, teatest patterns, the regression suite.
-- [`docs/specs/`](docs/specs/) — per-feature specs in implementation
-  order.
-- [`docs/plans/`](docs/plans/) — per-spec tracking notes (DoD
-  checklists, iteration logs).
+- [`docs/specs/`](docs/specs/) — per-feature directories in
+  implementation order. Each `NN-<title>/` contains a `spec.md`
+  (contract — what "done" means) and a `plan.md` (tracking note —
+  DoD checklist + iteration log).
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — post-v1 backlog, ranked by
   impact.
 

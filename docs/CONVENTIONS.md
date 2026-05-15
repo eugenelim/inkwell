@@ -259,7 +259,7 @@ not optional.
 ## 7. Privacy and security (non-negotiable)
 
 > **Canonical sources:** spec 17
-> (`docs/specs/17-security-testing-and-casa-evidence.md`) for CI
+> (`docs/specs/17-security-testing-and-casa-evidence/spec.md`) for CI
 > gates, security tests, and CASA evidence;
 > `docs/THREAT_MODEL.md` for threats + mitigations;
 > `docs/PRIVACY.md` for data-flow claims. Future specs MUST
@@ -466,7 +466,7 @@ then ask the user for input rather than spin further).
 
 For the spec under work, run these phases in order. Do not skip.
 
-1. **Re-read the spec.** Open `docs/specs/NN-*.md`. Re-read PRD §3.1 (scopes)
+1. **Re-read the spec.** Open `docs/specs/NN-<title>/spec.md`. Re-read PRD §3.1 (scopes)
    and any ARCH section the spec depends on. List the §"Definition of done"
    bullets and the §"Performance budgets" rows. Treat these as the loop's
    exit criteria.
@@ -505,7 +505,7 @@ For the spec under work, run these phases in order. Do not skip.
    If any answer is "No / oops", that becomes the next iteration's slice.
 
 6. **Update the DoD checklist** in the spec's tracking note (kept under
-   `docs/plans/spec-NN.md`, see §13). Mark bullets ticked or note remaining
+   `docs/specs/NN-<title>/plan.md`, see §13). Mark bullets ticked or note remaining
    work. Update perf-budget table with measured numbers.
 
    **At the same time, update the user docs.** `docs/user/` follows
@@ -576,8 +576,8 @@ one if the tag went out first). This is the authoritative checklist;
 
 | File | What to update |
 | ---- | -------------- |
-| `docs/plans/spec-NN.md` | Set `Status: done`. Add a final iteration entry with the tag, measured perf numbers, and any noted deviations from spec. |
-| `docs/specs/NN-*.md` | Add a `**Shipped:** vX.Y.Z` line at the top of the spec (inside the opening metadata block or just below the title). |
+| `docs/specs/NN-<title>/plan.md` | Set `Status: done`. Add a final iteration entry with the tag, measured perf numbers, and any noted deviations from spec. |
+| `docs/specs/NN-<title>/spec.md` | Add a `**Shipped:** vX.Y.Z` line at the top of the spec (inside the opening metadata block or just below the title). |
 | `docs/PRD.md` §10 | Mark the spec's inventory row as shipped with version. |
 | `docs/ROADMAP.md` | In the relevant **bucket table**: change the status cell to `Shipped vX.Y.Z`. In the **§1 backlog heading**: change `— P1/P2` to `— Shipped vX.Y.Z (spec NN)`. |
 | `docs/user/reference.md` | Add every new surface (see trigger list below). Update the `_Last reviewed against vX.Y.Z._` footer. |
@@ -607,10 +607,10 @@ confirm every new symbol appears in `reference.md`.
 ## 13. Per-spec tracking notes
 
 For each spec under active loop, the assistant maintains a running note at
-`docs/plans/spec-NN.md`. This file is **the** state of the loop. It contains:
+`docs/specs/NN-<title>/plan.md`. This file is **the** state of the loop. It contains:
 
 **Mandatory at ship time.** When a spec is shipped (commit + tag +
-release), the corresponding `docs/plans/spec-NN.md` MUST exist and
+release), the corresponding `docs/specs/NN-<title>/plan.md` MUST exist and
 MUST be updated in the same commit that ships the feature. A spec
 that ships without a plan file is a missing artefact: the next
 contributor (or the assistant in a future session) loses the trail
@@ -618,7 +618,7 @@ of decisions, deferred bullets, and known gaps.
 
 The check is mechanical — the spec inventory in `docs/PRD.md` §10
 lists every spec; for each row marked "shipped" or with a real
-status, `git ls-files docs/plans/spec-NN.md` must return non-empty.
+status, `git ls-files docs/specs/NN-<title>/plan.md` must return non-empty.
 The plan file is the journal; the spec is the contract; both must
 land together. Forgetting it once (spec 16 v0.12.0 ship) is the
 reason this rule was added.
@@ -680,8 +680,14 @@ inkwell/
 │   ├── ARCH.md
 │   ├── CONFIG.md
 │   ├── adr/                   # immutable records of cross-cutting decisions
-│   ├── specs/                 # the source of truth for each feature
-│   ├── plans/                 # ralph-loop tracking notes (per-spec)
+│   ├── specs/                 # per-feature directories: NN-<title>/{spec.md,plan.md}
+│   │   ├── 01-auth-device-code/
+│   │   │   ├── spec.md        # contract — what "done" means
+│   │   │   └── plan.md        # tracking note — ralph-loop journal
+│   │   ├── 02-local-cache-schema/
+│   │   ...
+│   ├── plans/                 # cross-cutting meta-plans only (00-ralph-loop-plan-specs-01-05.md);
+│   │                          # per-spec plans now live next to their spec.md
 │   ├── ROADMAP.md
 │   └── qa-checklist.md        # manual smoke before release
 ├── cmd/inkwell/               # main, cobra subcommands
@@ -766,7 +772,7 @@ memory beats re-learning.
 
 **Process**
 
-- Shipped spec without `docs/plans/spec-NN.md` (§13 rule, added
+- Shipped spec without `docs/specs/NN-<title>/plan.md` (§13 rule, added
   after spec 16 v0.12.0 ship).
 - Tag pushed without checking CI status. After every push or tag,
   run `gh run list --limit 5` and inspect any failure (§10).

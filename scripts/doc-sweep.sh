@@ -19,8 +19,8 @@
 #                         Combine with --strict to fail on those too.
 #
 # Always-on checks:
-#   1. Plan-file existence  — every docs/specs/NN-*.md has a
-#      docs/plans/spec-NN.md (`docs/CONVENTIONS.md` §13, the v0.12.0 lesson).
+#   1. Plan-file existence  — every docs/specs/NN-<title>/spec.md has a
+#      docs/specs/NN-<title>/plan.md (`docs/CONVENTIONS.md` §13, the v0.12.0 lesson).
 #   2. Shipped consistency  — every spec with a `**Shipped:** vX.Y.Z`
 #      line has its plan's `## Status` block start with `done`.
 #
@@ -77,9 +77,10 @@ ok()      { printf "${green}✓${reset} %s\n" "$*"; }
 # ----------------------------------------------------------------
 step "1/3 plan-file existence (§13)"
 missing_plans=0
-for spec in docs/specs/[0-9]*.md; do
-  num=$(basename "$spec" | cut -d- -f1)
-  plan="docs/plans/spec-${num}.md"
+for spec in docs/specs/[0-9]*/spec.md; do
+  dir=$(dirname "$spec")
+  num=$(basename "$dir" | cut -d- -f1)
+  plan="$dir/plan.md"
   if [ ! -f "$plan" ]; then
     finding "spec ${num} (${spec}) has no $plan"
     missing_plans=$((missing_plans+1))
@@ -94,9 +95,10 @@ fi
 # ----------------------------------------------------------------
 step "2/3 shipped consistency (§12.6)"
 inconsistent=0
-for spec in docs/specs/[0-9]*.md; do
-  num=$(basename "$spec" | cut -d- -f1)
-  plan="docs/plans/spec-${num}.md"
+for spec in docs/specs/[0-9]*/spec.md; do
+  dir=$(dirname "$spec")
+  num=$(basename "$dir" | cut -d- -f1)
+  plan="$dir/plan.md"
   if ! grep -q '^\*\*Shipped:\*\*' "$spec"; then
     continue
   fi

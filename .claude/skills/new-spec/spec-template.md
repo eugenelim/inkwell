@@ -129,7 +129,7 @@ checklist; ticked there.
 - [ ] `docs/CONFIG.md` rows for every new config key
 - [ ] `docs/user/reference.md` lists every new binding / verb / config
 - [ ] `docs/user/how-to.md` recipe for any new task flow
-- [ ] `docs/plans/spec-<NN>.md` maintained per `docs/CONVENTIONS.md` §13
+- [ ] `docs/specs/NN-<title>/plan.md` maintained per `docs/CONVENTIONS.md` §13
 
 ## 10. Open questions
 

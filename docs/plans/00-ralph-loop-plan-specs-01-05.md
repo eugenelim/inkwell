@@ -4,7 +4,7 @@
 **Owner:** AI assistant (per `docs/CONVENTIONS.md` §12).
 **Order is sequential.** 01 must reach Done before 02 starts. 02 before 03, etc. ARCH §2 layering forbids parallelism here — every later spec depends on the lower layer being solid.
 
-This file is the **outer loop**. Each spec gets its own tracking note at `docs/plans/spec-NN.md` (per `docs/CONVENTIONS.md` §13) that the assistant maintains during that spec's loop.
+This file is the **outer loop**. Each spec gets its own tracking note at `docs/specs/NN-<title>/plan.md` (per `docs/CONVENTIONS.md` §13) that the assistant maintains during that spec's loop.
 
 ---
 
@@ -43,8 +43,8 @@ Exit pre-flight when `go build ./...` and `go test -race ./...` are both green o
 
 ## Spec 01 — Authentication via Device Code Flow
 
-**Source of truth:** `docs/specs/01-auth-device-code.md`.
-**Tracking note:** `docs/plans/spec-01.md` (assistant creates on first iteration).
+**Source of truth:** `docs/specs/01-auth-device-code/spec.md`.
+**Tracking note:** `docs/specs/01-auth-device-code/plan.md` (assistant creates on first iteration).
 
 ### Scope reminder
 - MSAL Go device code flow.
@@ -102,8 +102,8 @@ None required by the spec. Assert that `Token()` returns in <1ms when cached (sa
 
 ## Spec 02 — Local Cache Schema
 
-**Source of truth:** `docs/specs/02-local-cache-schema.md`.
-**Tracking note:** `docs/plans/spec-02.md`.
+**Source of truth:** `docs/specs/02-local-cache-schema/spec.md`.
+**Tracking note:** `docs/specs/02-local-cache-schema/plan.md`.
 
 ### Scope reminder
 - SQLite via `modernc.org/sqlite`. WAL + the PRAGMAs from §2.
@@ -173,8 +173,8 @@ go test -coverprofile=cover.out ./internal/store/... && go tool cover -func=cove
 
 ## Spec 03 — Sync Engine
 
-**Source of truth:** `docs/specs/03-sync-engine.md`.
-**Tracking note:** `docs/plans/spec-03.md`.
+**Source of truth:** `docs/specs/03-sync-engine/spec.md`.
+**Tracking note:** `docs/specs/03-sync-engine/plan.md`.
 
 ### Scope reminder
 - `internal/graph/` HTTP client first (transport stack: auth → throttle → logging).
@@ -247,8 +247,8 @@ All DoD ticked. Integration scenarios above all green. No live-tenant calls in C
 
 ## Spec 04 — TUI Shell
 
-**Source of truth:** `docs/specs/04-tui-shell.md`.
-**Tracking note:** `docs/plans/spec-04.md`.
+**Source of truth:** `docs/specs/04-tui-shell/spec.md`.
+**Tracking note:** `docs/specs/04-tui-shell/plan.md`.
 
 ### Scope reminder
 - Bubble Tea root `Model` + sub-models: folders / list / viewer (stub) / command / status / signin / confirm.
@@ -313,8 +313,8 @@ All DoD ticked. e2e scripts cover the eight scenarios above. Cold-start benchmar
 
 ## Spec 05 — Message Rendering
 
-**Source of truth:** `docs/specs/05-message-rendering.md`.
-**Tracking note:** `docs/plans/spec-05.md`.
+**Source of truth:** `docs/specs/05-message-rendering/spec.md`.
+**Tracking note:** `docs/specs/05-message-rendering/plan.md`.
 
 ### Scope reminder
 - `internal/render/` package. Stateless `Renderer` interface.
@@ -436,7 +436,7 @@ The pause is a regular text message to the user, not a `ScheduleWakeup`. The use
 ## Sequence for the assistant
 
 1. Run **Pre-flight** (§0) once, commit, smoke-test `go build ./...` and `go test -race ./...`.
-2. Open `docs/plans/spec-01.md` (assistant creates from the template in `docs/CONVENTIONS.md` §13). Begin spec-01 ralph loop until exit criteria fire.
+2. Open `docs/specs/01-auth-device-code/plan.md` (assistant creates from the template in `docs/CONVENTIONS.md` §13). Begin spec-01 ralph loop until exit criteria fire.
 3. Open PR for spec 01. Wait for user merge if required.
 4. Repeat for specs 02, 03, 04, 05 in order.
 5. After spec 05 lands, this outer plan is complete. Subsequent specs (06–14) get their own plan documents.

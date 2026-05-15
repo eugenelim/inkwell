@@ -7,9 +7,9 @@ pure refactor) — but say so in the Summary rather than silently deleting.
 
 ## Summary
 
-<!-- 1–3 sentences. What changed and why. Link the spec: docs/specs/NN-*.md -->
+<!-- 1–3 sentences. What changed and why. Link the spec: docs/specs/NN-<title>/spec.md -->
 
-**Spec:** <!-- docs/specs/NN-*.md, or "n/a — refactor/chore" -->
+**Spec:** <!-- docs/specs/NN-<title>/spec.md, or "n/a — refactor/chore" -->
 **Spec 17 impact:** <!-- one line: "none" | "new log site at X — redaction test added" | "new file I/O at Y — §4.4 path check added" | etc. -->
 
 ## What did you not change that you considered?
@@ -77,8 +77,8 @@ relevant counts or attach the `make regress` tail.
 Tick only those that apply. If you're shipping a tag, every applicable
 row must be in this PR or the immediately-following commit.
 
-- [ ] `docs/plans/spec-NN.md` updated (status, iteration log, perf numbers)
-- [ ] `docs/specs/NN-*.md` carries `**Shipped:** vX.Y.Z` (if tagging)
+- [ ] `docs/specs/NN-<title>/plan.md` updated (status, iteration log, perf numbers)
+- [ ] `docs/specs/NN-<title>/spec.md` carries `**Shipped:** vX.Y.Z` (if tagging)
 - [ ] `docs/PRD.md` §10 inventory row updated
 - [ ] `docs/ROADMAP.md` bucket table + §1 backlog heading updated
 - [ ] `docs/user/reference.md` lists every new key binding, `:command`, CLI verb, pattern operator, mode/chord, sidebar section, indicator glyph, or viewer header line

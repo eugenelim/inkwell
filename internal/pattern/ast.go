@@ -1,6 +1,6 @@
 // Package pattern implements the Mutt-inspired pattern language used
 // to select messages for bulk operations and saved searches. See
-// docs/specs/08-pattern-language.md.
+// docs/specs/08-pattern-language/spec.md.
 //
 // v0.5.0 shipped the lexer, parser, AST, and a local-SQL evaluator;
 // v0.18.0 (PR 9 of audit-drain) shipped the Compile / Execute API +

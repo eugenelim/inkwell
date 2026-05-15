@@ -33,10 +33,10 @@ from the prompt and state which you picked:
    sub-list). These are first-class — do not invent rival terminology.
 2. `docs/TESTING.md` — the mechanics: helpers, naming, goleak, fuzz,
    teatest patterns, anti-patterns.
-3. The targeted feature spec (`docs/specs/NN-*.md`) — particularly
+3. The targeted feature spec (`docs/specs/NN-<title>/spec.md`) — particularly
    its "Definition of done" (the contract tests), "Performance
    budgets", and "Test plan" sections.
-4. The targeted plan (`docs/plans/spec-NN.md`) — DoD checklist
+4. The targeted plan (`docs/specs/NN-<title>/plan.md`) — DoD checklist
    progress, perf-budget measurements vs targets, iteration log.
 5. The diff (`git diff origin/main..HEAD` if not enumerated), plus
    the nearest existing tests to the changed files (so you understand

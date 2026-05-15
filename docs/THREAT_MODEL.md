@@ -4,7 +4,7 @@
 > reviews this file per `docs/CONVENTIONS.md` §11 cross-cutting checklist and
 > updates the threats-and-mitigations table when the work changes
 > what we defend against. Spec
-> [`docs/specs/17-security-testing-and-casa-evidence.md`](specs/17-security-testing-and-casa-evidence.md)
+> [`docs/specs/17-security-testing-and-casa-evidence/spec.md`](specs/17-security-testing-and-casa-evidence/spec.md)
 > §5.2 owns the broader CASA-evidence story; this file is the
 > in-tree truth.
 
@@ -77,7 +77,7 @@ models maintained by their authors.
 | Backdoored build pipeline | Pending: pin GitHub Actions by SHA, scope tokens, dependency-review-action on PRs. | Partial — `permissions: contents: read` set on the security workflow |
 | Accidental secret commits | Planned: gitleaks workflow + pre-commit hook (spec 17 §3.6). | TBD |
 | One-click unsubscribe POST sent to attacker URL | URL is extracted only from the message's own `List-Unsubscribe` header — sender-asserted. Generic `User-Agent`, no cookies, no referer. 5s timeout; 3-hop redirect cap; HTTPS-only. | `internal/unsub/parse_test.go`; `internal/unsub/execute_test.go` |
-| Cached unsubscribe action stale after sender rotates URL | Accepted residual risk (cache hint only). User can clear the column to re-fetch. | Documented in `docs/plans/spec-16.md` |
+| Cached unsubscribe action stale after sender rotates URL | Accepted residual risk (cache hint only). User can clear the column to re-fetch. | Documented in `docs/specs/16-unsubscribe/plan.md` |
 | Tab name as PII vector (spec 24) | A user-chosen tab name (e.g. `Boss emails`, `Health stuff`, recruiter outreach about a named person) is PII-adjacent. Mitigated by call-site DEBUG-only logging policy: `Manager.Promote` / `Demote` log the saved-search **ID + position** at `INFO`; the **name** is logged at `DEBUG` only. | `internal/savedsearch/tabs_test.go::TestPromoteDoesNotLogName`, `TestDemoteDoesNotLogName` |
 | **T-CA1** Folder name templated from sender data (spec 27) | A custom action whose `move.destination` references `{{.SenderDomain}}` could create stray folders on a malformed sender. Mitigated by `allow_folder_template = true` opt-in at load and the existing folder-not-found error at runtime (no auto-create). | `internal/customaction/loader_test.go::TestLoadCatalogueAcceptsAllowFolderTemplateOptIn` |
 | **T-CA2** Templated re-injection of UserInput (spec 27) | A user's `prompt_value` reply binds verbatim to `{{.UserInput}}`; downstream templates do NOT re-render the reply as a template directive. | Executor design: `Resume()` writes to `Context.UserInput`; templates execute against `Context` once per batch. |

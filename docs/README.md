@@ -18,20 +18,20 @@ The PRD, ARCH, and CONFIG documents are foundational; specs assume the reader ha
 
 | #  | File                                  | Topic                                    | Effort |
 | -- | ------------------------------------- | ---------------------------------------- | ------ |
-| 01 | `specs/01-auth-device-code.md`        | OAuth device code flow + Keychain        | 1–2d   |
-| 02 | `specs/02-local-cache-schema.md`      | SQLite schema, FTS5, migrations          | 2d     |
-| 03 | `specs/03-sync-engine.md`             | Sync engine, delta query, throttling     | 3–4d   |
-| 04 | `specs/04-tui-shell.md`               | Bubble Tea panes, keymap, modes          | 3d     |
-| 05 | `specs/05-message-rendering.md`       | HTML→text, headers, attachments, links   | 2d     |
-| 06 | `specs/06-search-hybrid.md`           | Local FTS + Graph $search, streaming     | 2d     |
-| 07 | `specs/07-triage-actions-single.md`   | Single-message actions, optimistic UI    | 2d     |
-| 08 | `specs/08-pattern-language.md`        | Mutt-style pattern parser + compiler     | 2–3d   |
-| 09 | `specs/09-batch-engine.md`            | Graph $batch executor, retry, undo       | 2d     |
-| 10 | `specs/10-bulk-operations.md`         | Filter UX, ; prefix, preview, progress   | 2–3d   |
-| 11 | `specs/11-saved-searches.md`          | Virtual folders in sidebar               | 1–2d   |
-| 12 | `specs/12-calendar-readonly.md`       | Calendar pane (read-only)                | 1–2d   |
-| 13 | `specs/13-mailbox-settings.md`        | Out-of-office toggle, settings view      | 1d     |
-| 14 | `specs/14-cli-mode.md`                | Non-interactive subcommands              | 1–2d   |
+| 01 | `specs/01-auth-device-code/spec.md`        | OAuth device code flow + Keychain        | 1–2d   |
+| 02 | `specs/02-local-cache-schema/spec.md`      | SQLite schema, FTS5, migrations          | 2d     |
+| 03 | `specs/03-sync-engine/spec.md`             | Sync engine, delta query, throttling     | 3–4d   |
+| 04 | `specs/04-tui-shell/spec.md`               | Bubble Tea panes, keymap, modes          | 3d     |
+| 05 | `specs/05-message-rendering/spec.md`       | HTML→text, headers, attachments, links   | 2d     |
+| 06 | `specs/06-search-hybrid/spec.md`           | Local FTS + Graph $search, streaming     | 2d     |
+| 07 | `specs/07-triage-actions-single/spec.md`   | Single-message actions, optimistic UI    | 2d     |
+| 08 | `specs/08-pattern-language/spec.md`        | Mutt-style pattern parser + compiler     | 2–3d   |
+| 09 | `specs/09-batch-engine/spec.md`            | Graph $batch executor, retry, undo       | 2d     |
+| 10 | `specs/10-bulk-operations/spec.md`         | Filter UX, ; prefix, preview, progress   | 2–3d   |
+| 11 | `specs/11-saved-searches/spec.md`          | Virtual folders in sidebar               | 1–2d   |
+| 12 | `specs/12-calendar-readonly/spec.md`       | Calendar pane (read-only)                | 1–2d   |
+| 13 | `specs/13-mailbox-settings/spec.md`        | Out-of-office toggle, settings view      | 1d     |
+| 14 | `specs/14-cli-mode/spec.md`                | Non-interactive subcommands              | 1–2d   |
 
 **Implementation order:** specs 01–04 are foundational and must land first. Specs 08–10 are tightly coupled (the bulk-triage trio) and should land together. The rest are largely parallelizable.
 

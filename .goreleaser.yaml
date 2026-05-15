@@ -95,7 +95,7 @@ release:
     See `AGENTS.md` (entry point) + `docs/CONVENTIONS.md` (long-form
     rules) for the contributor guide, and `docs/PRD.md` for
     the product scope. Microsoft 365 tenant prerequisites are in
-    `docs/specs/01-auth-device-code.md` §3.
+    `docs/specs/01-auth-device-code/spec.md` §3.
   footer: |
     **Verifying downloads**
 

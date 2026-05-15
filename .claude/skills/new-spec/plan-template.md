@@ -15,7 +15,7 @@ once the spec carries a `**Shipped:**` marker.
 
 ## DoD checklist
 
-Mirrors `docs/specs/<NN>-*.md` §9. Tick boxes as they land.
+Mirrors `docs/specs/NN-<title>/spec.md` §9. Tick boxes as they land.
 
 - [ ] ...
 - [ ] ...
