@@ -10,7 +10,7 @@ For new readers (humans or LLMs), read in this order:
 2. **`ARCH.md`** — system architecture, module layout, data flow, cross-cutting concerns.
 3. **`CONFIG.md`** — canonical reference for every config key. Skim on first read; reference on demand later.
 4. **`specs/`** — one file per feature, numbered in implementation order.
-5. **`ROADMAP.md`** — post-v1 ideas, ranked by impact. Read after v1 is shipping or shipped; not required for v1 implementation.
+5. **`product/roadmap.md`** — post-v1 ideas, ranked by impact. Read after v1 is shipping or shipped; not required for v1 implementation.
 
 The PRD, ARCH, and CONFIG documents are foundational; specs assume the reader has read them.
 

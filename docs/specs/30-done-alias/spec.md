@@ -18,7 +18,7 @@ screener, watch mode) does not depend on this verb cosmetic.
 
 ### 0.1 Spec inventory
 
-"Done" alias is item 4 of Bucket 3 in `docs/ROADMAP.md` §0 and
+"Done" alias is item 4 of Bucket 3 in `docs/product/roadmap.md` §0 and
 backlog item §1.23. Slots 27 (custom-actions framework, row 1), 28
 (screener, row 2), and 29 (watch mode, row 3) are all authored and
 ready for implementation. Spec 30 takes the next sequential slot for
@@ -956,7 +956,7 @@ with a call to `archiveVerbLower(m.archiveLabel)` /
       `git ls-files docs/plans/` must return non-empty for every
       shipped spec).
 - [ ] **`docs/PRD.md` §10** spec inventory adds a row for spec 30.
-- [ ] **`docs/ROADMAP.md`** §0 Bucket 3 row 4 status updated when
+- [ ] **`docs/product/roadmap.md`** §0 Bucket 3 row 4 status updated when
       shipped; §1.23 backlog heading updated likewise.
 - [ ] PR checklist (`docs/CONVENTIONS.md` §11) fully ticked.
 

@@ -17,7 +17,7 @@ CLI / migration surface is comparatively small.
 
 ### 0.1 Spec inventory
 
-Bundle senders is item 5 of Bucket 2 in `docs/ROADMAP.md` §0 and
+Bundle senders is item 5 of Bucket 2 in `docs/product/roadmap.md` §0 and
 takes spec slot 26 to keep the spec number aligned with the
 ROADMAP bullet number (1.11). Specs 22 (command palette), 23
 (routing destinations), 24 (split inbox tabs), and 25 (reply-later

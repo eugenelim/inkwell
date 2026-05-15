@@ -579,7 +579,8 @@ one if the tag went out first). This is the authoritative checklist;
 | `docs/specs/NN-<title>/plan.md` | Set `Status: done`. Add a final iteration entry with the tag, measured perf numbers, and any noted deviations from spec. |
 | `docs/specs/NN-<title>/spec.md` | Add a `**Shipped:** vX.Y.Z` line at the top of the spec (inside the opening metadata block or just below the title). |
 | `docs/PRD.md` §10 | Mark the spec's inventory row as shipped with version. |
-| `docs/ROADMAP.md` | In the relevant **bucket table**: change the status cell to `Shipped vX.Y.Z`. In the **§1 backlog heading**: change `— P1/P2` to `— Shipped vX.Y.Z (spec NN)`. |
+| `docs/product/roadmap.md` | In the relevant **bucket table**: change the status cell to `Shipped vX.Y.Z`. In the **§1 backlog heading**: change `— P1/P2` to `— Shipped vX.Y.Z (spec NN)`. |
+| `docs/product/changelog.md` | Add a Keep-a-Changelog entry for the new release (Added / Changed / Fixed / Security sub-sections). Required for any user-visible behaviour change. |
 | `docs/user/reference.md` | Add every new surface (see trigger list below). Update the `_Last reviewed against vX.Y.Z._` footer. |
 | `docs/user/how-to.md` | Add a recipe if the spec introduces a task flow a user would look up. Skip only if no new task flow exists. |
 | `docs/user/tutorial.md` | Update only if the first-30-minutes path changed (rare). |
@@ -688,7 +689,12 @@ inkwell/
 │   │   ...
 │   ├── plans/                 # cross-cutting meta-plans only (00-ralph-loop-plan-specs-01-05.md);
 │   │                          # per-spec plans now live next to their spec.md
-│   ├── ROADMAP.md
+│   ├── product/               # roadmap.md (post-v1 backlog) + changelog.md (Keep-a-Changelog)
+│   ├── CHARTER.md             # mission, scope, principles — one page
+│   ├── THREAT_MODEL.md
+│   ├── PRIVACY.md
+│   ├── TESTING.md
+│   ├── user/                  # Diátaxis (tutorial / how-to / reference / explanation)
 │   └── qa-checklist.md        # manual smoke before release
 ├── cmd/inkwell/               # main, cobra subcommands
 ├── internal/                  # everything else (no external imports allowed)

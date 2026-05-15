@@ -142,7 +142,7 @@ as each slice lands.
 - [ ] `docs/ARCH.md` §6 Tier 3 row + §7 schema-table `body_text`
       row.
 - [ ] `docs/PRD.md` §10 inventory row.
-- [ ] `docs/ROADMAP.md` Bucket 5 row + §1.13 status flip.
+- [ ] `docs/product/roadmap.md` Bucket 5 row + §1.13 status flip.
 - [ ] `docs/specs/06-search-hybrid/spec.md` §11 OOS bullet struck +
       back-reference to spec 35.
 - [ ] `docs/user/reference.md` regex form, `/regex:` prefix,

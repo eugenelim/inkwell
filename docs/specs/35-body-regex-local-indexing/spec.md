@@ -37,7 +37,7 @@ pyramid + perf budgets).
 ### 0.1 Spec inventory
 
 Body regex / local body indexing is item 1 of **Bucket 5 — Search &
-knowledge** in `docs/ROADMAP.md` (Bucket 5 §0 table; backlog entry
+knowledge** in `docs/product/roadmap.md` (Bucket 5 §0 table; backlog entry
 §1.13 "Body regex search locally — P2"). The roadmap is explicit
 about the constraint:
 
@@ -318,7 +318,7 @@ docs/
 ├── CONFIG.md                         # new [body_index] section (§7)
 ├── ARCH.md                           # §6 + §7 schema-table row + module-tree row
 ├── PRD.md                            # §10 inventory updated at ship
-├── ROADMAP.md                        # Bucket 5 row + §1.13 — updated at ship
+├── docs/product/roadmap.md                        # Bucket 5 row + §1.13 — updated at ship
 ├── THREAT_MODEL.md                   # "Threats and mitigations" row + "Accepted residual risks" entry (§8.1)
 ├── PRIVACY.md                        # "Where data is stored" row + "What data inkwell accesses" entry (§8.2)
 ├── specs/06-search-hybrid/spec.md         # §11 bullet struck through; back-ref to spec 35
@@ -1523,7 +1523,7 @@ that range.
 | `docs/PRD.md` | §10 inventory — add spec 35 row (status set at ship). |
 | `docs/THREAT_MODEL.md` | "Threats and mitigations" table — new row per §8.1. "Accepted residual risks" entry. |
 | `docs/PRIVACY.md` | "Where data is stored" — new row. "What data inkwell accesses" — new sentence per §8.2. |
-| `docs/ROADMAP.md` | Bucket 5 row + §1.13 — set status at ship. |
+| `docs/product/roadmap.md` | Bucket 5 row + §1.13 — set status at ship. |
 | `docs/specs/06-search-hybrid/spec.md` | §11 "Out of scope" bullet that rules out local body indexing — strike through and back-reference spec 35. (`docs/specs/06-search-hybrid/spec.md:425` is the line.) |
 | `docs/user/reference.md` | New pattern syntax (regex form on `~b`, `~B`, `~s`), `/regex:` prefix, `:index` cmd-bar verbs, CLI verbs. Update `_Last reviewed against vX.Y.Z._` footer at ship. |
 | `docs/user/how-to.md` | New recipe: "Search inside bodies (and with regex)." |

@@ -28,7 +28,7 @@ sets; no schema migration, no new scopes, no new package).
 ### 0.1 Spec inventory
 
 Calendar invitation actions in mail is item 4 of Bucket 4 in
-`docs/ROADMAP.md §0` (line 83) and corresponds to backlog item §1.17
+`docs/product/roadmap.md §0` (line 83) and corresponds to backlog item §1.17
 (line 281). The roadmap text is explicit about the scope gate:
 
 > When a meeting invite arrives as mail, render the response
@@ -604,7 +604,7 @@ where it is the same per-row cost as the body fetch.
 - [ ] `docs/user/reference.md` viewer-pane section documents the invite card, the status pip colours, the `o` keystroke routing, and the read-only nature (two-click hand-off honesty).
 - [ ] `docs/user/how-to.md` "Read a meeting invite from inkwell" recipe.
 - [ ] `docs/PRD.md` §10 inventory adds the spec 34 row.
-- [ ] `docs/ROADMAP.md` Bucket 4 row + §1.17 backlog heading updated.
+- [ ] `docs/product/roadmap.md` Bucket 4 row + §1.17 backlog heading updated.
 - [ ] `README.md` status table adds the new row.
 - [ ] Spec 17 cross-cut: no new file I/O paths, no new subprocess (existing `openURLCmd` from spec 05), no new external HTTP host (Graph only), no new SQL composition, no new persisted state. No spec 17 update needed.
 

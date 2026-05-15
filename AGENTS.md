@@ -22,21 +22,25 @@ not a full Outlook replacement (composition stays in native Outlook).
 
 ## Read these in this order before touching code
 
-1. [`docs/PRD.md`](docs/PRD.md) — what we're building, granted vs denied Graph scopes.
-2. [`docs/ARCH.md`](docs/ARCH.md) — module layout, layering, data flow, invariants.
-3. [`docs/CONFIG.md`](docs/CONFIG.md) — config keys (skim, reference on demand).
-4. [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — repo conventions; §-numbered surfaces are stable contracts.
-5. [`docs/specs/NN-<title>/spec.md`](docs/specs/) — the spec you're implementing.
-6. [`internal/<pkg>/AGENTS.md`](internal/) — package-specific invariants (`store`, `graph`, `ui`, `auth`).
-7. [`docs/adr/`](docs/adr/) — cross-cutting decisions, when you're about to relitigate one.
+1. [`docs/CHARTER.md`](docs/CHARTER.md) — one page: mission, in/out of scope, principles.
+2. [`docs/PRD.md`](docs/PRD.md) — full product description; granted vs denied Graph scopes.
+3. [`docs/ARCH.md`](docs/ARCH.md) — module layout, layering, data flow, invariants.
+4. [`docs/CONFIG.md`](docs/CONFIG.md) — config keys (skim, reference on demand).
+5. [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — repo conventions; §-numbered surfaces are stable contracts.
+6. [`docs/specs/NN-<title>/spec.md`](docs/specs/) — the spec you're implementing (paired with its `plan.md`).
+7. [`internal/<pkg>/AGENTS.md`](internal/) — package-specific invariants (`store`, `graph`, `ui`, `auth`).
+8. [`docs/adr/`](docs/adr/) — cross-cutting decisions, when you're about to relitigate one.
 
-If a spec contradicts ARCH/PRD, the spec is wrong. Fix the spec first.
+If a spec contradicts ARCH / PRD / CHARTER, the spec is wrong. Fix the spec first.
 
 ## Source of truth
 
 | Question | Where it lives |
 | --- | --- |
-| What is this project, in/out of scope? | `docs/PRD.md` |
+| Mission, in/out of scope, principles (one page)? | `docs/CHARTER.md` |
+| What is this project, in/out of scope (full)? | `docs/PRD.md` |
+| Roadmap (post-v1 backlog)? | `docs/product/roadmap.md` |
+| Changelog (user-visible per release)? | `docs/product/changelog.md` |
 | Why did we choose X over Y? | `docs/adr/` |
 | How is the code organized today? | `docs/ARCH.md` |
 | What does this spec/feature do? | `docs/specs/NN-<title>/spec.md` |

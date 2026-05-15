@@ -29,7 +29,7 @@ write surface and a separate spec.
 ### 0.1 Spec inventory
 
 Focused / Other is item 1 of Bucket 4 (Mailbox parity) in
-`docs/ROADMAP.md` §0 and corresponds to backlog item §1.15. Buckets
+`docs/product/roadmap.md` §0 and corresponds to backlog item §1.15. Buckets
 1, 1.5, 2, and 3 are all shipped (specs 16, 17, 18, 19, 20, 21, 22,
 23, 24, 25, 26, 27, 28, 29, 30); spec 31 is the first Bucket-4 spec
 and takes spec slot **31**. The PRD §10 spec inventory adds a single
@@ -1301,7 +1301,7 @@ sender / body fields.
 - [ ] `docs/CONFIG.md` — new `[inbox]` section with the three
       keys per §10.
 - [ ] `docs/PRD.md` §10 spec inventory adds a row for spec 31.
-- [ ] `docs/ROADMAP.md` §0 Bucket 4 row 1 status updated when
+- [ ] `docs/product/roadmap.md` §0 Bucket 4 row 1 status updated when
       shipped; §1.15 backlog heading updated likewise.
 - [ ] `README.md` status table row for spec 31 once shipped (per
       `docs/CONVENTIONS.md` §12.6).

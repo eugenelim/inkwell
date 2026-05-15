@@ -126,7 +126,7 @@ Mirrors `docs/specs/28-screener/spec.md` §10. Tick as work lands.
 - [ ] `docs/ARCH.md` §"action queue" mentions spec 28 reuses
       spec 23 `routeCmd`.
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 28.
-- [ ] `docs/ROADMAP.md` Bucket 3 row + §1.16 backlog heading
+- [ ] `docs/product/roadmap.md` Bucket 3 row + §1.16 backlog heading
       reference spec 28.
 - [ ] `docs/specs/23-routing-destinations/spec.md` §10.1 / §14
       forward-link to spec 28 (closes the spec 23 follow-up

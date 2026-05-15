@@ -27,7 +27,7 @@ small.
 ### 0.1 Spec inventory
 
 Screener is item 2 of Bucket 3 (Power-user automation) in
-`docs/ROADMAP.md` §0 and corresponds to backlog item 1.16. It
+`docs/product/roadmap.md` §0 and corresponds to backlog item 1.16. It
 takes spec slot **28**, leaving slot 27 for the custom-actions
 framework (Bucket 3 item 1) which is independently specced.
 Spec 26 (bundle senders) shipped at v0.55.0 (`a464f03` /
@@ -1628,7 +1628,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       reuses spec 23's `routeCmd` (no new local-only mutation
       surface; the gate is read-only filter logic).
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 28.
-- [ ] `docs/ROADMAP.md` updates: §0 Bucket 3 `Screener (1.16)`
+- [ ] `docs/product/roadmap.md` updates: §0 Bucket 3 `Screener (1.16)`
       row gains a Spec column entry `28`; §1.16 backlog heading
       flips to `— Spec 28` (in progress) until ship.
 - [ ] `docs/PRIVACY.md` (spec 17 §): one row added under "what
@@ -1924,7 +1924,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
       `docs/user/explanation.md` (one paragraph noting the gate
       is a local-only filter and that native-OS notification
       suppression is not in inkwell's scope, per §9.1),
-      `docs/PRD.md` §10, `docs/ROADMAP.md` (Bucket 3 row + §1.16
+      `docs/PRD.md` §10, `docs/product/roadmap.md` (Bucket 3 row + §1.16
       heading), `docs/specs/28-screener/spec.md` Shipped line,
       `docs/specs/23-routing-destinations/spec.md` §10.1 / §14
       (forward-link to spec 28 noting the `__screener__`

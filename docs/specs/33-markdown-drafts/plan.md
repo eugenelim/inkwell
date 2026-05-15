@@ -31,7 +31,7 @@ done
 - [x] `docs/specs/33-markdown-drafts/plan.md`: status=done
 - [x] `docs/specs/33-markdown-drafts/spec.md`: `**Shipped:** v0.62.0`
 - [x] `docs/PRD.md` §10: spec 33 row shipped
-- [x] `docs/ROADMAP.md`: Bucket-4 row + §1.18 backlog heading updated
+- [x] `docs/product/roadmap.md`: Bucket-4 row + §1.18 backlog heading updated
 - [x] `README.md`: status table row + download version bumped
 - [x] `make regress` green (all five gates: gofmt, vet, build, race, e2e, integration, benchmarks)
 

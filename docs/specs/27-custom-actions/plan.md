@@ -116,7 +116,7 @@ Mirrors `docs/specs/27-custom-actions/spec.md` §9. Tick as work lands.
       (one paragraph on invocation-driven design — no inbound
       hooks).
 - [ ] **Project docs** (`docs/CONVENTIONS.md` §13): `docs/PRD.md` §10 row
-      for spec 27 (post-v1, ROADMAP §0 bucket 3); `docs/ROADMAP.md`
+      for spec 27 (post-v1, ROADMAP §0 bucket 3); `docs/product/roadmap.md`
       bucket-3 row 1 status + §2 backlog heading;
       `docs/specs/27-custom-actions/spec.md` `**Shipped:** vX.Y.Z` line;
       `docs/specs/27-custom-actions/plan.md` final iteration entry;

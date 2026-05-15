@@ -280,7 +280,7 @@ change anything spec 17 cares about?" a required cross-cutting
 checklist item so future specs surface threat-model deltas as they land.
 
 Specs 16, 18–21 cover the "triage primitives" bucket from
-`docs/ROADMAP.md` §0 — all shipped v0.12.0 through v0.49.0.
+`docs/product/roadmap.md` §0 — all shipped v0.12.0 through v0.49.0.
 
 Specs 22–26 cover the "inbox philosophy" bucket — all shipped
 v0.50.0 through v0.55.0.

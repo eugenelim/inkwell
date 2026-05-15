@@ -80,7 +80,8 @@ row must be in this PR or the immediately-following commit.
 - [ ] `docs/specs/NN-<title>/plan.md` updated (status, iteration log, perf numbers)
 - [ ] `docs/specs/NN-<title>/spec.md` carries `**Shipped:** vX.Y.Z` (if tagging)
 - [ ] `docs/PRD.md` §10 inventory row updated
-- [ ] `docs/ROADMAP.md` bucket table + §1 backlog heading updated
+- [ ] `docs/product/roadmap.md` bucket table + §1 backlog heading updated
+- [ ] `docs/product/changelog.md` entry added (Added/Changed/Fixed/Security) for any user-visible behaviour change
 - [ ] `docs/user/reference.md` lists every new key binding, `:command`, CLI verb, pattern operator, mode/chord, sidebar section, indicator glyph, or viewer header line
 - [ ] `docs/user/how-to.md` recipe added if the spec introduces a meaningful new task flow
 - [ ] `docs/user/tutorial.md` / `docs/user/explanation.md` updated only if the first-launch path or a design invariant moved

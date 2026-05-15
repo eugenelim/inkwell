@@ -216,7 +216,7 @@ surface for v1.
       "configuration-as-code: rules.toml is your source of
       truth".
 - [ ] `docs/PRD.md` §10 — add spec 32 inventory row.
-- [ ] `docs/ROADMAP.md` — Bucket 4 row "Server-side rules"
+- [ ] `docs/product/roadmap.md` — Bucket 4 row "Server-side rules"
       flipped to `Shipped vX.Y.Z (spec 32)`; §1.14 backlog
       heading updated.
 - [ ] `docs/THREAT_MODEL.md` — new row per §14 spec-17 review.

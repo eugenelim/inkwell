@@ -27,7 +27,7 @@ subcommands).
 ### 0.1 Spec inventory
 
 Rich-text / Markdown drafts is item 3 of Bucket 4 in
-`docs/ROADMAP.md §0` and corresponds to backlog item §1.18. The
+`docs/product/roadmap.md §0` and corresponds to backlog item §1.18. The
 roadmap description:
 
 > v1 drafts are plain text. The platform accepts HTML drafts. We

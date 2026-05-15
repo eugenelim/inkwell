@@ -987,7 +987,7 @@ test `TestDemoteDoesNotLogName` covers the demote path.
       and the existing viewer / calendar bindings are unchanged);
       `docs/user/how-to.md` "Split inbox tabs" recipe added;
       `docs/PRD.md` §10 inventory row updated;
-      `docs/ROADMAP.md` §1.7 row updated to "shipped as spec 24"
+      `docs/product/roadmap.md` §1.7 row updated to "shipped as spec 24"
       and the `Tab` / `Shift+Tab` claim in §1.7 prose corrected to
       `]` / `[` (matches what we shipped); this spec file written;
       `docs/specs/24-split-inbox-tabs/plan.md` created at ship time (`docs/CONVENTIONS.md` §13

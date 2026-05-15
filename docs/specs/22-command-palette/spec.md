@@ -926,7 +926,7 @@ search string (cached on the row, not recomputed per keystroke).
       feature, per `docs/CONVENTIONS.md` §13):
   - [ ] `docs/PRD.md` §10 inventory gains row
         `22 | 22-command-palette.md | post-v1, ROADMAP §0 bucket 2`.
-  - [ ] `docs/ROADMAP.md` §0 Bucket 2 row 1 ("Command palette (1.6)")
+  - [ ] `docs/product/roadmap.md` §0 Bucket 2 row 1 ("Command palette (1.6)")
         updates the `Why this slot` cell to reference Spec 22 and the
         §1.6 narrative gains a "Owner: spec 22" line.
   - [ ] `docs/specs/22-command-palette/plan.md` exists and is updated each iteration

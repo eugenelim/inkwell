@@ -71,7 +71,7 @@ Mirrors `docs/specs/29-watch-mode/spec.md` §9. Tick as work lands.
   - [ ] `docs/specs/29-watch-mode/plan.md` (this file) has `Status: done`
         with measured perf numbers in the final iteration entry.
   - [ ] `docs/PRD.md` §10 inventory: row for 29 added.
-  - [ ] `docs/ROADMAP.md` Bucket 3 row 3 updated to
+  - [ ] `docs/product/roadmap.md` Bucket 3 row 3 updated to
         `Spec 29 — ready` (and `Shipped vX.Y.Z` once shipped);
         §1.19 narrative gains a `Owner: spec 29` line.
   - [ ] `docs/user/reference.md` adds `messages --watch` row to the

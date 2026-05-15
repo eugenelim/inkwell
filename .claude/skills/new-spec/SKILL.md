@@ -67,7 +67,7 @@ Don't use for:
    `## Status\nnot-started`. Update to `in-progress` as soon as
    work begins; `done` only at ship time.
 
-5. **Don't update PRD.md §10 / ROADMAP.md yet.** Those are
+5. **Don't update PRD.md §10 / docs/product/roadmap.md yet.** Those are
    ship-time edits — they mark the spec as inventory once it lands.
    At spec-creation time, the spec itself is the only authoritative
    surface.

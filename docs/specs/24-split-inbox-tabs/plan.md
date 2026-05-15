@@ -81,7 +81,7 @@ implementation iterations.
 - [ ] `docs/CONFIG.md` `[tabs]` section added between
       `[saved_search]` and `[bulk]`.
 - [ ] `docs/PRD.md` §10 inventory row updated for spec 24.
-- [ ] `docs/ROADMAP.md` §1.7 row updated to "shipped as spec 24";
+- [ ] `docs/product/roadmap.md` §1.7 row updated to "shipped as spec 24";
       the `Tab` / `Shift+Tab` claim in §1.7 prose corrected to
       `]` / `[`.
 

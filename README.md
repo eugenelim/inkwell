@@ -178,7 +178,7 @@ current major surfaces:
 
 Reading the binary's full feature list at any version: see
 [`docs/user/reference.md`](docs/user/reference.md). Roadmap beyond
-v1 is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+v1 is in [`docs/product/roadmap.md`](docs/product/roadmap.md).
 
 ---
 
@@ -281,7 +281,7 @@ Jumping into the codebase? Read these in order:
   implementation order. Each `NN-<title>/` contains a `spec.md`
   (contract — what "done" means) and a `plan.md` (tracking note —
   DoD checklist + iteration log).
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — post-v1 backlog, ranked by
+- [`docs/product/roadmap.md`](docs/product/roadmap.md) — post-v1 backlog, ranked by
   impact.
 
 `make regress` is the gate before any release tag.

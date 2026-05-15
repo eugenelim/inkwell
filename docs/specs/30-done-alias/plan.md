@@ -156,7 +156,7 @@ done
 - [ ] `docs/user/how-to.md` — short triage paragraph.
 - [ ] `docs/user/explanation.md` — "archive vs done" framing.
 - [ ] `docs/PRD.md` §10 inventory row.
-- [ ] `docs/ROADMAP.md` §0 Bucket 3 / §1.23 status updated at
+- [ ] `docs/product/roadmap.md` §0 Bucket 3 / §1.23 status updated at
       ship time.
 - [ ] `README.md` status table row at ship time.
 - [ ] PR checklist (`docs/CONVENTIONS.md` §11) ticked.

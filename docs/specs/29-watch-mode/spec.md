@@ -21,7 +21,7 @@ the JSON shape the watch stream emits.
 ### 0.1 Spec inventory
 
 Watch mode is item 3 of Bucket 3 ("Power-user automation") in
-`docs/ROADMAP.md` §0 and corresponds to backlog row §1.19. Bucket 3
+`docs/product/roadmap.md` §0 and corresponds to backlog row §1.19. Bucket 3
 is unblocked once the Bucket 2 inbox-philosophy specs (22–26) are
 in flight; spec 29 has zero hard dependencies on Bucket 2 (the
 `--rule` integration with spec 11 is the only optional cross-link
@@ -913,7 +913,7 @@ fakes/seams watch tests need; we do not invent new test packages.
         iteration; final entry is `Status: done` with measured
         perf numbers.
   - [ ] `docs/PRD.md` §10 inventory has a row for spec 29.
-  - [ ] `docs/ROADMAP.md` Bucket 3 row 3 ("Watch mode (1.19)")
+  - [ ] `docs/product/roadmap.md` Bucket 3 row 3 ("Watch mode (1.19)")
         cell updated to `Spec 29 — ready` (and `Shipped vX.Y.Z`
         once shipped); §1.19 narrative gains a "Owner: spec 29"
         line.
@@ -1089,7 +1089,7 @@ fakes/seams watch tests need; we do not invent new test packages.
 - [ ] **Docs consistency sweep:** `docs/CONFIG.md` row for
       `[cli].watch_max_seen`; `docs/user/reference.md` rows for
       every new flag; `docs/user/how-to.md` recipe; `docs/PRD.md`
-      §10 spec inventory; `docs/ROADMAP.md` Bucket 3 row 3 +
+      §10 spec inventory; `docs/product/roadmap.md` Bucket 3 row 3 +
       §1.19 owner line; `docs/qa-checklist.md` smoke row;
       `README.md` Status table row.
 

@@ -251,7 +251,7 @@ done
 - [ ] `docs/user/explanation.md` — paragraph on the read-only
       design choice.
 - [ ] `docs/PRD.md` §10 inventory row.
-- [ ] `docs/ROADMAP.md` §0 Bucket 4 row 1 status updated at ship
+- [ ] `docs/product/roadmap.md` §0 Bucket 4 row 1 status updated at ship
       time; §1.15 backlog heading updated likewise.
 - [ ] `README.md` status table row at ship time.
 - [ ] PR checklist (`docs/CONVENTIONS.md` §11) ticked.
@@ -318,7 +318,7 @@ migration and re-baselined.
   `internal/ui/{app,palette,palette_commands}.go`,
   `cmd/inkwell/{cmd_messages,cmd_run}.go`, and doc sweep across
   `docs/CONFIG.md`, `docs/user/{reference,how-to,explanation}.md`,
-  `docs/PRD.md`, `docs/ROADMAP.md`, `README.md`.
+  `docs/PRD.md`, `docs/product/roadmap.md`, `README.md`.
 - Commands run:
   - `go vet ./...` — clean.
   - `go test -race ./...` — all green.

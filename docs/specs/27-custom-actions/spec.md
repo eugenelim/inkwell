@@ -53,7 +53,7 @@ palette wiring are small.
 ### 0.1 Spec inventory
 
 Custom actions framework is **item 1 of Bucket 3** in
-`docs/ROADMAP.md` §0 ("Power-user automation"). It takes spec slot 27
+`docs/product/roadmap.md` §0 ("Power-user automation"). It takes spec slot 27
 (spec 26 = bundle senders is the last Bucket-2 entry; Bucket 3 picks
 up at 27). The PRD §10 spec inventory adds a single row for spec 27
 under the post-v1 / ROADMAP §0 bucket 3 group.
@@ -1723,7 +1723,7 @@ test-only helper.
       the feature, per `docs/CONVENTIONS.md` §13):
   - [ ] `docs/PRD.md` §10: row for spec 27 added under post-v1 /
         ROADMAP §0 bucket 3.
-  - [ ] `docs/ROADMAP.md`: §0 Bucket 3 row 1 (Custom actions
+  - [ ] `docs/product/roadmap.md`: §0 Bucket 3 row 1 (Custom actions
         framework) → status `Shipped vX.Y.Z (spec 27)`. §2 backlog
         heading → `— Shipped vX.Y.Z (spec 27)`. The §2.x prose
         gains an "Owner: spec 27" line at the top.
@@ -1911,7 +1911,7 @@ test-only helper.
       single-key-only restriction on `key`, the `allow_*_template`
       opt-in flags); `docs/user/how-to.md` recipes;
       `docs/user/explanation.md` paragraph; `docs/PRD.md` §10
-      row; `docs/ROADMAP.md` bucket-3 row + §2 backlog heading;
+      row; `docs/product/roadmap.md` bucket-3 row + §2 backlog heading;
       `README.md` status table row + version bump;
       `docs/specs/27-custom-actions/spec.md` Shipped line;
       `docs/specs/27-custom-actions/plan.md` final iteration entry. The §12.6

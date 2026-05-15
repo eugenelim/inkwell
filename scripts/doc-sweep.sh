@@ -34,7 +34,7 @@
 #   - Diff-based key binding coverage (new KeyMap field → reference.md).
 #   - CLI subcommand coverage (cmd/inkwell/ → reference.md).
 #   - PRD §10 row updated for each shipped spec's version.
-#   - ROADMAP.md status cell updated for each shipped spec.
+#   - docs/product/roadmap.md status cell updated for each shipped spec.
 
 set -uo pipefail
 

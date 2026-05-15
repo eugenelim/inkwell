@@ -25,7 +25,7 @@ done — **Shipped v0.63.0** (2026-05-14)
 - [x] `docs/user/reference.md`: viewer-pane invite card section + `o` routing + 2-click hand-off honesty
 - [x] `docs/user/how-to.md`: "Read a meeting invite from inkwell" recipe
 - [x] `docs/PRD.md` §10: spec 34 row shipped
-- [x] `docs/ROADMAP.md`: Bucket-4 row + §1.17 backlog heading updated
+- [x] `docs/product/roadmap.md`: Bucket-4 row + §1.17 backlog heading updated
 - [x] `README.md`: status table row + download version bumped to v0.63.0
 - [x] `make regress` green across all gates
 

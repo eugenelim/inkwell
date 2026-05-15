@@ -38,7 +38,7 @@ design and the spec-17 doc obligations).
 ### 0.1 Spec inventory
 
 Server-side rules is item 2 of Bucket 4 (Mailbox parity) in
-`docs/ROADMAP.md` §0 and corresponds to backlog item §1.14. Bucket
+`docs/product/roadmap.md` §0 and corresponds to backlog item §1.14. Bucket
 4 item 1 (Focused / Other tab) shipped in v0.60.0 as spec 31; spec
 32 takes the next slot. The PRD §10 spec inventory adds a single
 row for spec 32.
@@ -1627,7 +1627,7 @@ review row.
       same rule whose violation in spec 16 v0.12.0 motivated the
       memory note).
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 32.
-- [ ] `docs/ROADMAP.md`: Bucket 4 row updated to `Shipped vX.Y.Z`;
+- [ ] `docs/product/roadmap.md`: Bucket 4 row updated to `Shipped vX.Y.Z`;
       §1.14 backlog heading updated.
 - [ ] `docs/THREAT_MODEL.md` (per spec 17 §4): new row
       "server-side rules — token never logged; rules.toml
@@ -1934,7 +1934,7 @@ review row.
       and `rules.toml` field catalogue; `docs/user/how-to.md`
       adds the "Manage server-side rules" recipe and the two
       cross-feature notes; `docs/PRD.md` §10 spec inventory adds
-      spec 32; `docs/ROADMAP.md` bucket-4 row updated and §1.14
+      spec 32; `docs/product/roadmap.md` bucket-4 row updated and §1.14
       heading flipped to Shipped. `docs/user/tutorial.md`
       unchanged (rules are a power-user surface; not in the
       first-30-minutes path). `docs/user/explanation.md` gains a

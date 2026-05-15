@@ -41,7 +41,7 @@ done — **Shipped v0.50.0** (2026-05-07)
 - [ ] **Config**: `[bindings] palette` documented in `docs/CONFIG.md`.
 - [ ] **User docs**: `docs/user/reference.md` Command palette
       section; `docs/user/how-to.md` "Discover bindings" recipe.
-- [ ] **Project docs**: `docs/PRD.md` §10 row 22; `docs/ROADMAP.md`
+- [ ] **Project docs**: `docs/PRD.md` §10 row 22; `docs/product/roadmap.md`
       §0 Bucket 2 row 1 + §1.6 narrative cite spec 22; this plan
       file maintained per `docs/CONVENTIONS.md` §13.
 
