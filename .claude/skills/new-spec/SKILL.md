@@ -89,6 +89,11 @@ Don't use for:
      `docs/THREAT_MODEL.md` / `docs/PRIVACY.md` *in the same PR*.
    - CLI-mode equivalent? (PRD §5.12 — every TUI feature should
      have a CLI-mode answer, even if it's "n/a").
+   - **TUI surface?** Closing the spec requires `make ai-fuzz` and
+     a Claude-Code-oracle pass over the resulting
+     `.context/ai-fuzz/run-*/REVIEW.md`. Bake this into the plan's
+     Definition-of-done checklist now so it doesn't get skipped at
+     ship time (`docs/CONVENTIONS.md` §11).
 
 ## Anti-patterns to refuse
 

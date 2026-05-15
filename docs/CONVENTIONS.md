@@ -374,6 +374,13 @@ ticked boxes; link the green CI run.
 - [ ] `go test -race ./...` (unit + dispatch)
 - [ ] `go test -tags=integration ./...`
 - [ ] `go test -tags=e2e ./...` (if the spec touches the TUI)
+- [ ] If the spec touches the TUI: `make ai-fuzz` smoke (default
+      8 steps) run on the merged branch, the latest
+      `.context/ai-fuzz/run-*/REVIEW.md` read by a Claude Code
+      session acting as the oracle, and any flagged anomalies
+      either fixed in the same PR or filed as a follow-up note
+      in the plan. Replay with `INKWELL_FUZZ_SEED=N` when
+      attaching a finding to a PR.
 - [ ] Every perf budget in the spec has a benchmark; passes within
       budget on the dev machine (>50% over budget fails — §5.2)
 - [ ] Redaction tests cover every new log site that could see
