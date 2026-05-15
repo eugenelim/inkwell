@@ -114,8 +114,9 @@ func (s *store) EvictBodyIndex(ctx context.Context, opts EvictBodyIndexOpts) (in
 			where = append(where, "last_accessed_at < ?")
 			args = append(args, opts.OlderThan.Unix())
 		}
+		// #nosec G202 — `where` is built from two fixed string literals above (`folder_id = ?` and `last_accessed_at < ?`); user-supplied values bind via `?` placeholders, never concatenated.
 		q := `DELETE FROM body_text WHERE ` + strings.Join(where, " AND ")
-		res, err := s.db.ExecContext(ctx, q, args...)
+		res, err := s.db.ExecContext(ctx, q, args...) //nolint:gosec
 		if err != nil {
 			return evicted, err
 		}
@@ -275,12 +276,13 @@ func (s *store) SearchBodyTrigramCandidates(ctx context.Context, q BodyTrigramQu
 		args = append(args, q.StructuralArgs...)
 	}
 
+	// #nosec G202 — `clauses` is built from three fixed string literals above (`b.account_id = ?`, `b.folder_id = ?`, `b.content LIKE ? ESCAPE '\'`) plus the caller-supplied `q.StructuralWhere` which the caller (eval_local) builds from a closed set of column-name string literals via the same likeArgs / likeOne helpers as the rest of pattern. All user-supplied values bind via `?`.
 	sqlText := `SELECT b.message_id, b.content FROM body_text b` + join +
 		` JOIN body_trigram t ON t.rowid = b.rowid WHERE ` +
 		strings.Join(clauses, " AND ") + ` LIMIT ?`
 	args = append(args, q.Limit)
 
-	rows, err := s.db.QueryContext(ctx, sqlText, args...)
+	rows, err := s.db.QueryContext(ctx, sqlText, args...) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +346,8 @@ func (s *store) bumpAccess(ctx context.Context, ids []string) {
 	for _, id := range ids {
 		args = append(args, id)
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE body_text SET last_accessed_at = ? WHERE message_id IN (`+placeholders+`)`, args...)
+	// #nosec G202 — `placeholders` is a generated `?,?,?,…` string from the local `ids` slice length; only the placeholder count is concatenated, never any user value. Every id binds through `args...`.
+	_, _ = s.db.ExecContext(ctx, `UPDATE body_text SET last_accessed_at = ? WHERE message_id IN (`+placeholders+`)`, args...) //nolint:gosec
 }
 
 // escapeLikeLiteral escapes the SQL LIKE wildcard metacharacters in
