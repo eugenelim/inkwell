@@ -152,14 +152,45 @@ func sanitize(s string) string { return unsafePath.ReplaceAllString(s, "_") }
 // 8 steps were no-ops because the help overlay opened on step 2.
 var modalFingerprint = regexp.MustCompile(`[╭╰╮╯]`)
 
-// pickAction biases toward `esc` with 50% probability when the previous
-// frame looks like a modal; otherwise picks uniformly from the alphabet.
+// cmdBarFingerprint matches a line that begins with `:` — the
+// command-bar's rendered prompt sits on its own row above the help
+// bar. When the previous frame is in cmd-bar mode, random keys get
+// appended as text rather than dispatched, so the picker should also
+// bias toward `esc`. Found via ai-fuzz run-1778900844 steps 20-30
+// where 11 consecutive steps just accumulated text in the cmd buffer.
+var cmdBarFingerprint = regexp.MustCompile(`(?m)^:`)
+
+// tooSmallFingerprint matches the "terminal too small" guard screen
+// (app.go:7037). Once a resize-tiny lands the app stays in this state
+// until a larger resize lands, so the picker forces `resize-default`
+// with high probability to recover. Same source run as cmdBar.
+var tooSmallFingerprint = regexp.MustCompile(`terminal too small`)
+
+// pickAction biases toward a recovery key when the previous frame
+// shows the app is stuck:
+//   - "terminal too small": force resize-default (80% probability).
+//   - modal or cmd-bar:     force esc (50% probability).
+//
+// Otherwise picks uniformly from the alphabet.
 func pickAction(rng *rand.Rand, alphabet []fuzzAction, prevFrame string) fuzzAction {
-	if modalFingerprint.MatchString(prevFrame) && rng.Float64() < 0.5 {
+	pick := func(label string) (fuzzAction, bool) {
 		for _, a := range alphabet {
-			if a.label == "esc" {
-				return a
+			if a.label == label {
+				return a, true
 			}
+		}
+		return fuzzAction{}, false
+	}
+	if tooSmallFingerprint.MatchString(prevFrame) && rng.Float64() < 0.8 {
+		if a, ok := pick("resize-default"); ok {
+			return a
+		}
+	}
+	stuck := modalFingerprint.MatchString(prevFrame) ||
+		cmdBarFingerprint.MatchString(prevFrame)
+	if stuck && rng.Float64() < 0.5 {
+		if a, ok := pick("esc"); ok {
+			return a
 		}
 	}
 	return alphabet[rng.Intn(len(alphabet))]
@@ -202,6 +233,12 @@ func TestAIFuzzExplore(t *testing.T) {
 	t.Logf("ai-fuzz steps: %d", steps)
 
 	base, _ := newE2EModel(t)
+	// Mirror prod defaults (internal/config/defaults.go) so the
+	// `resize-tiny` / `resize-narrow` actions exercise the
+	// "terminal too small" guard at app.go:7035 rather than rendering
+	// against an unguarded 30x10 layout that fragments per-character.
+	base.deps.MinTerminalCols = 80
+	base.deps.MinTerminalRows = 24
 	slot := &atomic.Pointer[string]{}
 	rec := recorderModel{inner: base, slot: slot}
 	tm := teatest.NewTestModel(t, rec, teatest.WithInitialTermSize(120, 30))
