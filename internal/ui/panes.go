@@ -2165,15 +2165,22 @@ func (m *CommandModel) Reset() {
 // Buffer returns the current entered text.
 func (m CommandModel) Buffer() string { return m.buf }
 
-// HandleKey appends or backspaces buffered text.
+// HandleKey appends or backspaces buffered text. Only printable runes
+// and Space are accepted; named keys (Home, End, Ctrl-K, arrows, …)
+// are ignored so their bubbletea key-label string ("home", "ctrl+k")
+// can't be pasted into the command buffer. Found via ai-fuzz
+// run-1778900844 steps 26 + 29.
 func (m *CommandModel) HandleKey(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyBackspace:
 		if len(m.buf) > 0 {
-			m.buf = m.buf[:len(m.buf)-1]
+			runes := []rune(m.buf)
+			m.buf = string(runes[:len(runes)-1])
 		}
-	default:
-		m.buf += msg.String()
+	case tea.KeyRunes:
+		m.buf += string(msg.Runes)
+	case tea.KeySpace:
+		m.buf += " "
 	}
 }
 
