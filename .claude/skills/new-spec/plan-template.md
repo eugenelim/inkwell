@@ -43,6 +43,26 @@ The ralph-loop journal (`docs/CONVENTIONS.md` §12.2). One entry per iteration.
 - **Next:** <the slice for iter 2, or "exit — DoD complete">
 
 <!--
+Multi-task iteration (supervisor mode — only when an iteration has
+two or more independent slices that can land in parallel). Label
+slices T1, T2, … and add a `- Depends on:` line per slice. Two or
+more `Depends on: none` siblings is the structural trigger for
+supervisor mode (`docs/CONVENTIONS.md` §12.7). Most iterations are
+single-slice and use the shape above; reach for this shape only
+when fan-out actually pays.
+
+### Iter N — YYYY-MM-DD  (supervisor-mode example)
+- **T1:** <slice one-liner>
+  - Depends on: none
+  - Verifier: <test name>
+- **T2:** <slice one-liner>
+  - Depends on: none
+  - Verifier: <bench name>
+- **Commands run (post-merge):** ...
+- **Result:** ...
+- **Critique:** ...
+- **Next:** ...
+
 Add subsequent iterations here. Keep them tight; the log is
 read by the next iteration's planning, so verbosity hurts.
 -->

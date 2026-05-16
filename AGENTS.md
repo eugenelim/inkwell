@@ -70,7 +70,11 @@ summary:
    [`docs/CONVENTIONS.md §5.6` / `§5.7`](docs/CONVENTIONS.md)).
 4. **Review.** Run the `adversarial-reviewer` subagent until it returns
    `Clean — ready to commit.`
-5. **Iterate** on findings; hard cap five rounds — re-plan past that.
+5. **Iterate** on findings; hard cap five **review-fix rounds** within
+   a single iteration — re-plan past that. The whole-iteration cap is
+   8 per [`docs/CONVENTIONS.md §12.1`](docs/CONVENTIONS.md) and
+   matches `max_iterations` in
+   [`docs/_templates/state.json`](docs/_templates/state.json).
 6. **Capture learnings** in the right AGENTS.md, `docs/CONVENTIONS.md`,
    skill, or doc.
 7. **Conventional commit.** `<type>(spec-NN): <subject>`. No
@@ -120,8 +124,9 @@ checklist.)
 
 ## Specialist subagents
 
-Pick the ones the diff warrants; don't run all three by default. Each
-must return `Clean — ready to commit.` before the PR ships.
+Pick the ones the diff warrants; don't run all three reviewers by
+default. Reviewers must return `Clean — ready to commit.` before
+the PR ships.
 
 - [`adversarial-reviewer`](.claude/agents/adversarial-reviewer.md) — spec /
   plan / implementation drift; missing edge cases; scope creep. **Default
@@ -135,12 +140,29 @@ must return `Clean — ready to commit.` before the PR ships.
 - [`quality-engineer`](.claude/agents/quality-engineer.md) — testability,
   observability, reliability, perf-budget honesty, maintainability. Also
   drafts unit / integration / TUI e2e / benchmark tests on request.
+- [`implementer`](.claude/agents/implementer.md) — single-task worker
+  used by the `work-loop` skill in **supervisor mode**
+  (`docs/CONVENTIONS.md` §12.7). Dispatched in parallel — one per
+  task declaring `Depends on: none` — each in its own git worktree.
+  Not a reviewer; not invoked directly. Implementers' gate results
+  are advisory; the supervisor reruns gates against the merged
+  state.
+
+**When dispatching more than one subagent in a round, fan them out
+in a single tool-call message and barrier-wait for all returns**
+(`docs/CONVENTIONS.md` §12.8 — parallel dispatch discipline). The
+work-loop skill walks the procedure.
 
 ## Skills available to you
 
 `.claude/skills/` contains workflows that have been used enough to deserve
 a name:
 
+- `work-loop` — the procedural runbook for the ralph loop
+  (`docs/CONVENTIONS.md` §12): plan → execute → gates → review →
+  fix. Adds parallel reviewer dispatch and supervisor mode for
+  plans whose tasks declare `Depends on: none`. Default skill for
+  any task larger than a one-line edit.
 - `new-spec` — scaffold `docs/specs/NN-<title>/spec.md` +
   `docs/specs/NN-<title>/plan.md` together (the v0.12.0 missing-plan-file
   regression made this rule).

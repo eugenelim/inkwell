@@ -393,6 +393,11 @@ ticked boxes; link the green CI run.
       budget on the dev machine (>50% over budget fails — §5.2)
 - [ ] Redaction tests cover every new log site that could see
       secrets
+- [ ] For **multi-loop specs**: at the final loop, run
+      `quality-engineer` against the *whole spec* (not just the
+      last diff). Per-task gates verify N contracts; this pass
+      verifies the integrated journey — scenarios the parts test
+      but the whole doesn't.
 
 **Security (spec 17)**
 - [ ] If this PR introduces or changes token handling, file I/O
@@ -473,9 +478,19 @@ output.
 
 The assistant runs the loop in **dynamic-pacing mode** (no fixed cron). Each
 iteration calls back via `ScheduleWakeup` only if the loop has more work to
-do. The loop **terminates** when the spec's exit criteria are met or after
-**8 consecutive iterations** with no green-test progress (the assistant must
-then ask the user for input rather than spin further).
+do. The loop **terminates** when **any** of these is true:
+
+1. The spec's exit criteria are met (§11 + the spec's own DoD).
+2. **8 consecutive iterations** with no green-test progress — stop
+   and ask the user. Do not loop forever; do not silently give up.
+3. **Fingerprint stasis** during REVIEW — the same review findings
+   landed two iterations in a row (§12.8). Stop and re-plan;
+   spot-fixing the third pass is how loops burn money for no signal.
+
+The procedural runbook for the loop — including parallel reviewer
+dispatch and supervisor mode for plans with independent tasks —
+lives in [`.claude/skills/work-loop/SKILL.md`](../.claude/skills/work-loop/SKILL.md).
+This section is the contract; the skill is the how-to.
 
 ### 12.2 The seven phases of one iteration
 
@@ -618,6 +633,119 @@ The mechanical check: diff `internal/ui/keys.go`, `internal/ui/palette_commands.
 `cmd/inkwell/`, `internal/pattern/` against the previous spec's merge-base and
 confirm every new symbol appears in `reference.md`.
 
+### 12.7 Supervisor mode — parallel implementers when the plan permits
+
+When a spec's `plan.md` has **two or more tasks declaring
+`Depends on: none`**, EXECUTE can fan out: one supervisor (the
+work-loop instance in the primary worktree) dispatches an
+`implementer` subagent (`.claude/agents/implementer.md`) per
+independent task, each in its own `git worktree`. The full
+procedure — pre-flight stale-worktree check, dispatch, report
+persistence, merge-sequential, cleanup — lives in
+[`.claude/skills/work-loop/SKILL.md`](../.claude/skills/work-loop/SKILL.md)
+under "Supervisor mode". Not restated here to keep the contract
+slim.
+
+Why it exists: a spec's "shape" is mechanical (the plan declares
+which tasks depend on which); branching on that shape inside the
+work-loop keeps contributors from picking the wrong skill. The
+trigger is structural, not a user choice.
+
+The boundary:
+
+- **Recursion is forbidden.** Implementers cannot dispatch
+  implementers. The tree stays two levels deep (supervisor →
+  leaves). Tasks that don't fit that shape — long, multi-step,
+  cross-cutting — are too big to be a single `Depends on: none`
+  task; split them in PLAN.
+- **Implementers are advisory on gates.** The gates of record run
+  in the primary against the merged state (§5.6 / §5.7). The
+  supervisor reruns them; the implementer's report is one input,
+  not the final answer.
+- **Merge conflict ⇒ tasks weren't independent.** Abort, return to
+  PLAN, fix the `Depends on:` declarations. Don't paper over with
+  a manual conflict resolution; the plan was wrong.
+- **Scratch is gitignored, not history.** `.worktrees/` and
+  `docs/specs/**/notes/implementer-*.md` are session-scratch (§14
+  gitignore globs). A supervisor crash leaves recoverable signal:
+  report file on disk, state entry still `in-progress`, next
+  session's stale-worktree pre-flight surfaces it.
+
+### 12.8 Parallel dispatch discipline — reviewers and implementers
+
+Any time the work-loop fans out — multiple reviewers in REVIEW, or
+multiple implementers in supervisor mode (§12.7) — the same rules
+apply. Single-sourced here; the skill and the agent files
+reference back rather than restating.
+
+- **One tool-call message, one Agent use per target.** Issue all
+  subagent invocations in a single message. Do not call them
+  sequentially. The lenses are independent; sequencing tempts you
+  to react to the first return before the rest land, giving each
+  subagent a different state.
+- **Barrier-wait.** Don't issue follow-on Agent calls until every
+  subagent in the round has returned.
+- **Harness-level non-returns are failures.** A timeout, a tool
+  error, or a missing report counts as `failed` for that target.
+  Treat it the same as a substantive `failed` status; do not
+  retry silently.
+- **Merge results in your own context.** The subagents return
+  markdown. Read N reports, group findings by severity (reviewers)
+  or status (implementers), deduplicate where two lenses caught
+  the same thing, then decide.
+
+#### Fingerprint stasis
+
+After each REVIEW pass, before iterating, compute a fingerprint
+per finding: `sha1("<file>|<line>|<title>")` where `<line>` is the
+first integer after the first colon in the citation
+(`foo.go:88` → `88`; `foo.go:88-92` → `88`) and `<title>` is the
+reviewer's bolded heading verbatim (including the surrounding
+`**` markers).
+
+If the current iteration's fingerprint set is **equal to** the
+previous one (every finding repeats, nothing resolved), the loop
+has stalled. Stop and surface — this is a re-plan signal, not a
+third-pass opportunity. A strict subset (one or more findings
+fixed, the rest persisting) is progress, not stasis; new
+findings that weren't in the previous set are a different
+problem and also not stasis.
+
+Findings without a `file:line` citation (spec-stage findings,
+prose-only headings) use `<file>=""` and `<line>=0` in the
+formula and stay differentiated by `<title>` alone. The script
+(§12.9) runs `--phase review` only; spec-stage adversarial review
+uses the reviewer's `Clean — ready to commit.` sentinel
+directly, not stasis tracking.
+
+In practice eyeballing the previous review's headings against
+this iteration's catches it; the script is bookkeeping for runs
+where the count is high enough that eyeballing is unreliable.
+
+### 12.9 Work-loop state file (optional, script-driven)
+
+`docs/specs/<feature>/state.json` is the loop's optional
+machine-readable scratch — schema at
+[`docs/_templates/state.json`](_templates/state.json). The path
+is **gitignored** (§14): session scratch, not history. Atomic
+writes only (tmp file + rename) so a mid-write read never
+produces malformed JSON.
+
+The state file pairs with [`tools/check-done.py`](../tools/check-done.py),
+which exits non-zero when the loop should stop:
+
+```sh
+python3 tools/check-done.py docs/specs/<feature>/state.json --phase review
+```
+
+Two gates fire today: the §12.1 iteration cap and the §12.8
+fingerprint-stasis check. The script is intentionally narrow —
+inkwell uses `make regress` and CI for the heavy gates; this is
+only the two loop-termination rules that prose can't catch.
+Skipping the state file is fine for short loops where eyeballing
+covers it; reach for it on long multi-loop specs where the
+iteration count and fingerprint history are worth tracking.
+
 ---
 
 ## 13. Per-spec tracking notes
@@ -663,8 +791,38 @@ reason this rule was added.
 - Critique: ...
 - Next: ...
 
-### Iter 2 ...
+### Iter 2 — YYYY-MM-DD  (example: multi-task iteration, supervisor mode)
+- **T1:** <slice one-liner>
+  - Depends on: none
+  - Verifier: <test name>
+- **T2:** <slice one-liner>
+  - Depends on: none
+  - Verifier: <bench name>
+- Commands run (post-merge): ...
+- Result: ...
+- Critique: ...
+- Next: ...
 ```
+
+**Task IDs and `Depends on:` (only when an iteration fans out).**
+Most iterations are single-slice — they use the `Iter 1` shape
+above and run in single-agent mode. When an iteration has two or
+more independent slices that can land in parallel, label them
+`T1`, `T2`, … in declaration order and add a `- Depends on:` line
+per slice. **`Depends on: none` on two or more sibling tasks is
+the structural trigger for supervisor mode** (§12.7); the
+work-loop skill dispatches one `implementer` per `none` task in
+its own worktree, then merges sequentially in task-id order.
+Task IDs are also the worktree, branch, and report-file names
+(`.worktrees/T1/`, `<branch>-T1`, `notes/implementer-T1-<iter>.md`),
+so keep them stable for the iteration's lifetime.
+
+If an iteration has tasks that *do* depend on earlier ones (e.g.
+`T3: Depends on: T1`), those don't dispatch in the supervisor
+round; they land in a follow-on iteration whose `Iter N+1` block
+records the dependency satisfied. Don't try to chain
+`implementer` rounds inside one iteration entry — the iteration
+log is per-merge-point.
 
 **Verifier line (lightweight goal-driven execution).** Every
 iteration names a single concrete signal that flips red → green
@@ -695,11 +853,13 @@ inkwell/
 │   ├── PRD.md
 │   ├── ARCH.md
 │   ├── CONFIG.md
+│   ├── _templates/            # tracked schema scratch (state.json template, §12.9)
 │   ├── adr/                   # immutable records of cross-cutting decisions
 │   ├── specs/                 # per-feature directories: NN-<title>/{spec.md,plan.md}
 │   │   ├── 01-auth-device-code/
 │   │   │   ├── spec.md        # contract — what "done" means
 │   │   │   └── plan.md        # tracking note — ralph-loop journal
+│   │   │   # state.json (§12.9) + notes/implementer-*.md (§12.7) are gitignored scratch
 │   │   ├── 02-local-cache-schema/
 │   │   ...
 │   ├── plans/                 # cross-cutting meta-plans only (00-ralph-loop-plan-specs-01-05.md);
@@ -728,6 +888,7 @@ inkwell/
 │   ├── cli/
 │   └── log/
 ├── scripts/                   # release.sh, dev helpers
+├── tools/                     # work-loop helpers (check-done.py, §12.9)
 ├── go.mod
 └── go.sum
 ```
