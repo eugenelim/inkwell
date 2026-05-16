@@ -1,10 +1,12 @@
 name: ci
 
-# Heavy Go test pipeline (race, e2e, budget, benchmarks, fuzz,
-# staticcheck). The `test` job dominates CI runtime — benchmarks
-# alone is ~17 min on the runner — so we skip it for docs-only
-# changes. The always-runs gates (doc-sweep, privacy guard) live
-# in docs-checks.yml so they still fire for those PRs.
+# Heavy Go test pipeline (race, e2e, budget, benchmark smoke, fuzz,
+# staticcheck). The full benchmark suite (~17 min) was moved to
+# bench.yml (nightly + workflow_dispatch); CI now runs a
+# `-benchtime=1x` smoke that catches panics and obvious breakage
+# in <2 min. Perf-budget regression enforcement is preserved at
+# release time via `make regress` (CONVENTIONS §5.7) and at the
+# next nightly run.
 #
 # paths-ignore: a PR that mixes docs + code still triggers the
 # full pipeline (any non-ignored path brings it back). Workflow
@@ -62,8 +64,12 @@ jobs:
       - name: budget gate (TestBudgetsHonoured without -race)
         run: go test -run TestBudgetsHonoured -timeout 15m ./internal/store/...
 
-      - name: benchmarks (gating — panics fail the build)
-        run: go test -bench=. -benchmem -run='^$' -timeout 10m ./...
+      - name: benchmark smoke (one iteration — catches panics, not regressions)
+        # Full bench suite (with the >50%-of-budget enforcement baked
+        # into each Benchmark*) runs nightly in bench.yml and at
+        # release time via `make regress`. This PR-time step only
+        # confirms benchmarks still compile + run without panicking.
+        run: go test -bench=. -benchmem -benchtime=1x -run='^$' -timeout 2m ./...
 
       - name: fuzz regression (corpus replay + 30s sweep)
         run: |

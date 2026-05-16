@@ -204,15 +204,23 @@ regression.
 
 ### 5.9 CI scoping
 
-Three workflow files, two tiers:
+Four workflow files, three tiers:
 
 - **`.github/workflows/always-checks.yml`** — always runs. Gates that
   don't need a Go toolchain and are meaningful for any change:
   `doc-sweep`, `privacy-guard`, `gitleaks` (secret scan, full
   history), `dependency-review` (PR-only). ~1 min total.
 - **`.github/workflows/ci.yml`** — heavy `test` job (race, e2e,
-  budget, benchmarks, fuzz, staticcheck) + `permissions-check`,
-  ~30 min. Carries `paths-ignore` for docs paths.
+  budget, benchmark *smoke*, fuzz, staticcheck) + `permissions-check`,
+  ~10–15 min. Carries `paths-ignore` for docs paths. The benchmark
+  step runs `-benchtime=1x` — one iteration per Benchmark*, enough
+  to catch panics and compile breakage, but **not** the per-budget
+  `>50%` regression assertions (those need real iteration counts).
+- **`.github/workflows/bench.yml`** — full benchmark suite (~17 min)
+  that enforces the budget assertions. Runs nightly on a cron and
+  on-demand via `workflow_dispatch`. Not wired to `pull_request` /
+  `push`. A red bench job here is a real perf-budget regression on
+  main; release-tagging still gates locally via `make regress`.
 - **`.github/workflows/security.yml`** — Go-specific SAST and vuln
   scanning (`gosec`, `semgrep`, `govulncheck`), ~2 min in parallel.
   Same `paths-ignore` as ci.yml. Also runs weekly via cron to catch

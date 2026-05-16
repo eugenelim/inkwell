@@ -1,0 +1,38 @@
+name: bench
+
+# Full benchmark suite. The per-benchmark `>50% of budget` assertions
+# (CONVENTIONS §5.2) live inside the Benchmark* bodies, so a failing
+# job here means a real perf-budget regression on main.
+#
+# Runs nightly against main, and on demand via the Actions UI for any
+# branch when a contributor wants the answer before merge (e.g. a PR
+# that touches internal/store, internal/pattern, internal/render,
+# internal/savedsearch, internal/compose, or internal/ui).
+#
+# Not wired to pull_request / push: the full suite is ~17 min on the
+# runner and was killing PR velocity. The CI smoke (`-benchtime=1x`
+# in ci.yml) still catches panics on every PR; `make regress` still
+# runs the full suite before every release tag.
+
+on:
+  schedule:
+    # 07:00 UTC daily. After overnight merges, before the working day.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.25.x
+          check-latest: true
+          cache: true
+
+      - name: benchmarks (full suite — perf-budget gate)
+        run: go test -bench=. -benchmem -run='^$' -timeout 30m ./...
