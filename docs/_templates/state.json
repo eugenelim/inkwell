@@ -1,0 +1,9 @@
+{
+  "$comment": "Per-spec work-loop state. Copy to docs/specs/<feature>/state.json; that path is gitignored — session scratch, never history. Atomic-write only (tmp + rename). Schema is intentionally minimal: the loop adds keys when it needs them, doesn't pre-declare a kitchen sink. See docs/CONVENTIONS.md §12.9.",
+  "$indexing": "iteration_count is 0-indexed and represents iterations COMPLETED. Bump it at iteration end — whether the iteration ended with a clean REVIEW (continue) or an early termination back to PLAN (failed implementer, conflict on merge). Fingerprint stasis is loop-terminal (§12.1 / §12.8): the loop stops and surfaces, the counter does not bump. The bump is what makes the next implementer-report filename differ from this one's. tools/check-done.py fires the cap when iteration_count >= max_iterations — so max_iterations: 8 permits iterations 0..7 to run (eight in total) and exits before the ninth begins. Implementer report filenames also use this value (`implementer-T1-0.md` is the first attempt at T1).",
+  "feature": "<spec-slug, e.g. 27-custom-actions>",
+  "iteration_count": 0,
+  "max_iterations": 8,
+  "previous_finding_fingerprints": [],
+  "finding_fingerprints": []
+}

@@ -27,3 +27,17 @@ sec-reports/
 !.claude/agents/
 !.claude/skills/
 !.claude/commands/
+
+# Work-loop supervisor-mode scratch (docs/CONVENTIONS.md §12.7).
+# Implementer worktrees and their report files are session-local
+# — they exist for one EXECUTE phase and may carry uncommitted
+# work mid-dispatch. The supervisor merges branches back; the
+# scratch directory itself never goes into history.
+.worktrees/
+docs/specs/**/notes/implementer-*.md
+
+# Per-spec work-loop state (docs/CONVENTIONS.md §12.9). The
+# template at docs/_templates/state.json IS checked in; per-spec
+# copies are session scratch carrying iteration counts and
+# fingerprint history that don't belong in the spec's git trail.
+docs/specs/**/state.json
