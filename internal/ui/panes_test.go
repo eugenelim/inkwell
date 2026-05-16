@@ -5,11 +5,44 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
 	"github.com/eugenelim/inkwell/internal/render"
 	"github.com/eugenelim/inkwell/internal/store"
 )
+
+// TestCommandModelHandleKeyIgnoresNamedKeys is the regression for
+// ai-fuzz run-1778900844 steps 26 + 29: named keys (Home, Ctrl-K,
+// End, arrows, F-keys, Tab) must not be appended to the cmd-bar
+// buffer as their bubbletea string labels ("home", "ctrl+k", …).
+// Only printable runes and Space are valid input.
+func TestCommandModelHandleKeyIgnoresNamedKeys(t *testing.T) {
+	var m CommandModel
+
+	// Printable runes accumulate as text.
+	m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+	m.HandleKey(tea.KeyMsg{Type: tea.KeySpace})
+	m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("world")})
+	require.Equal(t, "hello world", m.Buffer())
+
+	// Named keys are silently ignored — must NOT paste their labels.
+	for _, k := range []tea.KeyType{
+		tea.KeyHome, tea.KeyEnd, tea.KeyCtrlK, tea.KeyCtrlA,
+		tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight,
+		tea.KeyPgUp, tea.KeyPgDown, tea.KeyTab, tea.KeyF1,
+	} {
+		m.HandleKey(tea.KeyMsg{Type: k})
+	}
+	require.Equal(t, "hello world", m.Buffer(),
+		"named keys must not paste their string labels into the buffer")
+
+	// Backspace deletes one rune (UTF-8 aware).
+	m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("日")})
+	require.Equal(t, "hello world日", m.Buffer())
+	m.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	require.Equal(t, "hello world", m.Buffer())
+}
 
 // renderAttachmentLines tests (spec 05 §8 / PR 10).
 
