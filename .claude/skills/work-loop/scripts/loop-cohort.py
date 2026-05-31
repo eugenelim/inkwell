@@ -722,6 +722,9 @@ def parse_findings(report_text: str) -> list[str]:
             continue
         line_num = line_match.group(0)
         key = f"{file_part}|{line_num}|{title}"
+        # WHY: non-cryptographic content fingerprint for review-stasis dedup
+        # (CONVENTIONS §12.8) — a stable opaque key, never a signature.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
         fingerprints.append(hashlib.sha1(key.encode("utf-8")).hexdigest())
     return fingerprints
 
