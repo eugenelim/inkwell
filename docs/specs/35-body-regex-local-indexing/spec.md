@@ -317,7 +317,7 @@ cmd/inkwell/
 
 docs/
 ├── CONFIG.md                         # new [body_index] section (§7)
-├── ARCH.md                           # §6 + §7 schema-table row + module-tree row
+├── architecture/overview.md          # §6 + §7 schema-table row + module-tree row
 ├── PRD.md                            # §10 inventory updated at ship
 ├── docs/product/roadmap.md                        # Bucket 5 row + §1.13 — updated at ship
 ├── THREAT_MODEL.md                   # "Threats and mitigations" row + "Accepted residual risks" entry (§8.1)
@@ -1520,7 +1520,7 @@ that range.
 | File | What to update |
 | --- | --- |
 | `docs/CONFIG.md` | New `[body_index]` section per §7. **Owner spec: 35**. |
-| `docs/ARCH.md` | §6 — add Tier 3 ("body index, opt-in"). §7 schema table — add `body_text` row. §2 module-tree row updated if relevant. |
+| `docs/architecture/overview.md` | §6 — add Tier 3 ("body index, opt-in"). §7 schema table — add `body_text` row. §2 module-tree row updated if relevant. |
 | `docs/PRD.md` | §10 inventory — add spec 35 row (status set at ship). |
 | `docs/THREAT_MODEL.md` | "Threats and mitigations" table — new row per §8.1. "Accepted residual risks" entry. |
 | `docs/PRIVACY.md` | "Where data is stored" — new row. "What data inkwell accesses" — new sentence per §8.2. |

@@ -123,7 +123,7 @@ Mirrors `docs/specs/28-screener/spec.md` §10. Tick as work lands.
       `[bindings].screener_accept` / `screener_reject`,
       `[ui].screener_hint_dismissed`,
       `[ui].screener_last_seen_enabled`.
-- [ ] `docs/ARCH.md` §"action queue" mentions spec 28 reuses
+- [ ] `docs/architecture/overview.md` §"action queue" mentions spec 28 reuses
       spec 23 `routeCmd`.
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 28.
 - [ ] `docs/product/roadmap.md` Bucket 3 row + §1.16 backlog heading
@@ -237,7 +237,7 @@ Mirrors `docs/specs/28-screener/spec.md` §8.
   Shipped v0.57.0; spec 23 §10.1 / §14 forward-link to spec 28
   added (closes the spec 23 §14 v1 UX limit); CONFIG.md gains
   `[screener]` section + `[bindings].screener_*` rows + `[ui]`
-  marker keys; ARCH.md §"action queue" updated; PRIVACY.md row
+  marker keys; docs/architecture/overview.md §"action queue" updated; PRIVACY.md row
   added; user/reference.md gains `Y`/`N` shortcuts row, `~o
   pending` operator alias mention, `:screener` cmd-bar verbs,
   `inkwell screener` CLI rows, footer bumped to v0.57.0;

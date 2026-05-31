@@ -233,7 +233,7 @@ func TestLogRedactsMessageBodies(t *testing.T) {
 ```
 
 These tests are critical because the redaction layer is implemented
-in code, not just promised in `ARCH.md` §12. The test is the
+in code, not just promised in `docs/architecture/overview.md` §12. The test is the
 verification.
 
 ### 4.3 Token storage tests

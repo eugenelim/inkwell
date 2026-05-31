@@ -218,6 +218,11 @@ prior findings:
   dep has a known CVE govulncheck would catch on next run.
 - `go.sum` is committed; flag any diff that touches `go.mod` without
   the matching `go.sum`.
+- **AI supply chain (roadmap bucket 7).** When `internal/ai/` lands,
+  model weights, embeddings, or MCP servers must load from verified,
+  pinned sources — not unverified upstreams (OWASP LLM Apps 2025
+  supply-chain). Flag any AI dependency fetched without an integrity
+  pin.
 
 ### 8. Information disclosure (PII / data flow)
 
@@ -332,6 +337,16 @@ keep looking.
   the recommended next test, not a Blocker based on speculation.
 - **Pad findings to look thorough.** Two real Blockers beats ten
   recycled checklist items.
+
+## Rationalizations we refuse
+
+When tempted to short-circuit, refuse these by name:
+
+| Rationalization | Rebuttal |
+|---|---|
+| *"This input is internal — skip the injection / validation pass."* | Internal is a trust boundary you assumed, not one you proved. Trace the data backward to its origin on every reachable path; "internal" often means "user-influenced through one more hop" — a `From` header, a synced message body, a config value. |
+| *"The library handles this — safe by default."* | Libraries are safe at certain versions with certain options. `yaml.load` vs `yaml.safe_load`, JWT accepting `alg: none`, TLS without verification, MSAL token cache pointed at disk instead of Keychain — same library, opposite outcomes. Check the pin and the call-site options. |
+| *"The scanner is green — no findings here."* | Scanners catch syntactic issues; logic-flaw access control, confused-deputy, half-built confirmation gates, and abuse-of-functionality (a shared `actions.toml` recipe, T-CA3) are exactly the classes scanners can't see. That's why this reviewer exists — don't outsource the lens back to the tool. |
 
 ## When in doubt about severity
 

@@ -841,7 +841,7 @@ predate the action queue concept and are managed via the
 `savedsearch.Manager` interface, not via the action queue. Mute is
 the first explicit local-only **mutation surface** added after the
 queue existed; spec 19 §6 documents the precedent. Routing is the
-second such surface. Update `docs/ARCH.md` §"action queue" so the
+second such surface. Update `docs/architecture/overview.md` §"action queue" so the
 list of explicit local-only mutation surfaces is canonical (mute,
 routing) — distinct from the broader category of local-only state
 (which also includes saved searches and undo bookkeeping).
@@ -1232,7 +1232,7 @@ preferences. A future spec for the Screener (§1.16) will own
       `[ui].stream_indicators.*` (inline-table form),
       `[ui].stream_ascii_fallback`, `[bindings].stream_chord` keys
       documented per §11.
-- [ ] `docs/ARCH.md` §"action queue" updated to list routing as the
+- [ ] `docs/architecture/overview.md` §"action queue" updated to list routing as the
       second explicit local-only mutation surface (after mute);
       saved searches noted as predating-the-queue local state.
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 23.
@@ -1441,7 +1441,7 @@ preferences. A future spec for the Screener (§1.16) will own
 - [ ] **Docs consistency sweep:** `docs/CONFIG.md` updated for the
       five new keys. `docs/user/reference.md` updated for `S`
       chord, `~o` operator, `inkwell route` subcommands. `docs/user/how-to.md`
-      adds the "Set up Imbox / Feed / Paper Trail" recipe. `docs/ARCH.md`
+      adds the "Set up Imbox / Feed / Paper Trail" recipe. `docs/architecture/overview.md`
       §action-queue gains the routing local-only note. `docs/PRD.md` §10
       spec inventory adds spec 23. No `docs/user/tutorial.md` change
       (the first-30-minutes path doesn't include routing — it is a

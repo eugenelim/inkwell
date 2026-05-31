@@ -44,28 +44,55 @@ Don't use for:
    `34`, etc.). If the result would be three digits (`100+`), keep
    three.
 
-3. **Create the spec directory + spec from `spec-template.md`** in
-   this skill's directory:
+3. **Create the spec directory + spec from the bundled `assets/spec.md`
+   template** in this skill's directory:
 
    ```bash
    mkdir -p docs/specs/NN-<title>
-   cp .claude/skills/new-spec/spec-template.md docs/specs/NN-<title>/spec.md
+   cp .claude/skills/new-spec/assets/spec.md docs/specs/NN-<title>/spec.md
    ```
 
-   Then replace `<NN>` and `<TITLE>` placeholders. Leave the body
-   sections empty for the user to fill — but keep the headings,
-   because §16 finds that skipping them is the #1 source of vague
-   specs.
+   Then fill the `<feature name>` title and `<github-handle>` owner;
+   leave `Status: Draft`. Leave the body sections empty for the user
+   to fill — but keep the headings, because §16 finds that skipping
+   them is the #1 source of vague specs. The `## Inkwell specifics`
+   block carries the inkwell-required fields (Non-goals, perf budgets,
+   Graph scopes, Spec-17 impact, CLI-mode) — fill or mark "n/a", don't
+   delete.
 
-4. **Create the plan from `plan-template.md`** in the same directory:
+4. **Create the plan from the bundled `assets/plan.md` template** in
+   the same directory:
 
    ```bash
-   cp .claude/skills/new-spec/plan-template.md docs/specs/NN-<title>/plan.md
+   cp .claude/skills/new-spec/assets/plan.md docs/specs/NN-<title>/plan.md
    ```
 
-   Replace `<NN>` and `<TITLE>`. The plan begins life with
-   `## Status\nnot-started`. Update to `in-progress` as soon as
-   work begins; `done` only at ship time.
+   Fill the `<feature name>` title. The plan begins life with
+   `Status: Drafting`. Update to `Executing` as soon as work begins;
+   `Done` only at ship time.
+
+   Fill the plan's task breakdown with the same rigour as the spec.
+   Push back on these plan-stage failure modes:
+
+   - **Task too big.** "Implement the feature" is not a task; "add the
+     validation function for X" is. Each task should fit a single PR
+     and a single context window. Split coarse tasks until they do.
+   - **`Depends on:` omitted.** Every task must state `Depends on:`
+     explicitly — prior task IDs or `none`. Don't let authors lean on
+     task order to imply dependency; that hides serial-by-default
+     thinking and blocks supervisor-mode parallel dispatch
+     (`docs/CONVENTIONS.md` §12.7).
+   - **Verification mode unstated.** Every task declares its gate — a
+     unit/integration/e2e test, a benchmark, or visual QA via
+     `make ai-fuzz`. Silent defaults produce untested invariants.
+   - **Tasks without spec mapping.** Each task references which
+     behaviour from the spec's Definition-of-done it implements.
+     Orphan tasks are scope creep in disguise; behaviours with no
+     implementing task are gaps.
+   - **Specificity miss.** Reference exact file paths and function or
+     symbol names where known. "Update the parser" is too coarse to
+     verify; "add a null-check in `internal/store/sync.go:applyDelta`"
+     is the right level.
 
 5. **Don't update PRD.md §10 / docs/product/roadmap.md yet.** Those are
    ship-time edits — they mark the spec as inventory once it lands.
@@ -94,6 +121,14 @@ Don't use for:
      `.context/ai-fuzz/run-*/REVIEW.md`. Bake this into the plan's
      Definition-of-done checklist now so it doesn't get skipped at
      ship time (`docs/CONVENTIONS.md` §11).
+
+8. **Spec-mode adversarial review.** Once the spec and plan read
+   coherently, dispatch the `adversarial-reviewer` subagent in spec
+   mode over the freshly drafted `spec.md` + `plan.md`. Iterate on
+   findings until it returns `Clean — ready to commit.` Spec-mode
+   reviews should converge in 1–2 passes; if you can't reach clean in
+   3, the spec has a structural problem — surface it to a human rather
+   than grinding.
 
 ## Anti-patterns to refuse
 

@@ -460,8 +460,8 @@ Audit each spec before submitting:
 - **Code snippets:** mentally compile them. A snippet that calls
   `html.WithHardWraps()` with a comment "disabled" gets
   copy-pasted and breaks: the call **enables** hard-wrap.
-- **Cross-doc updates:** ARCH.md, CONFIG.md, PRD.md, README.md.
-  New package → ARCH.md module tree gets a row. New config key →
+- **Cross-doc updates:** docs/architecture/overview.md, CONFIG.md, PRD.md, README.md.
+  New package → docs/architecture/overview.md module tree gets a row. New config key →
   CONFIG.md row. New CLI verb → reference.md.
 - **Lifecycle ambiguity:** when two states can exist for the same
   entity (a `compose_sessions` row AND a `Pending` action), the
@@ -636,15 +636,21 @@ confirm every new symbol appears in `reference.md`.
 ### 12.7 Supervisor mode — parallel implementers when the plan permits
 
 When a spec's `plan.md` has **two or more tasks declaring
-`Depends on: none`**, EXECUTE can fan out: one supervisor (the
-work-loop instance in the primary worktree) dispatches an
-`implementer` subagent (`.claude/agents/implementer.md`) per
-independent task, each in its own `git worktree`. The full
-procedure — pre-flight stale-worktree check, dispatch, report
-persistence, merge-sequential, cleanup — lives in
+`Depends on: none`**, EXECUTE *may* fan out — but the **default is
+sequential**. inkwell adopts agent-ready-repo's write-safe cohort
+model, owned by
+[`loop-cohort.py`](../.claude/skills/work-loop/scripts/loop-cohort.py):
+`schedule` runs the plan's DAG single-agent in topological order, and a
+wave fans out only past a fail-closed **dispatch gate** (per-task
+category auto-derived from the committed diff + a `git merge-tree`
+disjointness check enforced at merge). **Parallel writes are never
+greenlit by prediction alone** — only proven-disjoint waves dispatch in
+parallel. The full procedure — `schedule`, the dispatch gate, worktree
+add/record/merge/cleanup — lives in
 [`.claude/skills/work-loop/SKILL.md`](../.claude/skills/work-loop/SKILL.md)
-under "Supervisor mode". Not restated here to keep the contract
-slim.
+under "Supervisor mode" and
+[`references/supervisor-mode.md`](../.claude/skills/work-loop/references/supervisor-mode.md).
+Not restated here to keep the contract slim.
 
 Why it exists: a spec's "shape" is mechanical (the plan declares
 which tasks depend on which); branching on that shape inside the
@@ -726,25 +732,30 @@ where the count is high enough that eyeballing is unreliable.
 
 `docs/specs/<feature>/state.json` is the loop's optional
 machine-readable scratch — schema at
-[`docs/_templates/state.json`](_templates/state.json). The path
+[`.claude/skills/work-loop/assets/state.json`](../.claude/skills/work-loop/assets/state.json)
+(create a per-spec copy with `loop-cohort init <spec-dir>`). The path
 is **gitignored** (§14): session scratch, not history. Atomic
 writes only (tmp file + rename) so a mid-write read never
 produces malformed JSON.
 
-The state file pairs with [`tools/check-done.py`](../tools/check-done.py),
-which exits non-zero when the loop should stop:
+The state file is owned by
+[`loop-cohort.py`](../.claude/skills/work-loop/scripts/loop-cohort.py)
+(the work-loop's adopted agent-ready-repo state owner). Its `check`
+verb exits non-zero when the loop should stop:
 
 ```sh
-python3 tools/check-done.py docs/specs/<feature>/state.json --phase review
+python3 .claude/skills/work-loop/scripts/loop-cohort.py check \
+  docs/specs/<feature> --phase review
 ```
 
-Two gates fire today: the §12.1 iteration cap and the §12.8
-fingerprint-stasis check. The script is intentionally narrow —
-inkwell uses `make regress` and CI for the heavy gates; this is
-only the two loop-termination rules that prose can't catch.
-Skipping the state file is fine for short loops where eyeballing
-covers it; reach for it on long multi-loop specs where the
-iteration count and fingerprint history are worth tracking.
+Two gates fire today: the §12.1 iteration cap (`max_iterations: 8`)
+and the §12.8 fingerprint-stasis check. `loop-cohort` also owns plan
+scheduling (`schedule`), review fingerprints (`review record`), and the
+write-safe supervisor cohort (`worktree …`, §12.7); inkwell still uses
+`make regress` and CI for the heavy gates. Skipping the state file is
+fine for short loops where eyeballing covers it; reach for it on long
+multi-loop specs where the iteration count and fingerprint history are
+worth tracking.
 
 ---
 
@@ -851,9 +862,8 @@ inkwell/
 ├── docs/
 │   ├── CONVENTIONS.md         # this file — long-form conventions, §-numbered
 │   ├── PRD.md
-│   ├── ARCH.md
+│   ├── architecture/          # system architecture — overview.md + diagrams
 │   ├── CONFIG.md
-│   ├── _templates/            # tracked schema scratch (state.json template, §12.9)
 │   ├── adr/                   # immutable records of cross-cutting decisions
 │   ├── specs/                 # per-feature directories: NN-<title>/{spec.md,plan.md}
 │   │   ├── 01-auth-device-code/
@@ -888,7 +898,7 @@ inkwell/
 │   ├── cli/
 │   └── log/
 ├── scripts/                   # release.sh, dev helpers
-├── tools/                     # work-loop helpers (check-done.py, §12.9)
+├── tools/                     # repo helpers (hooks/, §12.6/§12.9 via loop-cohort)
 ├── go.mod
 └── go.sum
 ```
@@ -933,7 +943,7 @@ memory beats re-learning.
 - Code snippets that "look right" but contain misleading function
   calls (e.g. `html.WithHardWraps()` with a comment "disabled" —
   the call enables it). Mentally compile every snippet.
-- Cross-doc updates (ARCH.md / CONFIG.md / README.md) missing from
+- Cross-doc updates (docs/architecture/overview.md / CONFIG.md / README.md) missing from
   the §"Changed files" list. Use the §12.6 doc-sweep table.
 
 **Implementation**

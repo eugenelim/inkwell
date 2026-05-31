@@ -88,6 +88,6 @@ project.
 
 ## References
 
-- ARCH.md §1 (Tech stack, locked).
+- docs/architecture/overview.md §1 (Tech stack, locked).
 - `docs/CONVENTIONS.md` §1 (Stack invariants, do not negotiate).
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — upstream.

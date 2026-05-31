@@ -41,3 +41,14 @@ docs/specs/**/notes/implementer-*.md
 # copies are session scratch carrying iteration counts and
 # fingerprint history that don't belong in the spec's git trail.
 docs/specs/**/state.json
+
+# agentbundle install scratch — written by `agentbundle install`,
+# consumed by the adapt-to-project skill at session start. The
+# `.agentbundle-state.toml` manifest IS committed (it records the
+# installed pack version + file shas for upgrade-time safety); only
+# the transient adapt marker is local scratch.
+.adapt-install-marker.toml
+
+# Python bytecode from the tools/hooks/*.py gate scripts.
+__pycache__/
+*.pyc

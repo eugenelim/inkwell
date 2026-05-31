@@ -166,7 +166,7 @@ sits in the middle tier below `ui`, see §6.1).
 
 ```
 go.mod / go.sum                     # +goldmark
-docs/ARCH.md                        # internal/compose added to module tree §1
+docs/architecture/overview.md                        # internal/compose added to module tree §1
 internal/config/config.go           # BodyFormat string in ComposeConfig
 internal/config/defaults.go         # BodyFormat: "plain"
 internal/config/validate.go         # BodyFormat ∈ {"plain","markdown"}
@@ -630,7 +630,7 @@ unwrapped HTML as a JSON string, no client-side wrapping needed.
 - [ ] Both `NewCompose()` call sites that feed a rendered view (`New()` at `app.go:1005` and `startComposeOfKind` at `app.go:2667`) set `m.compose.MarkdownMode` from config. The two reset-discard sites (lines 2731, 2748) do not need this — the model is immediately discarded.
 - [ ] `cmd/inkwell/cmd_run.go` `draftAdapter` (lines 498–520): the 4 `Create*` methods accept `body compose.DraftBody` (matching the `ui.DraftCreator` and `action.Executor` signatures — same struct flows straight through, no unwrap-rewrap). `DiscardDraft` is unchanged (no body parameter). Existing `internal/compose` import via this file is already present.
 - [ ] `cmd/inkwell/cmd_messages.go` adds `"github.com/eugenelim/inkwell/internal/compose"` to its imports (not present today). CLI subcommands `messages reply` (line 645), `reply-all` (line 679), `forward` (line 714): each wraps `body` as `compose.DraftBody{Content: body, ContentType: "text"}` at the `exec.Create*` call. Markdown rendering from the CLI is post-v1; the wrap is a mandatory compile fix.
-- [ ] `docs/ARCH.md` §1 module-tree listing updated to include `internal/compose`.
+- [ ] `docs/architecture/overview.md` §1 module-tree listing updated to include `internal/compose`.
 - [ ] `go test -race ./internal/compose/...` green.
 - [ ] `go test -race ./internal/config/...` green.
 - [ ] `go test -race ./internal/graph/...` green (existing draft tests updated for new signature).

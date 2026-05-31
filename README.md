@@ -273,7 +273,7 @@ Jumping into the codebase? Read these in order:
   definition-of-done, common review findings.
 - [`docs/PRD.md`](docs/PRD.md) — product scope, granted vs denied
   Graph permissions, success criteria.
-- [`docs/ARCH.md`](docs/ARCH.md) — system architecture, layering,
+- [`docs/architecture/overview.md`](docs/architecture/overview.md) — system architecture, layering,
   data flow.
 - [`docs/CONFIG.md`](docs/CONFIG.md) — every config key.
 - [`docs/TESTING.md`](docs/TESTING.md) — test conventions, fuzz,

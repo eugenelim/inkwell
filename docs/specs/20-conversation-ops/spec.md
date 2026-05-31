@@ -533,5 +533,5 @@ scan, the migration 010 index is required before shipping.
       `ThreadExecute` does not log message bodies or subjects.
 - [ ] **Docs consistency sweep:** `docs/user/reference.md` gains the
       `T` chord table; `docs/user/how-to.md` gains the recipe. No
-      `docs/CONFIG.md` change (no new config keys). `docs/ARCH.md` does
+      `docs/CONFIG.md` change (no new config keys). `docs/architecture/overview.md` does
       not need updating (no new architectural layer).

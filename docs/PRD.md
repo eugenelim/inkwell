@@ -232,7 +232,7 @@ A v1 ships when a target user can, on their primary work machine:
 
 ## 10. Feature spec inventory
 
-The following feature specs implement this PRD. Each lives in `docs/specs/`. Specs assume the reader has already read this PRD, `ARCH.md`, and `CONFIG.md`.
+The following feature specs implement this PRD. Each lives in `docs/specs/`. Specs assume the reader has already read this PRD, `docs/architecture/overview.md`, and `CONFIG.md`.
 
 | #   | Spec file                          | Capabilities (§5 ref)        |
 | --- | ---------------------------------- | ---------------------------- |
