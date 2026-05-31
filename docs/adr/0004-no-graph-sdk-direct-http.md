@@ -90,6 +90,6 @@ Same downsides as the SDK in slightly different shape. Rejected.
 
 ## References
 
-- ARCH.md §1 (Tech stack), §5 (Graph client design).
+- docs/architecture/overview.md §1 (Tech stack), §5 (Graph client design).
 - ADR-0003 — Graph v1.0 only.
 - spec 17 — security/redaction expectations the transport must meet.

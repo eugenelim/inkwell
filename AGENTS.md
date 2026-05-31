@@ -16,7 +16,7 @@ that talks to Microsoft 365 via Microsoft Graph. Read-and-triage focused;
 not a full Outlook replacement (composition stays in native Outlook).
 
 - **What we're building:** [`docs/PRD.md`](docs/PRD.md).
-- **How the code is organized:** [`docs/ARCH.md`](docs/ARCH.md).
+- **How the code is organized:** [`docs/architecture/overview.md`](docs/architecture/overview.md).
 - **How we work (DoD, ralph loop, style, review-findings ledger):**
   [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
@@ -24,7 +24,7 @@ not a full Outlook replacement (composition stays in native Outlook).
 
 1. [`docs/CHARTER.md`](docs/CHARTER.md) — one page: mission, in/out of scope, principles.
 2. [`docs/PRD.md`](docs/PRD.md) — full product description; granted vs denied Graph scopes.
-3. [`docs/ARCH.md`](docs/ARCH.md) — module layout, layering, data flow, invariants.
+3. [`docs/architecture/overview.md`](docs/architecture/overview.md) — module layout, layering, data flow, invariants.
 4. [`docs/CONFIG.md`](docs/CONFIG.md) — config keys (skim, reference on demand).
 5. [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — repo conventions; §-numbered surfaces are stable contracts.
 6. [`docs/specs/NN-<title>/spec.md`](docs/specs/) — the spec you're implementing (paired with its `plan.md`).
@@ -42,7 +42,7 @@ If a spec contradicts ARCH / PRD / CHARTER, the spec is wrong. Fix the spec firs
 | Roadmap (post-v1 backlog)? | `docs/product/roadmap.md` |
 | Changelog (user-visible per release)? | `docs/product/changelog.md` |
 | Why did we choose X over Y? | `docs/adr/` |
-| How is the code organized today? | `docs/ARCH.md` |
+| How is the code organized today? | `docs/architecture/overview.md` |
 | What does this spec/feature do? | `docs/specs/NN-<title>/spec.md` |
 | How will it be built, step by step? | `docs/specs/NN-<title>/plan.md` |
 | How do we work (DoD, ralph loop, style)? | `docs/CONVENTIONS.md` |
@@ -74,7 +74,7 @@ summary:
    a single iteration — re-plan past that. The whole-iteration cap is
    8 per [`docs/CONVENTIONS.md §12.1`](docs/CONVENTIONS.md) and
    matches `max_iterations` in
-   [`docs/_templates/state.json`](docs/_templates/state.json).
+   [`.claude/skills/work-loop/assets/state.json`](.claude/skills/work-loop/assets/state.json).
 6. **Capture learnings** in the right AGENTS.md, `docs/CONVENTIONS.md`,
    skill, or doc.
 7. **Conventional commit.** `<type>(spec-NN): <subject>`. No
@@ -183,7 +183,7 @@ a name:
   first. See [`docs/CONVENTIONS.md §12.0`](docs/CONVENTIONS.md) for the
   spec-verification discipline.
 - **Don't create new top-level directories.** The structure is
-  intentional; check `docs/ARCH.md §2` and
+  intentional; check `docs/architecture/overview.md §2` and
   [`docs/CONVENTIONS.md §14`](docs/CONVENTIONS.md) first.
 
 ## When this file (or CONVENTIONS.md) is wrong

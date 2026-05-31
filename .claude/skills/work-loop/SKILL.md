@@ -141,80 +141,42 @@ this discipline rather than restating it.
   own bookkeeping (the spec's `plan.md` for implementers; severity
   buckets for reviewers), then decide.
 
-#### Supervisor mode (parallel implementers)
+#### Supervisor mode — sequential by default, opt-in gated parallel
 
-If the plan has **two or more tasks declaring `Depends on: none`**,
-EXECUTE branches into supervisor mode. You become the supervisor;
-each independent task gets an `implementer` subagent (see
-[`.claude/agents/implementer.md`](../../agents/implementer.md)) in
-its own worktree. The full rationale and merge discipline live in
-[`CONVENTIONS.md` §12.7](../../../docs/CONVENTIONS.md). Throughout
-this procedure, **"task-id order" means numeric where IDs look like
-`T1`, `T2`, …; lexicographic otherwise.**
+When the plan has **two or more tasks declaring `Depends on: none`**,
+EXECUTE *may* fan out — but the **default is sequential**. inkwell adopts
+agent-ready-repo's write-safe cohort model: the full procedure lives in
+[`references/supervisor-mode.md`](references/supervisor-mode.md) and the
+state owner is [`scripts/loop-cohort.py`](scripts/loop-cohort.py). The
+short version:
 
-The procedure:
+1. **Schedule.** `python3 .claude/skills/work-loop/scripts/loop-cohort.py
+   schedule <spec-dir>` computes the plan's `Depends on:` DAG and runs
+   tasks in **topological order, single-agent** by default. It fails loud
+   on a dependency cycle or a forward-reference, so an ill-formed plan is
+   caught at PLAN, not run out of order.
+2. **Parallel writes are opt-in and gated — this is the point.** A wave
+   fans out only past the fail-closed **dispatch gate**: a task's category
+   is auto-derived from its committed diff (only an all-added, no-danger-path
+   diff can parallelize; rename/delete, danger paths, and modified-existing
+   serialize), and a `git merge-tree` file-disjointness check is the
+   *authority* — enforced at merge, previewed read-only via `loop-cohort
+   dispatch-decision`. **Never fan out writes you haven't proven disjoint;**
+   prediction alone never greenlights.
+3. **Cohort lifecycle.** `loop-cohort worktree {preflight,add,record,merge,
+   cleanup}` owns the isolated worktrees, atomic state writes, report
+   persistence, and the merge backstop (`git merge --no-ff` aborts on any
+   collision). One `implementer` subagent
+   ([`.claude/agents/implementer.md`](../../agents/implementer.md)) per
+   dispatched task; each brief carries the task ID, the plan-task body, the
+   worktree path, and absolute `spec.md`/`plan.md` paths.
+4. **Gates of record run in the primary** against the merged state (next
+   phase) — implementer gate results are advisory.
 
-0. **Pre-flight: check for stale worktrees.** Run
-   `git worktree list` and `git worktree prune`. If
-   `.worktrees/<task-id>/` exists or branch `<base>-<task-id>`
-   already exists for any task you're about to dispatch, a prior
-   session left scratch behind. **Surface to a human; do not
-   silently reuse or destroy** — the scratch may carry in-flight
-   work the previous run was about to commit.
-1. **Set up worktrees.** For each independent task `<task-id>`:
-   ```bash
-   git worktree add .worktrees/<task-id> \
-     -b "$(git branch --show-current)-<task-id>"
-   ```
-2. **Dispatch implementers in parallel** per the parallel-dispatch
-   discipline above. Each brief includes: the task ID, the
-   plan-task body, the absolute worktree path, and absolute paths
-   to `spec.md` and `plan.md`.
-3. **Persist each report.** For each returning subagent, write the
-   report verbatim to
-   `docs/specs/<feature>/notes/implementer-<task-id>-<iteration>.md`
-   (path is gitignored — session scratch). `<iteration>` is the
-   current `iteration_count` from `state.json` (0-indexed, see
-   `docs/_templates/state.json`'s `$indexing` note) — so the first
-   attempt at T1 lands as `implementer-T1-0.md`. The counter is
-   bumped after REVIEW completes, before the next PLAN; that
-   ordering keeps reports from clobbering one another across
-   re-plan attempts. Match the report's opening `## Task <task-id>`
-   heading against the plan; if it doesn't match a task you
-   dispatched, surface it as a failed task for an unknown name —
-   never silently rename.
-4. **Handle non-ready tasks first.** If any implementer reports
-   `blocked` or `failed`, do not merge. Surface the failed-task
-   list with report-path pointers, **bump your iteration counter**,
-   then return to PLAN and revise the offending task. Do not
-   redispatch the same implementer on the same task — the
-   assumption that produced the failure is what needs revising.
-5. **Merge ready tasks sequentially.** From the primary worktree,
-   in task-id order:
-   ```bash
-   git merge --no-ff "$(git branch --show-current)-<task-id>"
-   ```
-   A conflict means the tasks weren't actually independent. Abort
-   (`git merge --abort`), return to PLAN, fix the `Depends on:`
-   declarations, and **bump your iteration counter** (same
-   rationale as step 4 — the iteration ran, it just terminated
-   early for a recoverable reason).
-6. **Clean up worktrees.** After all merges succeed:
-   ```bash
-   git worktree remove .worktrees/<task-id>
-   ```
-   If that fails (uncommitted files, locked index, build
-   artifacts), retry once with `--force`. On persistent failure,
-   leave the directory in place, note the path in your end-of-loop
-   summary, and proceed to gates — don't block on cleanup.
-7. **Run gates yourself** (next phase). The implementers' gate
-   results were advisory; the gates of record run in the primary
-   against the merged state.
-
-In single-agent mode (no independent tasks), skip the supervisor
-branch entirely and execute as the sole agent — that's the default
-flow above. The trigger is **structural** (the plan's shape), not a
-user choice.
+The trigger is **structural** (the `Depends on: none` set), not a speed
+knob; the dispatch gate decides whether it is *safe to write* in parallel.
+When unsure, stay sequential. Full rationale and merge discipline:
+[`CONVENTIONS.md` §12.7](../../../docs/CONVENTIONS.md).
 
 ### 3. GATES — mechanical verification
 
@@ -285,10 +247,11 @@ After each reviewer pass, before the next iteration:
    formula and the carve-out for findings without a `file:line`
    citation.
 
-The state-file machinery (`docs/_templates/state.json` +
-`tools/check-done.py`) is optional bookkeeping for this check; in
-practice, eyeballing the previous review's fingerprints against
-this iteration's is usually enough.
+The state-file machinery (`loop-cohort.py review record --fingerprint …`,
+which persists into the spec's `state.json` — initialised from the bundled
+[`assets/state.json`](assets/state.json) template via `loop-cohort init`)
+is optional bookkeeping for this check; in practice, eyeballing the
+previous review's fingerprints against this iteration's is usually enough.
 
 ### 5. DECIDE — fix or finish
 
@@ -325,9 +288,10 @@ cap). Stop when **any** of these is true:
    iterations in a row (see REVIEW above). Stop and re-plan.
 4. **Diff is shrinking but findings aren't** — you're spot-fixing
    without addressing root cause. Judgment call. Back to PLAN.
-5. **`tools/check-done.py` exits non-zero** — if you wired the
-   state-file machinery. Read the exit message; it tells you which
-   gate fired.
+5. **`loop-cohort.py check <spec-dir> --phase {plan,implement,review}`
+   exits non-zero** — if you wired the state-file machinery. Read the
+   exit message; it tells you which gate fired (the §12.1 cap or
+   fingerprint stasis).
 
 If you hit any of these and the work isn't done, the task is bigger
 than you thought. Stop, write down what you learned, and re-plan.
@@ -341,7 +305,7 @@ faster?* Inkwell already has homes for the answer:
 - **A pattern, gotcha, or antipattern worth not repeating** →
   `docs/CONVENTIONS.md` §16 (common review findings ledger).
 - **"I had to grep for `<thing>` repeatedly"** → a pointer in
-  `docs/ARCH.md` or the relevant `internal/<pkg>/AGENTS.md`.
+  `docs/architecture/overview.md` or the relevant `internal/<pkg>/AGENTS.md`.
 - **"The test command for this package is unusual"** → that
   package's `AGENTS.md`.
 - **"I made the same wrong assumption twice"** → §16 if it's a
@@ -352,6 +316,48 @@ faster?* Inkwell already has homes for the answer:
 This is the part of the loop that makes the *project* smarter, not
 just the current PR. Skipping it means the next agent (or you, next
 month) will re-derive the same insight.
+
+## AFK / unattended variant
+
+Everything above describes the *in-session* ralph loop
+(`docs/CONVENTIONS.md` §12): one conversation, state in working memory
+plus the repo. There's a second shape — **unattended / AFK**, where
+each iteration is a *fresh* agent instance and all state lives in files
+(the spec's `plan.md` tracking journal, `state.json` per §12.9, git
+history, AGENTS.md updates). The loop carries nothing in working memory
+across iterations.
+
+Reach for the unattended variant only when **all** of these hold:
+
+- You want long-running work without a human in the seat (overnight,
+  weekend).
+- The completion criterion is *fully mechanical* — `make regress`
+  green, the spec DoD checklist (§11) fully ticked, a benchmark over
+  threshold. `loop-cohort.py check` (§12.9) is the gate of record; if it
+  can't decide "done" without a human, the variant doesn't apply.
+- The work slices into units each small enough for one context window.
+- You can afford the spend and have set hard caps (the 8-iteration cap,
+  §12.1, still binds — it's a floor on safety, not a suggestion).
+
+It is the **wrong** tool when:
+
+- "Done" is fuzzy or aesthetic ("make the TUI feel polished" — that's a
+  `make ai-fuzz` + human-oracle judgment call, §11, not a mechanical
+  gate).
+- The task needs human judgment mid-flight (architectural choices,
+  ambiguous requirements, security-sensitive decisions). Anything that
+  would **surface** in-session blocks the same way unattended — except
+  no one's watching.
+- Verification is flaky — a flaky test turns an unattended loop into a
+  slot machine.
+- You haven't already run the in-session loop on a similar task at least
+  once. The unattended variant amplifies whatever your conventions are;
+  if those aren't tight, it just produces more bad code faster.
+
+There is no bundled AFK harness in this repo today. If you stand one up,
+it must drive `loop-cohort.py check` as the termination gate and respect
+the §12.1 cap — don't invent a parallel exit path. AFK doesn't mean
+*unconsidered*; it means *pre-considered*.
 
 ## Anti-patterns to refuse
 
@@ -377,6 +383,9 @@ for in-skill reach.)
 - **Mock-shape assertions.** Test the observable contract (rendered
   frame, store row), not `stubGraph.Calls == 2`. The visible-delta
   rule is hard.
+- **Running the AFK variant on a fresh task instead of the in-session
+  loop.** The unattended variant compounds bad foundations. Do at least
+  one in-session pass first to validate the approach.
 - **Looping without capturing learnings.** Every loop that ends
   without updating *some* doc, skill, or §16 entry is a loop
   whose lessons are lost.

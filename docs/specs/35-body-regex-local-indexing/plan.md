@@ -139,7 +139,7 @@ as each slice lands.
 
 **Docs**
 - [ ] `docs/CONFIG.md` `[body_index]` section.
-- [ ] `docs/ARCH.md` §6 Tier 3 row + §7 schema-table `body_text`
+- [ ] `docs/architecture/overview.md` §6 Tier 3 row + §7 schema-table `body_text`
       row.
 - [ ] `docs/PRD.md` §10 inventory row.
 - [ ] `docs/product/roadmap.md` Bucket 5 row + §1.13 status flip.
@@ -292,7 +292,7 @@ time. All warm-buffer-cache p95 on dev machine.
     --older-than, --message-id, --yes flags.
 - Slice 7 (this iteration): docs.
   - `docs/CONFIG.md` `[body_index]` section.
-  - `docs/ARCH.md` §6 Tier 3 + §7 schema-table rows.
+  - `docs/architecture/overview.md` §6 Tier 3 + §7 schema-table rows.
   - `docs/PRD.md` §10 inventory row.
   - `docs/product/roadmap.md` Bucket 5 row updated.
   - `docs/THREAT_MODEL.md` new row + `internal/sync/

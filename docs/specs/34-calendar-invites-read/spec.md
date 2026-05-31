@@ -168,7 +168,7 @@ internal/ui/panes.go                    # viewer-pane View() renders BodyView.In
 internal/ui/messages.go                 # inviteFetchedMsg
 internal/ui/list_open.go (or app.go open-msg path) # fetch eventMessage in parallel with body when meetingMessageType ≠ none
 cmd/inkwell/cmd_run.go                  # calendarAdapter gains GetEventMessage wiring
-docs/ARCH.md                            # render/invite.go listed in module tree §1
+docs/architecture/overview.md                            # render/invite.go listed in module tree §1
 docs/CONFIG.md                          # no new keys
 docs/user/reference.md                  # viewer pane: invite card + `o` routing
 docs/user/how-to.md                     # new recipe: "Read a meeting invite from inkwell"
@@ -596,7 +596,7 @@ where it is the same per-row cost as the body fetch.
 - [ ] `internal/ui/app.go` `o` keystroke handler in the viewer-pane Update path routes to `viewerInvite.Event.WebLink` when present AND `MeetingMessageType` is `meetingRequest` / `meetingCancelled`; else falls through to the existing `message.webLink` open.
 - [ ] Status-bar hint switches between `"o: open invite in Outlook (RSVP there)"` and `"o: open in Outlook"` based on the focused-message routing.
 - [ ] `cmd/inkwell/cmd_run.go` `calendarAdapter` (or peer adapter) wires `GetEventMessage` from `graph.Client` to the UI's interface.
-- [ ] `docs/ARCH.md` §1 module-tree adds `internal/render/invite.go` and `internal/graph/event_message.go`.
+- [ ] `docs/architecture/overview.md` §1 module-tree adds `internal/render/invite.go` and `internal/graph/event_message.go`.
 - [ ] `go test -race ./internal/graph/...` green.
 - [ ] `go test -race ./internal/render/...` green.
 - [ ] `go test -race ./internal/ui/...` green.

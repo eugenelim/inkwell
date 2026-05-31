@@ -86,7 +86,7 @@ implementation lands.
 - [ ] `docs/CONFIG.md` adds `[ui].show_routing_indicator`,
       `[ui.stream_indicators]` (inline-table form),
       `[ui].stream_ascii_fallback`, `[bindings].stream_chord`.
-- [ ] `docs/ARCH.md` §"action queue" notes routing as the second
+- [ ] `docs/architecture/overview.md` §"action queue" notes routing as the second
       explicit local-only mutation surface (after mute).
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 23.
 - [ ] `docs/PRIVACY.md` (when it lands per spec 17) adds

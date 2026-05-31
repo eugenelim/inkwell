@@ -73,7 +73,7 @@ When two reasonable approaches conflict, these resolve ties:
 ## Where to read next
 
 - **What's in scope vs out, in detail:** [`docs/PRD.md`](PRD.md).
-- **How the code is organised:** [`docs/ARCH.md`](ARCH.md).
+- **How the code is organised:** [`docs/architecture/overview.md`](docs/architecture/overview.md).
 - **How we work day to day:** [`docs/CONVENTIONS.md`](CONVENTIONS.md).
 - **What's shipped vs planned:** [`docs/product/roadmap.md`](product/roadmap.md).
 - **Why we made the cross-cutting decisions we did:** [`docs/adr/`](adr/).

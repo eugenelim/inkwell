@@ -7,7 +7,7 @@ This is the documentation bundle for **inkwell**, a terminal-based mail and cale
 For new readers (humans or LLMs), read in this order:
 
 1. **`PRD.md`** — what we're building, why, and the hard scope boundaries (granted vs denied Graph permissions).
-2. **`ARCH.md`** — system architecture, module layout, data flow, cross-cutting concerns.
+2. **`docs/architecture/overview.md`** — system architecture, module layout, data flow, cross-cutting concerns.
 3. **`CONFIG.md`** — canonical reference for every config key. Skim on first read; reference on demand later.
 4. **`specs/`** — one file per feature, numbered in implementation order.
 5. **`product/roadmap.md`** — post-v1 ideas, ranked by impact. Read after v1 is shipping or shipped; not required for v1 implementation.
@@ -65,7 +65,7 @@ Each spec follows the same structure:
 2. Write a new spec following the template.
 3. Add config keys (if any) to `CONFIG.md` in the SAME change.
 4. Update `PRD.md`'s spec inventory in §10.
-5. Update `ARCH.md` module layout if introducing a new package.
+5. Update `docs/architecture/overview.md` module layout if introducing a new package.
 
 ## Adding a new config key
 

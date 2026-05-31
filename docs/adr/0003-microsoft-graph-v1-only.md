@@ -80,7 +80,7 @@ access while leaving everything else on Graph.
 
 ## References
 
-- ARCH.md §0 (API surface, locked).
+- docs/architecture/overview.md §0 (API surface, locked).
 - PRD.md §3.1 (granted Graph scopes).
 - ADR-0004 — no Graph SDK, direct HTTP.
 - [Microsoft: Outlook REST v2.0 deprecation](https://learn.microsoft.com/en-us/outlook/rest/compare-graph) (2020-11).

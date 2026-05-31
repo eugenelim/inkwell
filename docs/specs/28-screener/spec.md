@@ -668,7 +668,7 @@ Spec 28 is local-only (per spec 23 §6 precedent). No Graph call
 is made by the screener filter or the new sentinel folder. No
 action queue entry. Routing assignments still flow through
 spec 23's `routeCmd` (§5.6 of spec 23) — spec 28 reuses it
-verbatim. Document in `docs/ARCH.md` §"action queue" alongside
+verbatim. Document in `docs/architecture/overview.md` §"action queue" alongside
 mute and routing.
 
 ## 5. UI
@@ -1624,7 +1624,7 @@ it lands; for v1 of this spec, mention in the how-to recipe.
 - [ ] `docs/CONFIG.md` adds the four `[screener].*` keys, the
       two `[bindings].screener_*` keys, and the two `[ui]` keys
       (`screener_hint_dismissed`, `screener_last_seen_enabled`).
-- [ ] `docs/ARCH.md` §"action queue" updated to mention spec 28
+- [ ] `docs/architecture/overview.md` §"action queue" updated to mention spec 28
       reuses spec 23's `routeCmd` (no new local-only mutation
       surface; the gate is read-only filter logic).
 - [ ] `docs/PRD.md` §10 spec inventory adds spec 28.

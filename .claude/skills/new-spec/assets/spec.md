@@ -1,0 +1,123 @@
+# Spec: <feature name>
+
+- **Status:** Draft <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Owner:** <github-handle>
+- **Plan:** [`plan.md`](plan.md)
+- **Constrained by:** <!-- ADR-NNNN, RFC-NNNN, or "none" -->
+
+> **Spec contract:** this document defines what "done" means. The implementing
+> PR must match this spec, or update it. Verification must be derivable from it.
+
+## Objective
+
+<!--
+One paragraph. What are we building, who is the user, and what does success
+look like for them? Frame from the user's perspective, not the implementer's.
+Implementation detail belongs in `plan.md`.
+-->
+
+## Boundaries
+
+The three-tier guard that keeps an implementing agent inside the lines.
+*Always do* applies without asking; *Ask first* requires human sign-off
+before proceeding; *Never do* is a hard rule, even under time pressure.
+
+### Always do
+
+<!-- Defaults the agent applies without asking. -->
+
+-
+-
+-
+
+### Ask first
+
+<!-- Changes that need human sign-off before proceeding. -->
+
+-
+-
+-
+
+### Never do
+
+<!-- Hard rules. No exceptions, no clever workarounds. -->
+
+-
+-
+-
+
+## Testing Strategy
+
+Name the verification mode(s) this spec uses. The
+`work-loop` skill defines three:
+
+- **TDD** — for logic with a compressible invariant.
+- **Goal-based check** — a one-liner verifies the outcome (a build
+  command, a `grep`, a typecheck).
+- **Visual / manual QA** — a recorded gesture and an observable
+  outcome, for UX flows.
+
+A spec may pick one or mix them. State which mode each behavior falls
+under, and why.
+
+<!--
+e.g. "Validation rules: TDD. Config wiring: goal-based. End-to-end signup
+flow: manual QA." If you can't pick a mode for a behavior, the behavior is
+too vague — sharpen it before moving on.
+-->
+
+## Acceptance Criteria
+
+<!--
+The verifiable goals that close this spec. Each item should be checkable
+without subjective judgement — a reviewer can read it and know whether it
+holds. Notation: `- [ ]` open, `- [x]` met (see CONVENTIONS § 4 Spec
+metadata contract).
+
+- [ ] <observable outcome>
+- [ ] <observable outcome>
+- [ ] <observable outcome>
+
+A criterion that ships unmet *on purpose* is never left silently unchecked —
+mark it deferred with an inline anchor into the backlog register:
+
+- [ ] <observable outcome> (deferred: <backlog-anchor>)
+
+where <backlog-anchor> resolves to a heading in `docs/backlog.md`.
+-->
+
+## Inkwell specifics
+
+<!--
+The inkwell-required contract fields. The `new-spec` SKILL (step 7) walks
+these; fill them or write "n/a" with a reason — don't delete the headings.
+-->
+
+- **Non-goals (≥2):** <!-- explicit out-of-scope items; specs without these get scope-crept -->
+  -
+  -
+- **Perf budgets:** <!-- each row needs a benchmark — docs/CONVENTIONS.md §5.6 -->
+- **Graph scopes:** <!-- which Microsoft Graph scopes; must stay within PRD §3.1 granted set -->
+- **Spec-17 impact:** <!-- token handling / file I/O / subprocess / HTTP / SQL / crypto? if yes, update docs/THREAT_MODEL.md + docs/PRIVACY.md in the same PR -->
+- **CLI-mode equivalent:** <!-- PRD §5.12 — every TUI feature needs a CLI answer, even "n/a" -->
+- **TUI surface?** <!-- if yes, closing requires `make ai-fuzz` + a Claude-oracle pass over .context/ai-fuzz/run-*/REVIEW.md (§11) -->
+
+## Assumptions
+
+<!--
+Audit trail for the assumption-surfacing checkpoint that ran when this
+spec was drafted (see `new-spec` SKILL.md step 3). Each item names how
+it was settled. This section is *not* the contract — it's the frame the
+contract was written under. The contract lives above (Objective,
+Boundaries, Testing Strategy, Acceptance Criteria).
+
+Format: `- <category>: <fact> (source: <path | URL | probe | user
+confirmation YYYY-MM-DD>)`
+
+- Technical: <fact> (source: <…>)
+- Process: <fact> (source: <…>)
+- Product: <fact> (source: user confirmation YYYY-MM-DD)
+
+If an assumption later turns out wrong, fix the spec body in the same
+PR and add a one-line note here recording what changed and why.
+-->

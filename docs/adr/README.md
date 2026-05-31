@@ -2,7 +2,7 @@
 
 This directory holds ADRs — short, immutable records of cross-cutting
 design decisions. An ADR captures the *why* behind a choice when the
-*what* alone (visible in ARCH.md, PRD.md, or a spec) doesn't preserve
+*what* alone (visible in docs/architecture/overview.md, PRD.md, or a spec) doesn't preserve
 enough context for a future contributor (or future-you) to second-guess
 intelligently.
 
@@ -21,7 +21,7 @@ Don't open an ADR for:
 
 - Feature-level work — that's a spec under `docs/specs/`.
 - Routine refactors or code-style choices.
-- Anything already captured precisely by ARCH.md or PRD.md.
+- Anything already captured precisely by docs/architecture/overview.md or PRD.md.
 
 ## Format
 
@@ -42,7 +42,7 @@ new ADR that supersedes the old one — never edit the old body.
 
 ## Cross-references
 
-ADRs link out to ARCH.md, PRD.md, and specs as needed. The reverse
+ADRs link out to docs/architecture/overview.md, PRD.md, and specs as needed. The reverse
 isn't required — those docs can ignore ADRs and stay readable.
 Searching the repo for `ADR-NNNN` finds anywhere the decision is
 relied on.

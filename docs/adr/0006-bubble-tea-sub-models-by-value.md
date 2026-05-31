@@ -96,6 +96,6 @@ exhaustive-switch checks and complicates testing.
 
 ## References
 
-- ARCH.md §10 (UI architecture, Bubble Tea).
+- docs/architecture/overview.md §10 (UI architecture, Bubble Tea).
 - `docs/CONVENTIONS.md` §4 (Bubble Tea conventions).
 - [Charm Bubble Tea — Composing models](https://github.com/charmbracelet/bubbletea) — framework conventions.

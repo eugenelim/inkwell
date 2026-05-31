@@ -17,7 +17,7 @@ done — **Shipped v0.63.0** (2026-05-14)
 - [x] `internal/ui/panes.go::ViewerModel`: `inviteCard` + `inviteRouting` fields; `SetInvite` / `InviteCard()` / `InviteRouting()`; `SetMessage` clears both
 - [x] `internal/ui/app.go`: `o` keystroke handler routes to `viewer.InviteRouting().EventWebLink` when present + type is `meetingRequest`/`meetingCancelled`; falls through to `message.webLink`; engineActivity hint switches to "opening invite in browser (RSVP there)…" on the invite path
 - [x] `internal/ui/panes.go`: viewer-pane View() renders `inviteCard` between attachments and body
-- [x] `docs/ARCH.md` §1: `internal/graph/event_message.go` + `internal/render/invite.go` added to module tree
+- [x] `docs/architecture/overview.md` §1: `internal/graph/event_message.go` + `internal/render/invite.go` added to module tree
 - [x] `internal/log/redact_test.go::TestRedactorScrubsInviteFetchError`: covers the new WARN log site `"invite: event fetch failed"`
 - [x] `go test -race ./internal/graph/... ./internal/render/... ./internal/ui/... ./internal/log/...` green
 - [x] `go test -tags=e2e ./internal/ui/...`: `TestViewerInviteCardRendersAboveBody` green

@@ -52,6 +52,56 @@ failure mode.
 
 ## Review mode — attack along the relevant checklist
 
+Review mode covers two scopes: **diff-level** (the default — one slice's
+change) and **spec-level coverage**, fired when the orchestrator invokes
+you at the close of a multi-loop spec. The *Spec coverage* subsection
+below runs only in the second scope; for a single diff, skip it and start
+at *Test design*.
+
+### Spec coverage (only when invoked against a whole spec)
+
+This subsection fires when the orchestrator invokes you at the close of a
+multi-loop spec — the input is `spec.md` plus the union of changes across
+all loops, not a single diff. Per-task gates have already passed; your
+job is to find what the integrated whole misses.
+
+If your input is a single diff, skip this section and start at *Test
+design* below.
+
+1. **Every Definition-of-done bullet has a passing verification
+   artifact.** Walk the spec's "Definition of done" and "Test plan"
+   line by line. For each item, point at the test (named by layer),
+   benchmark, or recorded check that proves it. DoD bullets with no
+   artifact are Blockers — a spec promise without a verification is a
+   regression waiting to land. If the spec names specific artifacts by
+   file or function, apply the same existence check to those names too —
+   promised artifacts that aren't present land as findings, with the
+   file they should live in.
+2. **Deferred tests carry a reason that survives scrutiny.** "TODO" and
+   plausible-sounding rationales ("flaky", "covered elsewhere", "out of
+   scope") are not reasons. If a test was skipped because the code under
+   test fails it, that's a Blocker — the code is wrong, not the test
+   (see work-loop's anti-pattern of the same name).
+3. **User journeys exercised as journeys.** A spec's primary journey
+   (sign-in → sync → triage → action-queue flush) needs at least one
+   e2e assertion that walks the path end-to-end, not the sum of three
+   unit tests. Unit tests can all be green while the *join* breaks —
+   auth state, pane focus, data hand-off across steps. Recommend the
+   smallest journey test that exercises the join.
+4. **Cross-loop interactions.** When loops touched shared state (the
+   `store` schema, the action queue, the sync engine), is there a test
+   that exercises both loops' code paths against the same instance?
+   Per-loop tests use fresh state; bugs hide in the carryover.
+5. **Scenarios the spec didn't enumerate.** Adopt the quality-engineer
+   mindset for the spec's primary journey: list the realistic scenarios
+   — happy path, error paths, empty / partial state, concurrent access,
+   slow / unavailable Graph, retries, process killed mid-action — and
+   check coverage for each. Cite the ones tested and the ones missing.
+   This is the highest-leverage finding type at spec close.
+
+Findings here are usually Blockers or Concerns, rarely Nits — a coverage
+gap at spec close is the kind of thing that ships an invisible bug.
+
 ### Test design (highest leverage)
 
 1. **Wrong test layer.** Inkwell has four layers (CONVENTIONS §5):
@@ -89,31 +139,36 @@ failure mode.
    for a filter that doesn't actually filter). Flag and propose a
    fixture table with hand-counted expected values.
 
-5. **Test asserts wrong contract.** A regression test should pin the
+5. **DAMP over DRY in tests.** Tests should read like a specification,
+   even at the cost of some duplication — a clever helper that hides
+   setup is the wrong kind of reuse when it obscures what the test is
+   actually checking.
+
+6. **Test asserts wrong contract.** A regression test should pin the
    *observable invariant being violated*, not the internal code path
    that caused it. If the bug surfaced because `engine.X` produced
    nil and the renderer crashed, the test should pin the renderer
    contract (no crash on nil body) rather than the engine internal.
 
-6. **Verification-mode mismatch.** A test asserting what the
+7. **Verification-mode mismatch.** A test asserting what the
    compiler already proves (a type that has only one constructor;
    a field that's always set). Replace with the one-line build /
    grep check.
 
-7. **Edge-case coverage.** Empty input, max input, malformed
+8. **Edge-case coverage.** Empty input, max input, malformed
    Graph response, network failure mid-page, context-cancel
    mid-fetch, zero / negative / NaN where numeric, concurrent
    access, partial failure (action partly-applied then process
    killed). Cite the specific cases tested and the specific cases
    that aren't.
 
-8. **Flaky-by-design.** Tests that depend on wall-clock time
+9. **Flaky-by-design.** Tests that depend on wall-clock time
    without `clock.Mock`, real network, real Keychain (the v1
    convention is to mock the `keyring` interface — CONVENTIONS §5),
    or test-order. Flag with the determinism technique that fixes
    it.
 
-9. **Missing redaction test for a new log site.** §7 invariant 3
+10. **Missing redaction test for a new log site.** §7 invariant 3
    is a security finding (route to `security-reviewer`) and a
    quality finding (route here): a new log site without a
    matching `internal/log/redact_test.go` or
@@ -122,29 +177,29 @@ failure mode.
 
 ### Inkwell-specific testability seams
 
-10. **Hidden global state / singletons.** Hard-codes that prevent
+11. **Hidden global state / singletons.** Hard-codes that prevent
     the thing being tested in isolation — module-level config,
     ambient loggers, direct `time.Now()` calls in business logic.
     The `clock.Clock` injection precedent lives in `internal/auth`
     and `internal/sync`.
 
-11. **Missing injection points.** Functions that construct their
+12. **Missing injection points.** Functions that construct their
     own collaborators (HTTP clients, file handles, DB connections,
     `keyring.Keyring`) instead of accepting them, forcing tests to
     monkey-patch. The repo's convention is **interfaces declared
     at the consumer site** (CONVENTIONS §8) — flag any feature that
     declares a huge interface upfront in the producer package.
 
-12. **Side-effect bundling.** A function that reads from store,
+13. **Side-effect bundling.** A function that reads from store,
     decides, calls Graph, and writes back is hard to test.
     Recommend the read / decide / write split (the spec 09 batch
     executor is the precedent).
 
-13. **TUI sub-models that are pointers.** CONVENTIONS §4 mandates
+14. **TUI sub-models that are pointers.** CONVENTIONS §4 mandates
     value types. Pointer sub-models alias state across Update
     cycles and have caused real bugs. Flag.
 
-14. **CLI verb without TUI parity (or vice versa).** PRD §5.12
+15. **CLI verb without TUI parity (or vice versa).** PRD §5.12
     requires CLI-mode parity for triage-shaped verbs. A new
     `:filter` capability that lacks `inkwell filter` (or the
     reverse) is a parity finding. `cmd/inkwell/` and the
@@ -153,50 +208,50 @@ failure mode.
 
 ### Observability
 
-15. **Three pillars proportional to change.** New request path → at
+16. **Three pillars proportional to change.** New request path → at
     least one structured log on error, a counter or histogram
     metric where the spec has a perf budget, a span if the system
     grows tracing. Don't demand all three on a one-liner.
 
-16. **Log hygiene.** Levels appropriate (`error` vs `warn` vs
+17. **Log hygiene.** Levels appropriate (`error` vs `warn` vs
     `info`). No body / token / PII (route to `security-reviewer`).
     Correlation ID propagated. No log-and-throw patterns that
     double-report. The `slog` handler with redaction layer is the
     only logger; flag anything that uses `log.Println` directly.
 
-17. **Failure diagnosability.** When this fails in production at
+18. **Failure diagnosability.** When this fails in production at
     3am, is there enough context in the error to fix it without a
     repro? Flag silently-swallowed errors (`if err != nil { return
     }` with no log, no wrap, no metric).
 
-18. **Action-queue traceability.** When an action fails on Graph,
+19. **Action-queue traceability.** When an action fails on Graph,
     the `actions.failure_reason` column is the audit trail. Flag
     any failure path that doesn't populate it.
 
 ### Reliability
 
-19. **Error paths.** What does the caller see when this fails?
+20. **Error paths.** What does the caller see when this fails?
     "Returns an error" is not enough — what error type, with what
     wrapped context? Are partial-failure states recoverable?
     `errors.Is` / `errors.As` against sentinels per CONVENTIONS §8.
 
-20. **Timeouts and cancellation.** Every Graph call, every
+21. **Timeouts and cancellation.** Every Graph call, every
     subprocess, every long-running goroutine respects
     `context.Context`. The §16 ledger entry — "New `tea.Cmd` does
     I/O with `context.Background()` instead of a parent context
     tied to the request lifecycle" — is a frequent finding.
 
-21. **Idempotency where retries are likely.** Action-queue
+22. **Idempotency where retries are likely.** Action-queue
     operations, webhook-like handlers, any background job. Flag
     mutations that can't safely run twice without a dedup key.
     404-on-delete is success (spec 07 §1).
 
-22. **Resource cleanup.** File handles, SQL rows, connections,
+23. **Resource cleanup.** File handles, SQL rows, connections,
     locks, temp dirs released on every path including error paths
     (`defer rows.Close()`, `defer cancel()`, `t.TempDir()` instead
     of manual cleanup).
 
-23. **Graceful degradation.** When Graph is unavailable or slow,
+24. **Graceful degradation.** When Graph is unavailable or slow,
     what happens? Hard failure, retry forever, or fallback (cache,
     last-known-good)? The choice should be explicit. The hybrid
     Searcher (spec 06) is the precedent for "local results emit
@@ -205,21 +260,21 @@ failure mode.
 
 ### Maintainability
 
-24. **Naming that lies.** Function names that promise more or
+25. **Naming that lies.** Function names that promise more or
     less than the body delivers. Variables named after their type
     rather than their role (`var m sync.Mutex; m.Lock()` is fine;
     `var sm *sync.Mutex` named generically across a hundred-line
     function is not).
 
-25. **Premature abstraction.** A `Strategy` / `Manager` / `Helper`
+26. **Premature abstraction.** A `Strategy` / `Manager` / `Helper`
     introduced for one caller. Inline it; abstract when there
     are three (CONVENTIONS §8: "three similar lines is better than
     a premature abstraction").
 
-26. **Dead code in the diff.** Imports, branches, parameters, or
+27. **Dead code in the diff.** Imports, branches, parameters, or
     config keys that no longer have a caller.
 
-27. **Complexity worth a comment.** Non-obvious invariants, hidden
+28. **Complexity worth a comment.** Non-obvious invariants, hidden
     coupling to another package, or a workaround for a specific
     bug deserve a one-line *why* comment. The bar is "would a
     reader misread this", not "would it look more documented".
@@ -228,23 +283,23 @@ failure mode.
 
 ### Performance ergonomics — inkwell perf-budget honesty
 
-28. **Perf budget claimed but unmeasured.** Spec §"Performance
+29. **Perf budget claimed but unmeasured.** Spec §"Performance
     budgets" lists numbers; the PR claims to meet them. Quality's
     job is to verify the matching `Benchmark*` exists, the fixture
     is honest, and the >50%-over-budget gate (CONVENTIONS §5.2)
     actually fails the test. Flag any budget row in the spec without
     a corresponding `Benchmark*` referenced.
 
-29. **Obvious O(n²) where O(n).** Nested loops over the same
+30. **Obvious O(n²) where O(n).** Nested loops over the same
     collection, repeated linear lookups in a hot path (sender
     routing eval; pattern AST walk). Flag with the data structure
     that fixes it.
 
-30. **N+1 queries.** Iterating a result set and querying per row.
+31. **N+1 queries.** Iterating a result set and querying per row.
     `store.UpsertMessagesBatch` is the precedent for "do this in
     one transaction"; new features in that shape should follow it.
 
-31. **Unbounded growth.** Collections, caches, log buffers, or
+32. **Unbounded growth.** Collections, caches, log buffers, or
     queues with no eviction or backpressure. Spec 35's
     `[body_index].max_count` / `.max_bytes` is the precedent for
     cap + eviction; flag features that grow without a knob.
@@ -370,3 +425,13 @@ yet — keep looking.
   coverage is. A diff that adds a tested behaviour and an untested
   trivial getter is fine. The §5 ≥80%-on-key-packages floor is
   the inkwell rule.
+
+## Rationalizations we refuse
+
+When tempted to short-circuit, refuse these by name:
+
+| Rationalization | Rebuttal |
+|---|---|
+| *"Tests exist and pass — coverage is fine."* | Coverage measures lines, not behaviours. Map each DoD bullet to the assertion that would fail if it broke; if the assertion is `fake.Calls == 1` or a substring-in-buffer check, the contract isn't covered (CONVENTIONS §5.4 visible-delta rule). |
+| *"Logging is present — observability is fine."* | A log on the happy path with silence on the error path is the wrong shape. Check the three pillars sit on the paths that fail at 3am, not the paths that already worked — and that `actions.failure_reason` is populated on every Graph failure path. |
+| *"Errors are returned — reliability is fine."* | A returned `errors.New("sync failed")` with no wrapped context, no `context.Context` timeout, and no idempotency key is a pager wake-up waiting to happen. Reliability is what the caller sees on failure and what happens on retry, not whether errors are returned. |

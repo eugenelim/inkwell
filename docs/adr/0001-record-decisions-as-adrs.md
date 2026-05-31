@@ -3,11 +3,11 @@
 - **Status:** Accepted (2026-05-13)
 - **Deciders:** eugenelim
 - **Supersedes:** —
-- **Related:** CLAUDE.md, docs/PRD.md, docs/ARCH.md
+- **Related:** CLAUDE.md, docs/PRD.md, docs/architecture/overview.md
 
 ## Context
 
-Inkwell's living docs (`PRD.md`, `ARCH.md`, `CONFIG.md`) describe what
+Inkwell's living docs (`PRD.md`, `docs/architecture/overview.md`, `CONFIG.md`) describe what
 the system *is*, and the per-feature specs in `docs/specs/` describe
 what each capability *does*. Neither layer is well-suited to recording
 why a particular cross-cutting choice was made when there were
@@ -35,7 +35,7 @@ the body is immutable; to change a decision, supersede it with a new
 ADR.
 
 `docs/adr/README.md` is the index. `docs/adr/_template.md` is the
-skeleton. CLAUDE.md and ARCH.md may link to ADRs but are not required
+skeleton. CLAUDE.md and docs/architecture/overview.md may link to ADRs but are not required
 to mirror them.
 
 ## Consequences
@@ -61,7 +61,7 @@ to mirror them.
 
 ## Alternatives considered
 
-**Keep decisions in `PRD.md` / `ARCH.md`.** This is the current state.
+**Keep decisions in `PRD.md` / `docs/architecture/overview.md`.** This is the current state.
 Rejected because living docs accumulate "why" prose over time and
 become hard to read for the "what is true now" use case; the two
 audiences are different.
@@ -81,5 +81,5 @@ captures the essential fields without the bureaucracy.
 
 - `docs/CONVENTIONS.md` §11 (Definition of done) — ADR work doesn't change DoD;
   ADRs are written *with* the change that introduces the decision.
-- docs/PRD.md, docs/ARCH.md — the living docs that ADRs complement.
+- docs/PRD.md, docs/architecture/overview.md — the living docs that ADRs complement.
 - [MADR](https://adr.github.io/madr/) — the format this draws from.

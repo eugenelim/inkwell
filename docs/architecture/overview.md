@@ -167,7 +167,7 @@ inkwell/
 │   └── log/                     # logging setup, redaction
 └── docs/
     ├── PRD.md
-    ├── ARCH.md
+    ├── architecture/overview.md
     ├── CONFIG.md
     └── specs/
         └── ...

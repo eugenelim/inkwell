@@ -24,7 +24,7 @@ done
 - [x] `internal/ui/dispatch_test.go`: stubs updated for `compose.DraftBody`; new `TestComposeMarkdownModePlainTextStillSendsHTML` + `TestComposePlainModeSendsText` end-to-end dispatch tests
 - [x] `cmd/inkwell/cmd_run.go`: draftAdapter passes `compose.DraftBody`; `ComposeBodyFormat: cfg.Compose.BodyFormat` wired into Deps
 - [x] `cmd/inkwell/cmd_messages.go`: CLI reply/reply-all/forward wrap body as `compose.DraftBody{Content: body, ContentType: "text"}`
-- [x] `docs/ARCH.md` §1: `internal/compose` added to module tree
+- [x] `docs/architecture/overview.md` §1: `internal/compose` added to module tree
 - [x] `docs/CONFIG.md`: `[compose] body_format` row
 - [x] `docs/user/reference.md`: compose section updated with Markdown-drafts subsection + Outlook caveats
 - [x] `docs/user/how-to.md`: "Compose with Markdown formatting (spec 33)" recipe
