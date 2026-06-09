@@ -49,7 +49,7 @@ Examples:
   inkwell messages --folder Inbox --limit 50
   inkwell messages --folder Inbox --unread
   inkwell messages --filter '~f bob' --limit 20
-  inkwell messages --folder Inbox --output json | jq '.[].subject'
+  inkwell messages --folder Inbox --output json | jq '.[].Subject'
 
   # Watch mode (spec 29):
   inkwell messages --filter '~U & ~f vip@*' --watch

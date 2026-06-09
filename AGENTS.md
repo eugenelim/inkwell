@@ -170,6 +170,35 @@ a name:
   failing test (same commit as fix per `docs/CONVENTIONS.md §5.7`) →
   root vs symptom → minimum diff → commit body documents *why*.
 
+Mailbox-operation skills — these drive the user's **live mailbox**
+through the `inkwell` CLI (executive-assistant work, not
+development). Staged posture: read-only → draft → mutate; each skill
+ships deterministic helpers in `scripts/` (preflight + gather);
+larger judgment rubrics live in `references/` files. Setup for users:
+`docs/user/howto/agent-skills.md`.
+
+- `mail-executive-summary` — strictly read-only briefing: classify
+  threads (needs-reply / waiting / FYI / handled), rank, write in EA
+  voice; calendar + hygiene counts.
+- `mail-meeting-prep` — read-only briefing on the external guests in
+  upcoming meetings (Graph calendar view + cached mail history).
+- `mail-draft-reply` — draft replies / forwards in the user's voice
+  with a confidence label, saved to the Drafts folder. inkwell saves
+  drafts but cannot send (`Mail.Send` denied by PRD §3.1); the human
+  reviews and sends from Outlook.
+- `mail-follow-up` — find threads gone quiet where the user sent the
+  last message; draft polite nudges for approval.
+- `mail-triage` — single writer of the workflow-folder structure
+  (@Action / @Waiting / Archive / Reference / Newsletters; offers to
+  create it). Survey → rubric classify (one verdict per thread) →
+  present the list → confirm in chat → file or soft-delete. Other
+  mail-* skills read the folders, falling back to the inbox when
+  triage isn't used.
+- `mail-reduce-noise` — sender-level: rank by volume × (1 − read
+  rate), then unsubscribe (human, in the TUI) / auto-route / keep.
+- `mail-reclaim-storage` — free quota: rank by attachment size,
+  soft-delete old space-hogs to Deleted Items; never empties it.
+
 ## Things you should not do without asking
 
 - **Don't run destructive commands** (`rm -rf`, `git push --force`,
