@@ -138,6 +138,37 @@ For contributing or hacking on the codebase, jump to
 
 ---
 
+## AI assistant skills
+
+The same CLI that powers the TUI doubles as the tool surface for an
+**executive assistant agent**. The repo ships a pack of Claude Code
+skills (`.claude/skills/mail-*`) that drive `inkwell` on your behalf,
+in a deliberately staged permission posture:
+
+| Stage | Skills | Can it change your mailbox? |
+| --- | --- | --- |
+| read-only | `mail-executive-summary` (morning briefing), `mail-meeting-prep` (who you're meeting) | No |
+| draft | `mail-draft-reply` (replies in your voice), `mail-follow-up` (chase quiet threads) | Drafts folder only — inkwell **cannot send** by construction |
+| mutate | `mail-triage` (soft-delete the irrelevant, file the rest), `mail-reduce-noise` (silence noisy senders), `mail-reclaim-storage` (free quota) | Yes — behind a dry-run, a presented message list, and your explicit confirmation |
+
+The pack treats the inbox as a **processing queue, not storage**:
+`mail-triage` files every thread into a small fixed set of
+*workflow* folders — `@Action` (needs you), `@Waiting` (ball in
+someone else's court), `Archive` (done, searchable), optional
+`Reference` / `Newsletters` — and soft-deletes the worthless;
+folders encode whose turn it is, never the topic. Triage is the
+single writer of that structure (it offers to create the folders);
+the other skills read it, and fall back to working straight from the
+inbox if you don't run triage.
+
+Each skill ships deterministic Python helpers (`scripts/`); where
+the judgment rubric is large it lives in a separate `references/`
+file — so the mechanical parts are reproducible and the decisions
+stay reviewable. Setup (PATH install,
+sign-in, preflight): [`docs/user/howto/agent-skills.md`](docs/user/howto/agent-skills.md).
+
+---
+
 ## Status
 
 **Pre-1.0.** Tagged releases ship continuously as specs land. The

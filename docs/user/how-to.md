@@ -437,14 +437,23 @@ inkwell filter '~f newsletter@* & ~d <30d' --action delete --apply
 inkwell filter '~f newsletter@*' --action archive --apply --yes
 
 # JSON output piped into jq.
-inkwell messages --folder Inbox --output json | jq '.[].subject'
+# `messages` emits store.Message verbatim — field names are
+# capitalized (.ID, .Subject, .FromAddress). `search` uses lowercase
+# tags (.id, .subject); `filter` wraps lowercase summary keys
+# (.matched, .folders) around capitalized .messages[] elements.
+inkwell messages --folder Inbox --output json | jq '.[].Subject'
 inkwell filter '~A' --output json | jq '.matched'
 ```
 
 The full subcommand reference is in
 [reference.md](reference.md#cli-subcommands-non-interactive).
-Drafts (`reply` / `forward`), calendar, OOO, and saved-search CRUD
-are coming in v0.10+.
+
+## Set up the AI assistant skills (PATH install, sign-in)
+
+Longer how-tos get their own page under [`howto/`](howto/). This one
+— putting `inkwell` on your PATH and signing in so the repo's
+`mail-*` executive-assistant skills can drive the CLI — lives at
+[`howto/agent-skills.md`](howto/agent-skills.md).
 
 ## Wipe the local cache (e.g. troubleshooting)
 
@@ -673,7 +682,7 @@ inkwell route clear alice@example.com
 
 ```sh
 inkwell filter '~o feed'
-inkwell filter '~o feed' --output json | jq '.[] | .subject'
+inkwell filter '~o feed' --output json | jq '.messages[].Subject'
 ```
 
 ---

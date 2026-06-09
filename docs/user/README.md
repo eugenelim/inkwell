@@ -3,12 +3,14 @@
 User-facing docs, separate from the contributor docs in `docs/PRD.md`,
 `docs/architecture/overview.md`, `docs/specs/` (per-feature `spec.md` + `plan.md`), etc.
 
-Four sections, each answering a different kind of question:
+Four kinds of docs, each answering a different question (long-form
+how-tos additionally get one page each under `howto/`):
 
 | File                               | Question it answers           | Read when                                |
 | ---------------------------------- | ----------------------------- | ---------------------------------------- |
 | [`tutorial.md`](tutorial.md)       | "How do I get started?"       | First time. Sequential walkthrough.      |
 | [`how-to.md`](how-to.md)           | "How do I do X?"              | You have a specific task in mind.        |
+| [`howto/`](howto/)                 | "How do I do X?" (long form)  | Bigger tasks get one page each — first up: [`agent-skills.md`](howto/agent-skills.md). |
 | [`reference.md`](reference.md)     | "What does this key do?"      | Quick lookup. Exhaustive tables.         |
 | [`explanation.md`](explanation.md) | "Why does it work like this?" | Curious about design, privacy, scope.    |
 

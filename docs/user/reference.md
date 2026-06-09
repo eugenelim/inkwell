@@ -751,7 +751,7 @@ JSON via `--output json`.
 ad-hoc analysis:
 
 ```sh
-inkwell messages --folder Inbox --unread --output json | jq '.[] | .subject'
+inkwell messages --folder Inbox --unread --output json | jq '.[].Subject'
 inkwell filter '~A & ~d <30d' --output json | jq '.matched'
 inkwell route list --output json | jq '.[] | select(.destination == "feed")'
 ```

@@ -40,7 +40,7 @@ Examples:
   inkwell filter '~f newsletter@*'
   inkwell filter '~f newsletter@* & ~d <30d' --action delete --apply
   inkwell filter '~G Newsletters' --action archive --apply
-  inkwell filter '~U & ~A' --output json | jq '.messages[].id'`,
+  inkwell filter '~U & ~A' --output json | jq '.messages[].ID'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
