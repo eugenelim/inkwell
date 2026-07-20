@@ -48,8 +48,8 @@ jobs:
   gosec:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
           # exact `go` directive and govulncheck reports stdlib CVEs
@@ -82,7 +82,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: run semgrep
         run: |
           semgrep \
@@ -104,8 +104,8 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           # Latest 1.25.x patch. Without this, setup-go pins go.mod's
           # exact `go` directive and govulncheck reports stdlib CVEs
