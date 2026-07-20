@@ -26,14 +26,14 @@ jobs:
   doc-sweep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: doc-sweep (`docs/CONVENTIONS.md` §12.6 mechanical checks)
         run: bash scripts/doc-sweep.sh
 
   privacy-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: testdata never contains real domains
         run: |
           set -e
@@ -47,14 +47,14 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history so gitleaks scans every commit, not just HEAD.
           # Without fetch-depth=0, the action only sees a shallow
           # clone and accidentally-committed credentials in older
           # commits stay hidden.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No GITLEAKS_LICENSE — the action falls back to the
@@ -73,7 +73,7 @@ jobs:
     if: github.event_name == 'pull_request'
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: moderate
